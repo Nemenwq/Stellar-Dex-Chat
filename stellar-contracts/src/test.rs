@@ -161,3 +161,35 @@ fn test_double_init() {
     let result = bridge.try_init(&admin, &token_addr, &500);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
+
+#[test]
+fn test_per_user_deposit_tracking() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 1000);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    token_sac.mint(&user1, &500);
+    token_sac.mint(&user2, &500);
+
+    // Initial state
+    assert_eq!(bridge.get_user_deposited(&user1), 0);
+    assert_eq!(bridge.get_user_deposited(&user2), 0);
+
+    // User1 first deposit
+    bridge.deposit(&user1, &100);
+    assert_eq!(bridge.get_user_deposited(&user1), 100);
+    assert_eq!(bridge.get_total_deposited(), 100);
+
+    // User1 second deposit
+    bridge.deposit(&user1, &50);
+    assert_eq!(bridge.get_user_deposited(&user1), 150);
+    assert_eq!(bridge.get_total_deposited(), 150);
+
+    // User2 first deposit
+    bridge.deposit(&user2, &200);
+    assert_eq!(bridge.get_user_deposited(&user2), 200);
+    assert_eq!(bridge.get_user_deposited(&user1), 150); // user1 stays same
+    assert_eq!(bridge.get_total_deposited(), 350);
+}

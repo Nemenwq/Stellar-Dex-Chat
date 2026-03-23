@@ -21,6 +21,7 @@ pub enum DataKey {
     Token,
     BridgeLimit,
     TotalDeposited,
+    UserDeposited(Address),
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────
@@ -79,6 +80,13 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::TotalDeposited, &(total + amount));
+
+        let user_key = DataKey::UserDeposited(from.clone());
+        let user_total: i128 = env.storage().instance().get(&user_key).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&user_key, &(user_total + amount));
+
         Ok(())
     }
 
@@ -171,6 +179,17 @@ impl FiatBridge {
             .instance()
             .get(&DataKey::TotalDeposited)
             .ok_or(Error::NotInitialized)
+    }
+    /// Running total of historical deposits for a specific user.
+    pub fn get_user_deposited(env: Env, user: Address) -> Result<i128, Error> {
+        if !env.storage().instance().has(&DataKey::Admin) {
+            return Err(Error::NotInitialized);
+        }
+        Ok(env
+            .storage()
+            .instance()
+            .get(&DataKey::UserDeposited(user))
+            .unwrap_or(0))
     }
 }
 
