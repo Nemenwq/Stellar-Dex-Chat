@@ -1,12 +1,19 @@
 import { NextResponse } from 'next/server';
 import axios from 'axios';
+import { telemetry } from '@/lib/telemetry';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 
-export async function GET() {
+export async function GET(request: Request) {
+    const traceContext = telemetry.extractTraceFromHeaders(request.headers as Headers);
+    const span = telemetry.createSpan('get-banks', traceContext.spanId, traceContext.traceId);
+    
     try {
+        telemetry.addLog(span.spanId, 'info', 'Starting banks fetch', { endpoint: '/api/banks' });
+        
         if (!PAYSTACK_SECRET_KEY) {
-            console.warn('Paystack secret key not found, using fallback banks');
+            telemetry.addLog(span.spanId, 'warn', 'Using fallback banks (no API key)', { endpoint: '/api/banks' });
+            
             // Fallback to a minimal set of Nigerian banks if API key is missing
             const fallbackBanks = [
                 { id: 1, name: 'Access Bank', code: '044', active: true, country: 'Nigeria', currency: 'NGN', type: 'nuban' },
@@ -17,13 +24,27 @@ export async function GET() {
                 { id: 6, name: 'Fidelity Bank', code: '070', active: true, country: 'Nigeria', currency: 'NGN', type: 'nuban' }
             ];
 
-            return NextResponse.json({
+            telemetry.addLog(span.spanId, 'info', 'Fallback banks returned', { 
+                bankCount: fallbackBanks.length,
+                source: 'fallback'
+            });
+            telemetry.finishSpan(span.spanId, { success: true, fallback: true });
+
+            const response = NextResponse.json({
                 success: true,
                 data: fallbackBanks
             });
+            
+            telemetry.setTraceHeaders(response.headers as Headers, traceContext);
+            return response;
         }
 
         // Call real Paystack API to get Nigerian banks
+        telemetry.addLog(span.spanId, 'info', 'Calling Paystack API', { 
+            endpoint: 'https://api.paystack.co/bank',
+            country: 'nigeria'
+        });
+        
         const response = await axios.get('https://api.paystack.co/bank?country=nigeria', {
             headers: {
                 Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
@@ -32,14 +53,27 @@ export async function GET() {
         });
 
         if (response.data.status) {
-            return NextResponse.json({
+            telemetry.addLog(span.spanId, 'info', 'Paystack banks fetch successful', { 
+                bankCount: response.data.data.length,
+                source: 'paystack_api'
+            });
+            telemetry.finishSpan(span.spanId, { success: true });
+            
+            const apiResponse = NextResponse.json({
                 success: true,
                 data: response.data.data
             });
+            
+            telemetry.setTraceHeaders(apiResponse.headers as Headers, traceContext);
+            return apiResponse;
         } else {
             throw new Error('Paystack API returned error status');
         }
     } catch (error) {
+        telemetry.addLog(span.spanId, 'error', 'Error fetching banks from Paystack', { 
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+        
         console.error('Error fetching banks from Paystack:', error);
 
         // Fallback to predefined banks if Paystack API fails
@@ -56,9 +90,19 @@ export async function GET() {
             { id: 10, name: 'Wema Bank', code: '035', active: true, country: 'Nigeria', currency: 'NGN', type: 'nuban' }
         ];
 
-        return NextResponse.json({
+        telemetry.addLog(span.spanId, 'info', 'Fallback banks returned after error', { 
+            bankCount: fallbackBanks.length,
+            source: 'fallback_after_error',
+            originalError: error instanceof Error ? error.message : 'Unknown error'
+        });
+        telemetry.finishSpan(span.spanId, { success: true, fallback: true, hadError: true });
+
+        const response = NextResponse.json({
             success: true,
             data: fallbackBanks
         });
+        
+        telemetry.setTraceHeaders(response.headers as Headers, traceContext);
+        return response;
     }
 }
