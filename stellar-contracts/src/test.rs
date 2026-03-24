@@ -3,7 +3,7 @@ extern crate std;
 
 use super::*;
 use soroban_sdk::{
-    testutils::Address as _,
+    testutils::{Address as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     Address, Env,
 };
@@ -96,7 +96,7 @@ fn test_time_locked_withdrawal() {
 
     // Advance ledger
     env.ledger().with_mut(|li| {
-        li.sequence = start_ledger + 100;
+        li.sequence_number = start_ledger + 100;
     });
 
     bridge.execute_withdrawal(&req_id);
