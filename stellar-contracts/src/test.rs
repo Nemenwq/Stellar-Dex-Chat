@@ -5,7 +5,7 @@ use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Env,
+    Address, Bytes, Env,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────
@@ -29,11 +29,11 @@ fn setup_bridge(
     limit: i128,
 ) -> (
     Address,
-    FiatBridgeClient,
+    FiatBridgeClient<'_>,
     Address,
     Address,
-    TokenClient,
-    StellarAssetClient,
+    TokenClient<'_>,
+    StellarAssetClient<'_>,
 ) {
     let contract_id = env.register(FiatBridge, ());
     let bridge = FiatBridgeClient::new(env, &contract_id);
@@ -56,7 +56,7 @@ fn test_deposit_and_withdraw() {
     let user = Address::generate(&env);
     token_sac.mint(&user, &1_000);
 
-    bridge.deposit(&user, &200);
+    bridge.deposit(&user, &200, &Bytes::new(&env));
     assert_eq!(token.balance(&user), 800);
     assert_eq!(token.balance(&contract_id), 200);
 
@@ -76,7 +76,7 @@ fn test_time_locked_withdrawal() {
     let (contract_id, bridge, _, _, token, token_sac) = setup_bridge(&env, 500);
     let user = Address::generate(&env);
     token_sac.mint(&user, &1_000);
-    bridge.deposit(&user, &200);
+    bridge.deposit(&user, &200, &Bytes::new(&env));
 
     bridge.set_lock_period(&100);
     assert_eq!(bridge.get_lock_period(), 100);
@@ -113,7 +113,7 @@ fn test_cancel_withdrawal() {
     let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 500);
     let user = Address::generate(&env);
     token_sac.mint(&user, &1_000);
-    bridge.deposit(&user, &200);
+    bridge.deposit(&user, &200, &Bytes::new(&env));
 
     let req_id = bridge.request_withdrawal(&user, &100);
     assert!(bridge.get_withdrawal_request(&req_id).is_some());
@@ -140,11 +140,11 @@ fn test_view_functions() {
     assert_eq!(bridge.get_balance(), 0);
     assert_eq!(bridge.get_total_deposited(), 0);
 
-    bridge.deposit(&user, &200);
+    bridge.deposit(&user, &200, &Bytes::new(&env));
     assert_eq!(bridge.get_balance(), 200);
     assert_eq!(bridge.get_total_deposited(), 200);
 
-    bridge.deposit(&user, &100);
+    bridge.deposit(&user, &100, &Bytes::new(&env));
     assert_eq!(bridge.get_total_deposited(), 300);
 }
 
@@ -283,7 +283,7 @@ fn test_deposit_and_withdraw_events() {
     let user = Address::generate(&env);
     token_sac.mint(&user, &1_000);
 
-    bridge.deposit(&user, &200);
+    bridge.deposit(&user, &200, &Bytes::new(&env));
     let deposit_events = std::format!("{:?}", env.events().all());
     assert!(deposit_events.contains("deposit"));
     assert!(deposit_events.contains("lo: 200"));
@@ -305,7 +305,7 @@ fn test_over_limit_deposit() {
     let user = Address::generate(&env);
     token_sac.mint(&user, &1_000);
 
-    let result = bridge.try_deposit(&user, &600);
+    let result = bridge.try_deposit(&user, &600, &Bytes::new(&env));
     assert_eq!(result, Err(Ok(Error::ExceedsLimit)));
 }
 
@@ -317,7 +317,7 @@ fn test_zero_amount_deposit() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 500);
     let user = Address::generate(&env);
 
-    let result = bridge.try_deposit(&user, &0);
+    let result = bridge.try_deposit(&user, &0, &Bytes::new(&env));
     assert_eq!(result, Err(Ok(Error::ZeroAmount)));
 }
 
@@ -329,7 +329,7 @@ fn test_insufficient_funds_withdraw() {
     let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 500);
     let user = Address::generate(&env);
     token_sac.mint(&user, &1_000);
-    bridge.deposit(&user, &100);
+    bridge.deposit(&user, &100, &Bytes::new(&env));
 
     let req_id = bridge.request_withdrawal(&user, &200);
     let result = bridge.try_execute_withdrawal(&req_id);
@@ -344,4 +344,134 @@ fn test_double_init() {
     let (_, bridge, admin, token_addr, _, _) = setup_bridge(&env, 500);
     let result = bridge.try_init(&admin, &token_addr, &500);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
+}
+
+// ── Allowlist tests ───────────────────────────────────────────────────
+
+#[test]
+fn test_allowlist_disabled_anyone_can_deposit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, token, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    // Allowlist is off by default – any address can deposit.
+    assert!(!bridge.get_allowlist_enabled());
+    bridge.deposit(&user, &100, &Bytes::new(&env));
+    assert_eq!(token.balance(&user), 900);
+}
+
+#[test]
+fn test_allowlist_enabled_blocks_unlisted_address() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    bridge.set_allowlist_enabled(&true);
+    assert!(bridge.get_allowlist_enabled());
+
+    let result = bridge.try_deposit(&user, &100, &Bytes::new(&env));
+    assert_eq!(result, Err(Ok(Error::NotAllowed)));
+}
+
+#[test]
+fn test_allowlist_add_then_deposit_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, token, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    bridge.set_allowlist_enabled(&true);
+    bridge.allowlist_add(&user);
+
+    assert!(bridge.is_allowed(&user));
+    bridge.deposit(&user, &200, &Bytes::new(&env));
+    assert_eq!(token.balance(&user), 800);
+}
+
+#[test]
+fn test_allowlist_remove_blocks_deposit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, token, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    bridge.set_allowlist_enabled(&true);
+    bridge.allowlist_add(&user);
+
+    // First deposit succeeds.
+    bridge.deposit(&user, &100, &Bytes::new(&env));
+    assert_eq!(token.balance(&user), 900);
+
+    // Remove from allowlist – subsequent deposit should fail.
+    bridge.allowlist_remove(&user);
+    assert!(!bridge.is_allowed(&user));
+
+    let result = bridge.try_deposit(&user, &100, &Bytes::new(&env));
+    assert_eq!(result, Err(Ok(Error::NotAllowed)));
+}
+
+#[test]
+fn test_allowlist_toggle_off_reenables_deposits() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, token, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    // Enable allowlist – deposit blocked.
+    bridge.set_allowlist_enabled(&true);
+    let result = bridge.try_deposit(&user, &100, &Bytes::new(&env));
+    assert_eq!(result, Err(Ok(Error::NotAllowed)));
+
+    // Disable allowlist – unrestricted deposits resume immediately.
+    bridge.set_allowlist_enabled(&false);
+    bridge.deposit(&user, &100, &Bytes::new(&env));
+    assert_eq!(token.balance(&user), 900);
+}
+
+#[test]
+fn test_allowlist_batch_add_and_remove() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, token, token_sac) = setup_bridge(&env, 500);
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    token_sac.mint(&user_a, &1_000);
+    token_sac.mint(&user_b, &1_000);
+
+    bridge.set_allowlist_enabled(&true);
+
+    // Bulk-add both users.
+    let addrs = soroban_sdk::vec![&env, user_a.clone(), user_b.clone()];
+    bridge.allowlist_add_batch(&addrs);
+
+    assert!(bridge.is_allowed(&user_a));
+    assert!(bridge.is_allowed(&user_b));
+
+    bridge.deposit(&user_a, &100, &Bytes::new(&env));
+    bridge.deposit(&user_b, &100, &Bytes::new(&env));
+    assert_eq!(token.balance(&user_a), 900);
+    assert_eq!(token.balance(&user_b), 900);
+
+    // Bulk-remove both users.
+    let remove_addrs = soroban_sdk::vec![&env, user_a.clone(), user_b.clone()];
+    bridge.allowlist_remove_batch(&remove_addrs);
+
+    assert!(!bridge.is_allowed(&user_a));
+    assert!(!bridge.is_allowed(&user_b));
+
+    let result = bridge.try_deposit(&user_a, &100, &Bytes::new(&env));
+    assert_eq!(result, Err(Ok(Error::NotAllowed)));
 }
