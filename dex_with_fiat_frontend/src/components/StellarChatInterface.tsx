@@ -159,8 +159,6 @@ export default function StellarChatInterface() {
     setShowModal(true);
   }, []);
 
-  // Register the callback in useEffect to ensure it runs reliably
-  useEffect(() => {
   // After a successful deposit, close the deposit modal and open bank details
   const handleDepositSuccess = useCallback((xlmAmount: number) => {
     setShowModal(false);
@@ -169,8 +167,8 @@ export default function StellarChatInterface() {
     setShowBankDetails(true);
   }, []);
 
-  // Register the callback once
-  useState(() => {
+  // Register the callback in useEffect to ensure it runs reliably
+  useEffect(() => {
     setTransactionReadyCallback(handleTransactionReady);
   }, [handleTransactionReady, setTransactionReadyCallback]);
 
