@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPayoutProvider } from '@/lib/payout/providers/registry';
 import { telemetry } from '@/lib/telemetry';
+import { applyRateLimit, getClientIp } from '@/lib/rateLimit';
+
+const RATE_LIMIT = { maxRequests: 10, windowMs: 60_000 };
 
 export async function POST(request: NextRequest) {
+  const ip = getClientIp(request);
+  const limited = applyRateLimit(ip, '/api/verify-account', RATE_LIMIT);
+  if (limited) return limited;
+
   const traceContext = telemetry.extractTraceFromHeaders(request.headers);
   const span = telemetry.createSpan(
     'verify-account',
