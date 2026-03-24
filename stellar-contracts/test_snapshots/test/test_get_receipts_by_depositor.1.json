@@ -785,19 +785,6 @@
                       "key": {
                         "vec": [
                           {
-<<<<<<< HEAD
-                            "symbol": "BridgeLimit"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "i128": "500"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
                             "symbol": "Paused"
                           }
                         ]
@@ -810,8 +797,6 @@
                       "key": {
                         "vec": [
                           {
-=======
->>>>>>> 00b4f156b5000497da890a432e1750f97117713e
                             "symbol": "ReceiptCounter"
                           }
                         ]

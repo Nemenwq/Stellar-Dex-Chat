@@ -15,15 +15,15 @@ pub enum Error {
     ZeroAmount = 4,
     ExceedsLimit = 5,
     InsufficientFunds = 6,
-    WithdrawalLocked = 7,
-    RequestNotFound = 8,
-    TokenNotWhitelisted = 9,
+    ContractPaused = 7,
+    WithdrawalLocked = 8,
+    RequestNotFound = 9,
     ReferenceTooLong = 10,
-    ReferenceTooLong = 9,
-    DailyLimitExceeded = 10,
-    BatchTooLarge = 11,
-    CooldownActive = 9,
-    NotAllowed = 9,
+    TokenNotWhitelisted = 11,
+    NotAllowed = 12,
+    DailyLimitExceeded = 13,
+    BatchTooLarge = 14,
+    CooldownActive = 15,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -72,6 +72,7 @@ pub enum DataKey {
     Admin,
     Token,
     LockPeriod,
+    Paused,
     CooldownLedgers,
     LastDeposit(Address),
     WithdrawQueue(u64),
@@ -133,6 +134,7 @@ impl FiatBridge {
         env.storage()
             .persistent()
             .set(&DataKey::TokenRegistry(token), &config);
+        env.storage().instance().set(&DataKey::Paused, &false);
         Ok(())
     }
 
@@ -174,7 +176,6 @@ impl FiatBridge {
             return Err(Error::ZeroAmount);
         }
 
-        let mut config: TokenConfig = env
         // ── Cooldown check ────────────────────────────────────────────
         let cooldown: u32 = env
             .storage()
@@ -193,7 +194,7 @@ impl FiatBridge {
             }
         }
 
-        let limit: i128 = env
+        let mut config: TokenConfig = env
             .storage()
             .persistent()
             .get(&DataKey::TokenRegistry(token.clone()))
@@ -237,13 +238,14 @@ impl FiatBridge {
 
         // ── Record last deposit ledger in temporary storage ───────────
         if cooldown > 0 {
-            let key = DataKey::LastDeposit(from);
+            let key = DataKey::LastDeposit(from.clone());
             env.storage()
                 .temporary()
                 .set(&key, &env.ledger().sequence());
             env.storage()
                 .temporary()
                 .extend_ttl(&key, cooldown, cooldown);
+        }
         // ── Events ────────────────────────────────────────────────────
         env.events()
             .publish((Symbol::new(&env, "deposit"), from), amount);
@@ -256,6 +258,9 @@ impl FiatBridge {
     /// Withdraw tokens from the bridge. Caller must authorise.
     /// No whitelist check — allows draining balances of removed tokens.
     pub fn withdraw(env: Env, to: Address, amount: i128, token: Address) -> Result<(), Error> {
+        if Self::is_paused(env.clone()) {
+            return Err(Error::ContractPaused);
+        }
         to.require_auth();
         if amount <= 0 {
             return Err(Error::ZeroAmount);
@@ -466,23 +471,6 @@ impl FiatBridge {
 
     /// Update the per-deposit limit for a specific token. Admin only.
     pub fn set_limit(env: Env, token: Address, new_limit: i128) -> Result<(), Error> {
-    /// Set per-address deposit cooldown (in ledgers). Admin only.
-    /// A value of 0 disables cooldown checks.
-    pub fn set_cooldown(env: Env, ledgers: u32) -> Result<(), Error> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(Error::NotInitialized)?;
-        admin.require_auth();
-        env.storage()
-            .instance()
-            .set(&DataKey::CooldownLedgers, &ledgers);
-        Ok(())
-    }
-
-    /// Update the per-deposit limit. Admin only.
-    pub fn set_limit(env: Env, new_limit: i128) -> Result<(), Error> {
         if new_limit <= 0 {
             return Err(Error::ZeroAmount);
         }
@@ -505,6 +493,21 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Set per-address deposit cooldown (in ledgers). Admin only.
+    /// A value of 0 disables cooldown checks.
+    pub fn set_cooldown(env: Env, ledgers: u32) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::CooldownLedgers, &ledgers);
+        Ok(())
+    }
+
     /// Hand admin rights to a new address. Current admin must authorise.
     pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
         let admin: Address = env
@@ -514,6 +517,28 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &new_admin);
+        Ok(())
+    }
+
+    pub fn pause(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Paused, &true);
+        Ok(())
+    }
+
+    pub fn unpause(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Paused, &false);
         Ok(())
     }
 
@@ -642,6 +667,10 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
+    pub fn is_paused(env: Env) -> bool {
+        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
+    }
+
     /// Look up a token's configuration (limit and cumulative deposits).
     pub fn get_token_config(env: Env, token: Address) -> Option<TokenConfig> {
         env.storage()
@@ -745,6 +774,57 @@ impl FiatBridge {
     /// balance, the entire call reverts. Batches larger than MAX_BATCH_SIZE are
     /// rejected immediately.
     pub fn batch_withdraw(env: Env, entries: Vec<WithdrawEntry>) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let entry_count = entries.len();
+        if entry_count > MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
+
+        // ── Validate all entries and compute total before touching balances ──
+        let mut total: i128 = 0;
+        for i in 0..entry_count {
+            let entry = entries.get(i).unwrap();
+            if entry.amount <= 0 {
+                return Err(Error::ZeroAmount);
+            }
+            total += entry.amount;
+        }
+
+        let token_id: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .ok_or(Error::NotInitialized)?;
+        let token_client = token::Client::new(&env, &token_id);
+
+        let balance = token_client.balance(&env.current_contract_address());
+        if total > balance {
+            return Err(Error::InsufficientFunds);
+        }
+
+        // ── Execute transfers ─────────────────────────────────────────────
+        for i in 0..entry_count {
+            let entry = entries.get(i).unwrap();
+            token_client.transfer(
+                &env.current_contract_address(),
+                &entry.to,
+                &entry.amount,
+            );
+            env.events()
+                .publish((Symbol::new(&env, "withdraw"), entry.to.clone()), entry.amount);
+        }
+
+        env.events()
+            .publish((Symbol::new(&env, "batch_complete"),), total);
+
+        Ok(())
+    }
 
     /// Get the current per-address cooldown in ledgers.
     pub fn get_cooldown(env: Env) -> u32 {
@@ -756,9 +836,27 @@ impl FiatBridge {
 
     /// Get the last deposit ledger sequence for an address, if still live.
     pub fn get_last_deposit_ledger(env: Env, address: Address) -> Option<u32> {
-        env.storage()
-            .temporary()
-            .get(&DataKey::LastDeposit(address))
+        let last: Option<u32> = env.storage().temporary().get(&DataKey::LastDeposit(address));
+        let Some(last) = last else {
+            return None;
+        };
+
+        let cooldown: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CooldownLedgers)
+            .unwrap_or(0);
+        if cooldown == 0 {
+            return Some(last);
+        }
+
+        let current = env.ledger().sequence();
+        if current > last.saturating_add(cooldown) {
+            None
+        } else {
+            Some(last)
+        }
+    }
     // ── Allowlist management (admin-only) ─────────────────────────────
 
     /// Enable or disable the deposit allowlist. Admin only.
@@ -820,50 +918,6 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
-
-        let entry_count = entries.len();
-        if entry_count > MAX_BATCH_SIZE {
-            return Err(Error::BatchTooLarge);
-        }
-
-        // ── Validate all entries and compute total before touching balances ──
-        let mut total: i128 = 0;
-        for i in 0..entry_count {
-            let entry = entries.get(i).unwrap();
-            if entry.amount <= 0 {
-                return Err(Error::ZeroAmount);
-            }
-            total += entry.amount;
-        }
-
-        let token_id: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Token)
-            .ok_or(Error::NotInitialized)?;
-        let token_client = token::Client::new(&env, &token_id);
-
-        let balance = token_client.balance(&env.current_contract_address());
-        if total > balance {
-            return Err(Error::InsufficientFunds);
-        }
-
-        // ── Execute transfers ─────────────────────────────────────────────
-        for i in 0..entry_count {
-            let entry = entries.get(i).unwrap();
-            token_client.transfer(
-                &env.current_contract_address(),
-                &entry.to,
-                &entry.amount,
-            );
-            env.events()
-                .publish((Symbol::new(&env, "withdraw"), entry.to), entry.amount);
-        }
-
-        env.events()
-            .publish((Symbol::new(&env, "batch_complete"),), total);
-
-        Ok(())
         for addr in addrs.iter() {
             env.storage()
                 .persistent()
