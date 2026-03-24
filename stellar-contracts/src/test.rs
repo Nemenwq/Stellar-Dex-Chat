@@ -3,9 +3,9 @@ extern crate std;
 
 use super::*;
 use soroban_sdk::{
-    testutils::Address as _,
+    testutils::{Address as _, Events, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Env,
+    Address, Bytes, Env,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────
@@ -56,13 +56,73 @@ fn test_deposit_and_withdraw() {
     let user = Address::generate(&env);
     token_sac.mint(&user, &1_000);
 
-    bridge.deposit(&user, &200);
+    bridge.deposit(&user, &200, &Bytes::new(&env));
     assert_eq!(token.balance(&user), 800);
     assert_eq!(token.balance(&contract_id), 200);
 
-    bridge.withdraw(&user, &100);
+    // Default lock period is 0
+    let req_id = bridge.request_withdrawal(&user, &100);
+    bridge.execute_withdrawal(&req_id);
+
     assert_eq!(token.balance(&user), 900);
     assert_eq!(token.balance(&contract_id), 100);
+}
+
+#[test]
+fn test_time_locked_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, _, token, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+    bridge.deposit(&user, &200, &Bytes::new(&env));
+
+    bridge.set_lock_period(&100);
+    assert_eq!(bridge.get_lock_period(), 100);
+
+    let start_ledger = env.ledger().sequence();
+    let req_id = bridge.request_withdrawal(&user, &100);
+
+    // Check request details
+    let req = bridge.get_withdrawal_request(&req_id).unwrap();
+    assert_eq!(req.to, user);
+    assert_eq!(req.amount, 100);
+    assert_eq!(req.unlock_ledger, start_ledger + 100);
+
+    // Try to execute too early
+    let result = bridge.try_execute_withdrawal(&req_id);
+    assert_eq!(result, Err(Ok(Error::WithdrawalLocked)));
+
+    // Advance ledger
+    env.ledger().with_mut(|li| {
+        li.sequence_number = start_ledger + 100;
+    });
+
+    bridge.execute_withdrawal(&req_id);
+    assert_eq!(token.balance(&user), 900);
+    assert_eq!(token.balance(&contract_id), 100);
+    assert_eq!(bridge.get_withdrawal_request(&req_id), None);
+}
+
+#[test]
+fn test_cancel_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+    bridge.deposit(&user, &200, &Bytes::new(&env));
+
+    let req_id = bridge.request_withdrawal(&user, &100);
+    assert!(bridge.get_withdrawal_request(&req_id).is_some());
+
+    bridge.cancel_withdrawal(&req_id);
+    assert!(bridge.get_withdrawal_request(&req_id).is_none());
+
+    let result = bridge.try_execute_withdrawal(&req_id);
+    assert_eq!(result, Err(Ok(Error::RequestNotFound)));
 }
 
 #[test]
@@ -80,11 +140,11 @@ fn test_view_functions() {
     assert_eq!(bridge.get_balance(), 0);
     assert_eq!(bridge.get_total_deposited(), 0);
 
-    bridge.deposit(&user, &200);
+    bridge.deposit(&user, &200, &Bytes::new(&env));
     assert_eq!(bridge.get_balance(), 200);
     assert_eq!(bridge.get_total_deposited(), 200);
 
-    bridge.deposit(&user, &100);
+    bridge.deposit(&user, &100, &Bytes::new(&env));
     assert_eq!(bridge.get_total_deposited(), 300);
 }
 
@@ -111,6 +171,26 @@ fn test_transfer_admin() {
     assert_eq!(bridge.get_admin(), new_admin);
 }
 
+#[test]
+fn test_deposit_and_withdraw_events() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    bridge.deposit(&user, &200, &Bytes::new(&env));
+    let deposit_events = std::format!("{:?}", env.events().all());
+    assert!(deposit_events.contains("deposit"));
+    assert!(deposit_events.contains("lo: 200"));
+
+    bridge.withdraw(&user, &100);
+    let withdraw_events = std::format!("{:?}", env.events().all());
+    assert!(withdraw_events.contains("withdraw"));
+    assert!(withdraw_events.contains("lo: 100"));
+}
+
 // ── error-case tests ──────────────────────────────────────────────────
 
 #[test]
@@ -122,7 +202,7 @@ fn test_over_limit_deposit() {
     let user = Address::generate(&env);
     token_sac.mint(&user, &1_000);
 
-    let result = bridge.try_deposit(&user, &600);
+    let result = bridge.try_deposit(&user, &600, &Bytes::new(&env));
     assert_eq!(result, Err(Ok(Error::ExceedsLimit)));
 }
 
@@ -134,7 +214,7 @@ fn test_zero_amount_deposit() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 500);
     let user = Address::generate(&env);
 
-    let result = bridge.try_deposit(&user, &0);
+    let result = bridge.try_deposit(&user, &0, &Bytes::new(&env));
     assert_eq!(result, Err(Ok(Error::ZeroAmount)));
 }
 
@@ -146,9 +226,10 @@ fn test_insufficient_funds_withdraw() {
     let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 500);
     let user = Address::generate(&env);
     token_sac.mint(&user, &1_000);
-    bridge.deposit(&user, &100);
+    bridge.deposit(&user, &100, &Bytes::new(&env));
 
-    let result = bridge.try_withdraw(&user, &200);
+    let req_id = bridge.request_withdrawal(&user, &200);
+    let result = bridge.try_execute_withdrawal(&req_id);
     assert_eq!(result, Err(Ok(Error::InsufficientFunds)));
 }
 

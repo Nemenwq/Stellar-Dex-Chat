@@ -3,17 +3,18 @@
 import { ReactNode } from 'react';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { StellarWalletProvider } from '@/contexts/StellarWalletContext';
+import { UserPreferencesProvider } from '@/contexts/UserPreferencesContext';
 
 interface ProvidersProps {
-    children: ReactNode;
+  children: ReactNode;
 }
 
 export function Providers({ children }: ProvidersProps) {
-    return (
-        <ThemeProvider>
-            <StellarWalletProvider>
-                {children}
-            </StellarWalletProvider>
-        </ThemeProvider>
-    );
+  return (
+    <ThemeProvider>
+      <UserPreferencesProvider>
+        <StellarWalletProvider>{children}</StellarWalletProvider>
+      </UserPreferencesProvider>
+    </ThemeProvider>
+  );
 }

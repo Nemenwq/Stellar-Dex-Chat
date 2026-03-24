@@ -1,87 +1,111 @@
 import { NextRequest, NextResponse } from 'next/server';
-import axios from 'axios';
+import { getPayoutProvider } from '@/lib/payout/providers/registry';
+import { telemetry } from '@/lib/telemetry';
+import { applyRateLimit, getClientIp } from '@/lib/rateLimit';
 
-const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
+const RATE_LIMIT = { maxRequests: 10, windowMs: 60_000 };
 
 export async function POST(request: NextRequest) {
+    const ip = getClientIp(request);
+    const limited = applyRateLimit(ip, '/api/verify-account', RATE_LIMIT);
+    if (limited) return limited;
+
+    const traceContext = telemetry.extractTraceFromHeaders(request.headers);
+    const span = telemetry.createSpan(
+        'verify-account',
+        traceContext.spanId,
+        traceContext.traceId,
+    );
+
     try {
+        telemetry.addLog(span.spanId, 'info', 'Starting account verification', {
+            endpoint: '/api/verify-account',
+        });
+
         const { accountNumber, bankCode } = await request.json();
 
+        telemetry.addLog(span.spanId, 'info', 'Request parsed', {
+            hasAccountNumber: !!accountNumber,
+            hasBankCode: !!bankCode,
+            bankCode: bankCode,
+        });
+
         if (!accountNumber || !bankCode) {
+            telemetry.addLog(span.spanId, 'warn', 'Validation failed', {
+                missingFields: { accountNumber: !accountNumber, bankCode: !bankCode },
+            });
+            telemetry.finishSpan(span.spanId, {
+                success: false,
+                error: 'Missing required fields',
+            });
+
             return NextResponse.json(
-                { success: false, message: 'Account number and bank code are required' },
-                { status: 400 }
+                {
+                    success: false,
+                    message: 'Account number and bank code are required',
+                },
+                { status: 400 },
             );
         }
 
-        if (!PAYSTACK_SECRET_KEY) {
-            console.warn('Paystack secret key not found, using mock verification');
-            // Mock verification when API key is missing
-            const mockVerification = {
-                account_number: accountNumber,
-                account_name: 'John Doe', // Mock verified name
-                bank_id: parseInt(bankCode)
-            };
+        const provider = getPayoutProvider();
+        const data = await provider.verifyAccount({ accountNumber, bankCode });
 
-            await new Promise(resolve => setTimeout(resolve, 1000));
+        telemetry.finishSpan(span.spanId, { success: true });
 
-            return NextResponse.json({
-                success: true,
-                data: mockVerification
-            });
-        }
-
-        // Call real Paystack API to verify account
-        const response = await axios.get(
-            `https://api.paystack.co/bank/resolve?account_number=${accountNumber}&bank_code=${bankCode}`,
+        const apiResponse = NextResponse.json({ success: true, data });
+        telemetry.setTraceHeaders(apiResponse.headers, traceContext);
+        return apiResponse;
+    } catch (error: unknown) {
+        telemetry.addLog(
+            span.spanId,
+            'error',
+            'Unhandled error in account verification',
             {
-                headers: {
-                    Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-                    'Content-Type': 'application/json'
-                }
-            }
+                error: error instanceof Error ? error.message : 'Unknown error',
+            },
         );
 
-        if (response.data.status && response.data.data) {
-            return NextResponse.json({
-                success: true,
-                data: {
-                    account_number: response.data.data.account_number,
-                    account_name: response.data.data.account_name,
-                    bank_id: parseInt(bankCode)
-                }
-            });
-        } else {
-            return NextResponse.json(
-                { success: false, message: response.data.message || 'Account verification failed' },
-                { status: 400 }
-            );
-        }
-    } catch (error: unknown) {
         console.error('Account verification error:', error);
 
-        // Check if it's a Paystack API error
-        if (error && typeof error === 'object' && 'response' in error &&
-            error.response && typeof error.response === 'object' && 'status' in error.response &&
-            error.response.status === 422) {
+        const axiosError = error as {
+            response?: { status?: number; data?: { message?: string } };
+        };
+
+        if (axiosError.response?.status === 422) {
+            telemetry.finishSpan(span.spanId, {
+                success: false,
+                error: 'Invalid account number or bank code',
+                errorType: 'validation_error',
+            });
             return NextResponse.json(
                 { success: false, message: 'Invalid account number or bank code' },
-                { status: 400 }
+                { status: 400 },
             );
         }
 
-        if (error && typeof error === 'object' && 'response' in error &&
-            error.response && typeof error.response === 'object' && 'data' in error.response &&
-            error.response.data && typeof error.response.data === 'object' && 'message' in error.response.data) {
-            return NextResponse.json(
-                { success: false, message: (error.response.data as { message: string }).message },
-                { status: 400 }
-            );
+        if (axiosError.response?.data?.message) {
+            const message = axiosError.response.data.message;
+            telemetry.finishSpan(span.spanId, {
+                success: false,
+                error: message,
+                errorType: 'paystack_api_error',
+            });
+            return NextResponse.json({ success: false, message }, { status: 400 });
         }
+
+        telemetry.finishSpan(span.spanId, {
+            success: false,
+            error: 'Account verification failed. Please try again.',
+            errorType: 'unknown_error',
+        });
 
         return NextResponse.json(
-            { success: false, message: 'Account verification failed. Please try again.' },
-            { status: 500 }
+            {
+                success: false,
+                message: 'Account verification failed. Please try again.',
+            },
+            { status: 500 },
         );
     }
 }
