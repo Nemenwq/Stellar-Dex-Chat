@@ -1,5 +1,7 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, Address, Env};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env, Vec,
+};
 
 // ── Error codes ───────────────────────────────────────────────────────────
 #[contracterror]
@@ -14,6 +16,7 @@ pub enum Error {
     InsufficientFunds = 6,
     WithdrawalLocked = 7,
     RequestNotFound = 8,
+    NotAllowed = 9,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -35,6 +38,29 @@ pub enum DataKey {
     LockPeriod,
     WithdrawQueue(u64),
     NextRequestID,
+    AllowlistEnabled,
+    Allowed(Address),
+}
+
+// ── Events ────────────────────────────────────────────────────────────────
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AllowlistToggled {
+    pub enabled: bool,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AllowlistAddrAdded {
+    #[topic]
+    pub addr: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AllowlistAddrRemoved {
+    #[topic]
+    pub addr: Address,
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────
@@ -63,6 +89,23 @@ impl FiatBridge {
     /// Lock tokens inside the bridge. Caller must authorise.
     pub fn deposit(env: Env, from: Address, amount: i128) -> Result<(), Error> {
         from.require_auth();
+
+        // Allowlist gate: when enabled, only approved addresses may deposit.
+        let allowlist_on: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::AllowlistEnabled)
+            .unwrap_or(false);
+        if allowlist_on {
+            if !env
+                .storage()
+                .persistent()
+                .has(&DataKey::Allowed(from.clone()))
+            {
+                return Err(Error::NotAllowed);
+            }
+        }
+
         if amount <= 0 {
             return Err(Error::ZeroAmount);
         }
@@ -275,6 +318,112 @@ impl FiatBridge {
     /// Get the current lock period in ledgers.
     pub fn get_lock_period(env: Env) -> u32 {
         env.storage().instance().get(&DataKey::LockPeriod).unwrap_or(0)
+    }
+
+    // ── Allowlist management (admin-only) ─────────────────────────────
+
+    /// Enable or disable the deposit allowlist. Admin only.
+    pub fn set_allowlist_enabled(env: Env, enabled: bool) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::AllowlistEnabled, &enabled);
+
+        AllowlistToggled { enabled }.publish(&env);
+        Ok(())
+    }
+
+    /// Add a single address to the deposit allowlist. Admin only.
+    pub fn allowlist_add(env: Env, addr: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Allowed(addr.clone()), &true);
+
+        AllowlistAddrAdded { addr }.publish(&env);
+        Ok(())
+    }
+
+    /// Remove a single address from the deposit allowlist. Admin only.
+    pub fn allowlist_remove(env: Env, addr: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Allowed(addr.clone()));
+
+        AllowlistAddrRemoved { addr }.publish(&env);
+        Ok(())
+    }
+
+    /// Bulk-add addresses to the deposit allowlist. Admin only.
+    pub fn allowlist_add_batch(env: Env, addrs: Vec<Address>) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        for addr in addrs.iter() {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Allowed(addr.clone()), &true);
+            AllowlistAddrAdded { addr }.publish(&env);
+        }
+        Ok(())
+    }
+
+    /// Bulk-remove addresses from the deposit allowlist. Admin only.
+    pub fn allowlist_remove_batch(env: Env, addrs: Vec<Address>) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        for addr in addrs.iter() {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::Allowed(addr.clone()));
+            AllowlistAddrRemoved { addr }.publish(&env);
+        }
+        Ok(())
+    }
+
+    // ── Allowlist view functions ───────────────────────────────────────
+
+    /// Check whether a given address is on the allowlist.
+    pub fn is_allowed(env: Env, addr: Address) -> bool {
+        env.storage()
+            .persistent()
+            .has(&DataKey::Allowed(addr))
+    }
+
+    /// Check whether the deposit allowlist is currently enabled.
+    pub fn get_allowlist_enabled(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::AllowlistEnabled)
+            .unwrap_or(false)
     }
 }
 
