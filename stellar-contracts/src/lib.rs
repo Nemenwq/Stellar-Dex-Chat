@@ -17,6 +17,7 @@ pub enum Error {
     InsufficientFunds = 6,
     WithdrawalLocked = 7,
     RequestNotFound = 8,
+    CooldownActive = 9,
     NotAllowed = 9,
 }
 
@@ -50,6 +51,8 @@ pub enum DataKey {
     BridgeLimit,
     TotalDeposited,
     LockPeriod,
+    CooldownLedgers,
+    LastDeposit(Address),
     WithdrawQueue(u64),
     NextRequestID,
     ReceiptCounter,
@@ -131,6 +134,25 @@ impl FiatBridge {
         if amount <= 0 {
             return Err(Error::ZeroAmount);
         }
+
+        // ── Cooldown check ────────────────────────────────────────────
+        let cooldown: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CooldownLedgers)
+            .unwrap_or(0);
+        if cooldown > 0 {
+            if let Some(last) = env
+                .storage()
+                .temporary()
+                .get::<DataKey, u32>(&DataKey::LastDeposit(from.clone()))
+            {
+                if env.ledger().sequence() < last.saturating_add(cooldown) {
+                    return Err(Error::CooldownActive);
+                }
+            }
+        }
+
         let limit: i128 = env
             .storage()
             .instance()
@@ -180,6 +202,15 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::TotalDeposited, &(total + amount));
 
+        // ── Record last deposit ledger in temporary storage ───────────
+        if cooldown > 0 {
+            let key = DataKey::LastDeposit(from);
+            env.storage()
+                .temporary()
+                .set(&key, &env.ledger().sequence());
+            env.storage()
+                .temporary()
+                .extend_ttl(&key, cooldown, cooldown);
         // ── Events ────────────────────────────────────────────────────
         env.events()
             .publish((Symbol::new(&env, "deposit"), from), amount);
@@ -207,12 +238,6 @@ impl FiatBridge {
         if amount > balance {
             return Err(Error::InsufficientFunds);
         }
-
-        token_client.transfer(&env.current_contract_address(), &to, &amount);
-
-        env.events()
-            .publish((Symbol::new(&env, "withdraw"), to), amount);
-
         Ok(())
     }
 
@@ -322,6 +347,21 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Set per-address deposit cooldown (in ledgers). Admin only.
+    /// A value of 0 disables cooldown checks.
+    pub fn set_cooldown(env: Env, ledgers: u32) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::CooldownLedgers, &ledgers);
+        Ok(())
+    }
+
     /// Update the per-deposit limit. Admin only.
     pub fn set_limit(env: Env, new_limit: i128) -> Result<(), Error> {
         if new_limit <= 0 {
@@ -397,6 +437,19 @@ impl FiatBridge {
         env.storage().instance().get(&DataKey::LockPeriod).unwrap_or(0)
     }
 
+    /// Get the current per-address cooldown in ledgers.
+    pub fn get_cooldown(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::CooldownLedgers)
+            .unwrap_or(0)
+    }
+
+    /// Get the last deposit ledger sequence for an address, if still live.
+    pub fn get_last_deposit_ledger(env: Env, address: Address) -> Option<u32> {
+        env.storage()
+            .temporary()
+            .get(&DataKey::LastDeposit(address))
     // ── Allowlist management (admin-only) ─────────────────────────────
 
     /// Enable or disable the deposit allowlist. Admin only.
