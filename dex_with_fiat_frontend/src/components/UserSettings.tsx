@@ -177,7 +177,7 @@ export default function UserSettings({ isOpen, onClose }: UserSettingsProps) {
                 isDarkMode ? 'text-gray-500' : 'text-gray-400'
               }`}
             >
-              Get notified when it's time to check your XLM balance and consider
+              Get notified when it&apos;s time to check your XLM balance and consider
               converting to fiat.
             </p>
 
