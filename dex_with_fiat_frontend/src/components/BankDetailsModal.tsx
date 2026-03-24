@@ -14,8 +14,15 @@ import {
   Save,
   UserPlus,
   Star,
+  CheckCircle2,
+  Copy,
+  FileText,
+  Landmark,
+  Wallet,
 } from 'lucide-react';
 import { convertCryptoToFiat } from '@/lib/cryptoPriceService';
+import { PayoutProviderName } from '@/lib/payout/providers/types';
+import { useNotifications } from '@/hooks/useNotifications';
 import { useBeneficiaries, Beneficiary } from '@/hooks/useBeneficiaries';
 
 interface Bank {
@@ -64,6 +71,10 @@ export default function BankDetailsModal({
     renameBeneficiary,
     deleteBeneficiary,
   } = useBeneficiaries();
+
+  const [activeTab, setActiveTab] = useState<'details' | 'summary'>('details');
+
+  const { addNotification } = useNotifications();
 
   const [step, setStep] = useState<Step>(1);
 
@@ -165,6 +176,7 @@ export default function BankDetailsModal({
     if (!selectedBank || !verifiedAccount) return;
     setPayoutLoading(true);
     setPayoutError('');
+    addNotification('payout_pending', 'Fiat payout request is pending...');
     try {
       // 1. Create Paystack transfer recipient
       const recipientRes = await fetch('/api/create-recipient', {
@@ -217,11 +229,14 @@ export default function BankDetailsModal({
       setTransferReference(
         transferJson.data.reference || transferJson.data.transfer_code || '',
       );
+      // Simulation block
+      await new Promise(resolve => setTimeout(resolve, 2500));
       setStep(4);
+      addNotification('payout_success', 'Fiat payout successfully completed!');
     } catch (err) {
-      setPayoutError(
-        err instanceof Error ? err.message : 'Payout failed. Please try again.',
-      );
+      const errorMsg = err instanceof Error ? err.message : 'Payout failed. Please try again.';
+      setPayoutError(errorMsg);
+      addNotification('payout_fail', `Payout failed: ${errorMsg}`);
     } finally {
       setPayoutLoading(false);
     }
