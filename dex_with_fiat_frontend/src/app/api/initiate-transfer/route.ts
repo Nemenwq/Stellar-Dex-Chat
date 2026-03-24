@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPayoutProvider } from '@/lib/payout/providers/registry';
 import axios from 'axios';
 import { telemetry } from '@/lib/telemetry';
+import { applyRateLimit, getClientIp } from '@/lib/rateLimit';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
+const RATE_LIMIT = { maxRequests: 3, windowMs: 60_000 };
 
 export async function POST(request: NextRequest) {
+  const ip = getClientIp(request);
+  const limited = applyRateLimit(ip, '/api/initiate-transfer', RATE_LIMIT);
+  if (limited) return limited;
+
   const traceContext = telemetry.extractTraceFromHeaders(request.headers);
   const span = telemetry.createSpan(
     'initiate-transfer',
