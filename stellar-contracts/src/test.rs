@@ -222,3 +222,65 @@ fn test_double_init() {
     let result = bridge.try_init(&admin, &token_addr, &500);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
+
+// ── fee tests ─────────────────────────────────────────────────────────
+
+#[test]
+fn test_fee_collection_on_deposit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, _, token, token_sac) = setup_bridge(&env, 2_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    bridge.set_fee(&100);
+    bridge.deposit(&user, &1_000);
+
+    // fee = (1000 * 100) / 10_000 = 10; net = 990
+    assert_eq!(token.balance(&user), 10);
+    assert_eq!(token.balance(&contract_id), 990);
+    assert_eq!(bridge.get_fee_accrued(), 10);
+    assert_eq!(bridge.get_total_deposited(), 990);
+}
+
+#[test]
+fn test_zero_fee_bps_full_amount_locked() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, _, token, token_sac) = setup_bridge(&env, 1_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &500);
+
+    // fee_bps defaults to 0 — no fee deducted, no event emitted
+    bridge.deposit(&user, &500);
+
+    assert_eq!(token.balance(&user), 0);
+    assert_eq!(token.balance(&contract_id), 500);
+    assert_eq!(bridge.get_fee_accrued(), 0);
+    assert_eq!(bridge.get_total_deposited(), 500);
+}
+
+#[test]
+fn test_sweep_fees_zero_accrued_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+    let recipient = Address::generate(&env);
+
+    let result = bridge.try_sweep_fees(&recipient);
+    assert_eq!(result, Err(Ok(Error::ZeroAmount)));
+}
+
+#[test]
+fn test_set_fee_exceeds_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    let result = bridge.try_set_fee(&1_001);
+    assert_eq!(result, Err(Ok(Error::ExceedsLimit)));
+}

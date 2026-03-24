@@ -35,6 +35,8 @@ pub enum DataKey {
     LockPeriod,
     WithdrawQueue(u64),
     NextRequestID,
+    FeeBps,
+    FeeAccrued,
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────
@@ -74,6 +76,10 @@ impl FiatBridge {
         if amount > limit {
             return Err(Error::ExceedsLimit);
         }
+        let fee_bps: u32 = env.storage().instance()
+            .get(&DataKey::FeeBps).unwrap_or(0);
+        let fee: i128 = (amount * fee_bps as i128) / 10_000;
+        let net: i128 = amount - fee;
         let token_id: Address = env
             .storage()
             .instance()
@@ -82,9 +88,19 @@ impl FiatBridge {
         token::Client::new(&env, &token_id).transfer(
             &from,
             &env.current_contract_address(),
-            &amount,
+            &net,
         );
-
+        if fee > 0 {
+            let accrued: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::FeeAccrued)
+                .unwrap_or(0);
+            env.storage()
+                .instance()
+                .set(&DataKey::FeeAccrued, &(accrued + fee));
+            env.events().publish(("fee_collected",), fee);
+        }
         let total: i128 = env
             .storage()
             .instance()
@@ -92,7 +108,7 @@ impl FiatBridge {
             .unwrap_or(0);
         env.storage()
             .instance()
-            .set(&DataKey::TotalDeposited, &(total + amount));
+            .set(&DataKey::TotalDeposited, &(total + net));
         Ok(())
     }
 
@@ -231,6 +247,51 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Set the protocol fee in basis points (max 1000 = 10%). Admin only.
+    pub fn set_fee(env: Env, bps: u32) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        if bps > 1000 {
+            return Err(Error::ExceedsLimit);
+        }
+        env.storage().instance().set(&DataKey::FeeBps, &bps);
+        Ok(())
+    }
+
+    /// Transfer all accrued fees to recipient. Admin only.
+    pub fn sweep_fees(env: Env, recipient: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        let accrued: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeAccrued)
+            .unwrap_or(0);
+        if accrued == 0 {
+            return Err(Error::ZeroAmount);
+        }
+        let token_id: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .ok_or(Error::NotInitialized)?;
+        token::Client::new(&env, &token_id).transfer(
+            &env.current_contract_address(),
+            &recipient,
+            &accrued,
+        );
+        env.storage().instance().set(&DataKey::FeeAccrued, &0_i128);
+        Ok(())
+    }
+
     // ── View functions ────────────────────────────────────────────────────
     pub fn get_admin(env: Env) -> Result<Address, Error> {
         env.storage()
@@ -275,6 +336,14 @@ impl FiatBridge {
     /// Get the current lock period in ledgers.
     pub fn get_lock_period(env: Env) -> u32 {
         env.storage().instance().get(&DataKey::LockPeriod).unwrap_or(0)
+    }
+    /// Get the current fee rate in basis points.
+    pub fn get_fee_bps(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0)
+    }
+    /// Get the total fees accrued so far.
+    pub fn get_fee_accrued(env: Env) -> i128 {
+        env.storage().instance().get(&DataKey::FeeAccrued).unwrap_or(0)
     }
 }
 
