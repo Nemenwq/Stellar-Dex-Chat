@@ -14,6 +14,7 @@ pub enum Error {
     InsufficientFunds = 6,
     WithdrawalLocked = 7,
     RequestNotFound = 8,
+    DailyLimitExceeded = 9,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -37,7 +38,13 @@ pub enum DataKey {
     NextRequestID,
     FeeBps,
     FeeAccrued,
+    DailyWithdrawLimit,
+    WindowStart,
+    WindowWithdrawn,
 }
+
+/// Approximate number of ledgers in a 24-hour window (5-second close time).
+const WINDOW_LEDGERS: u32 = 17_280;
 
 // ── Contract ──────────────────────────────────────────────────────────────
 #[contract]
@@ -162,6 +169,48 @@ impl FiatBridge {
             return Err(Error::WithdrawalLocked);
         }
 
+        // ── Rolling daily withdrawal limit check ──────────────────────────
+        let daily_limit: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::DailyWithdrawLimit)
+            .unwrap_or(0);
+        let new_window_withdrawn: Option<i128> = if daily_limit > 0 {
+            let current_seq = env.ledger().sequence();
+            // Persist WindowStart on first use so future resets can be detected.
+            let window_start: u32 = env
+                .storage()
+                .instance()
+                .get(&DataKey::WindowStart)
+                .unwrap_or_else(|| {
+                    env.storage()
+                        .instance()
+                        .set(&DataKey::WindowStart, &current_seq);
+                    current_seq
+                });
+            let window_withdrawn: i128 = if current_seq >= window_start + WINDOW_LEDGERS {
+                // Window has expired — start a fresh one.
+                env.storage()
+                    .instance()
+                    .set(&DataKey::WindowStart, &current_seq);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::WindowWithdrawn, &0_i128);
+                0
+            } else {
+                env.storage()
+                    .instance()
+                    .get(&DataKey::WindowWithdrawn)
+                    .unwrap_or(0)
+            };
+            if window_withdrawn + request.amount > daily_limit {
+                return Err(Error::DailyLimitExceeded);
+            }
+            Some(window_withdrawn + request.amount)
+        } else {
+            None
+        };
+
         let token_id: Address = env
             .storage()
             .instance()
@@ -175,6 +224,13 @@ impl FiatBridge {
         }
 
         token_client.transfer(&env.current_contract_address(), &request.to, &request.amount);
+
+        // Persist the updated window total after a successful transfer.
+        if let Some(new_total) = new_window_withdrawn {
+            env.storage()
+                .instance()
+                .set(&DataKey::WindowWithdrawn, &new_total);
+        }
 
         env.storage()
             .persistent()
@@ -215,6 +271,24 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
         env.storage().instance().set(&DataKey::LockPeriod, &ledgers);
+        Ok(())
+    }
+
+    /// Set the maximum tokens that may be withdrawn within a rolling 24-hour window
+    /// (~17 280 ledgers). Setting to 0 disables the daily cap. Admin only.
+    pub fn set_daily_limit(env: Env, limit: i128) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        if limit < 0 {
+            return Err(Error::ZeroAmount);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::DailyWithdrawLimit, &limit);
         Ok(())
     }
 
@@ -344,6 +418,44 @@ impl FiatBridge {
     /// Get the total fees accrued so far.
     pub fn get_fee_accrued(env: Env) -> i128 {
         env.storage().instance().get(&DataKey::FeeAccrued).unwrap_or(0)
+    }
+    /// Get the configured daily withdrawal limit (0 = unlimited).
+    pub fn get_daily_limit(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::DailyWithdrawLimit)
+            .unwrap_or(0)
+    }
+    /// Get the total tokens already withdrawn within the current window.
+    pub fn get_window_withdrawn(env: Env) -> i128 {
+        let current_seq = env.ledger().sequence();
+        let window_start: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WindowStart)
+            .unwrap_or(current_seq);
+        if current_seq >= window_start + WINDOW_LEDGERS {
+            0
+        } else {
+            env.storage()
+                .instance()
+                .get(&DataKey::WindowWithdrawn)
+                .unwrap_or(0)
+        }
+    }
+    /// Get the tokens still available for withdrawal in the current window.
+    /// Returns i128::MAX when the daily limit is disabled (0).
+    pub fn get_window_remaining(env: Env) -> i128 {
+        let daily_limit: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::DailyWithdrawLimit)
+            .unwrap_or(0);
+        if daily_limit == 0 {
+            return i128::MAX;
+        }
+        let withdrawn = Self::get_window_withdrawn(env);
+        (daily_limit - withdrawn).max(0)
     }
 }
 

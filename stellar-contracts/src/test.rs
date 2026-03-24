@@ -284,3 +284,105 @@ fn test_set_fee_exceeds_limit() {
     let result = bridge.try_set_fee(&1_001);
     assert_eq!(result, Err(Ok(Error::ExceedsLimit)));
 }
+
+// ── daily withdrawal limit tests ──────────────────────────────────────
+
+/// A single withdrawal call that exceeds the daily limit returns DailyLimitExceeded.
+#[test]
+fn test_daily_limit_single_call_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 1_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+    bridge.deposit(&user, &500);
+
+    // Daily limit: 100 tokens
+    bridge.set_daily_limit(&100);
+
+    let req_id = bridge.request_withdrawal(&user, &200);
+    let result = bridge.try_execute_withdrawal(&req_id);
+    assert_eq!(result, Err(Ok(Error::DailyLimitExceeded)));
+}
+
+/// Multiple withdrawals within the same window that cumulatively exceed
+/// the daily limit are correctly blocked.
+#[test]
+fn test_daily_limit_multi_call_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 1_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+    bridge.deposit(&user, &500);
+
+    // Daily limit: 200 tokens
+    bridge.set_daily_limit(&200);
+
+    // First withdrawal of 150 — within the limit.
+    let req1 = bridge.request_withdrawal(&user, &150);
+    bridge.execute_withdrawal(&req1);
+
+    // Second withdrawal of 100 — 150 + 100 = 250 > 200, should be blocked.
+    let req2 = bridge.request_withdrawal(&user, &100);
+    let result = bridge.try_execute_withdrawal(&req2);
+    assert_eq!(result, Err(Ok(Error::DailyLimitExceeded)));
+
+    // Confirm get_window_withdrawn reflects the first withdrawal.
+    assert_eq!(bridge.get_window_withdrawn(), 150);
+}
+
+/// After the 24-hour window expires the full daily limit is available again.
+#[test]
+fn test_daily_limit_window_reset() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, token, token_sac) = setup_bridge(&env, 1_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+    bridge.deposit(&user, &600);
+
+    bridge.set_daily_limit(&200);
+
+    // Withdraw up to the daily limit.
+    let req1 = bridge.request_withdrawal(&user, &200);
+    bridge.execute_withdrawal(&req1);
+    assert_eq!(bridge.get_window_withdrawn(), 200);
+    assert_eq!(bridge.get_window_remaining(), 0);
+
+    // Advance ledger past the window boundary (~17 280 ledgers).
+    let start = env.ledger().sequence();
+    env.ledger().with_mut(|li| {
+        li.sequence_number = start + 17_280;
+    });
+
+    // Window has reset — a new 200-token withdrawal should succeed.
+    let req2 = bridge.request_withdrawal(&user, &200);
+    bridge.execute_withdrawal(&req2);
+    assert_eq!(token.balance(&user), 800); // 400 deposited (net), 400 withdrawn
+}
+
+/// Setting the daily limit to 0 disables the cap (backward-compatible default).
+#[test]
+fn test_daily_limit_zero_disables_cap() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, token, token_sac) = setup_bridge(&env, 1_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+    bridge.deposit(&user, &500);
+
+    // Daily limit stays at 0 (default) — large withdrawal must succeed.
+    let req_id = bridge.request_withdrawal(&user, &500);
+    bridge.execute_withdrawal(&req_id);
+    assert_eq!(token.balance(&user), 1_000);
+
+    // Explicitly set to 0 and confirm get_window_remaining returns i128::MAX.
+    bridge.set_daily_limit(&0);
+    assert_eq!(bridge.get_daily_limit(), 0);
+    assert_eq!(bridge.get_window_remaining(), i128::MAX);
+}
