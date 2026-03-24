@@ -5,12 +5,14 @@ import { ChatMessage, AIAnalysisResult, TransactionData } from '@/types';
 import { AIAssistant } from '@/lib/aiAssistant';
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
 import { useChatHistory } from './useChatHistory';
+import { perf } from '@/lib/perf';
 
 interface ConversationState {
   messageCount: number;
   hasUserCancelled: boolean;
   pendingTransactionData: TransactionData | null;
   shouldTriggerTransaction: boolean;
+  isAdmin: boolean;
 }
 
 const useChat = () => {
@@ -30,6 +32,7 @@ const useChat = () => {
       hasUserCancelled: false,
       pendingTransactionData: null,
       shouldTriggerTransaction: false,
+      isAdmin: false,
     },
   );
 
@@ -157,10 +160,12 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           hasTransactionData: !!conversationState.pendingTransactionData,
         };
 
+        perf.mark('AI: Response');
         const analysis = await aiAssistant.analyzeUserMessage(
           content,
           conversationContext,
         );
+        perf.measure('AI: Response');
 
         const newMessageCount = conversationState.messageCount + 1;
         let shouldTriggerTransaction = false;
@@ -258,6 +263,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
               messageCount: newMessageCount,
               hasTransactionData: !!pendingTransactionData,
               shouldAutoTrigger: !!shouldAutoTrigger,
+              isAdmin: conversationState.isAdmin,
             }),
             confirmationRequired:
               analysis.intent === 'fiat_conversion' || shouldTriggerTransaction,
@@ -358,6 +364,9 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
     currentSessionId,
     conversationState,
     setTransactionReadyCallback,
+    setIsAdmin: (isAdmin: boolean) => {
+      setConversationState(prev => ({ ...prev, isAdmin }));
+    },
     addMessage: (message: ChatMessage) => {
       const newMessages = [...messages, message];
       setMessages(newMessages);
@@ -374,6 +383,7 @@ function generateSuggestedActions(
     messageCount?: number;
     hasTransactionData?: boolean;
     shouldAutoTrigger?: boolean;
+    isAdmin?: boolean;
   },
 ) {
   const actions = [];
@@ -381,6 +391,7 @@ function generateSuggestedActions(
   const messageCount = context?.messageCount || 0;
   const hasTransactionData = context?.hasTransactionData || false;
   const shouldAutoTrigger = context?.shouldAutoTrigger || false;
+  const isAdmin = context?.isAdmin || false;
 
   if (shouldAutoTrigger && hasTransactionData) {
     actions.push({
@@ -458,6 +469,16 @@ function generateSuggestedActions(
         },
       );
     }
+  }
+
+  // Admin-only actions
+  if (isAdmin) {
+    actions.push({
+      id: 'admin_withdraw',
+      type: 'confirm_fiat' as const,
+      label: '💰 Admin: Withdraw Funds',
+      data: { isWithdraw: true },
+    });
   }
 
   if (analysis.intent === 'query') {
