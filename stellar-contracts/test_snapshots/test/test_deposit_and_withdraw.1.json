@@ -263,6 +263,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "ReceiptCounter"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "1"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "Token"
                           }
                         ]

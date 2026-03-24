@@ -1,5 +1,7 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, Address, Env, Symbol};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, token, Address, Bytes, Env, Symbol, Vec,
+};
 
 // ── Error codes ───────────────────────────────────────────────────────────
 #[contracterror]
@@ -75,6 +77,10 @@ impl FiatBridge {
     /// The token must be registered in the whitelist.
     pub fn deposit(env: Env, from: Address, amount: i128, token: Address) -> Result<(), Error> {
         from.require_auth();
+
+        if reference.len() > MAX_REFERENCE_LEN {
+            return Err(Error::ReferenceTooLong);
+        }
         if amount <= 0 {
             return Err(Error::ZeroAmount);
         }
@@ -100,9 +106,13 @@ impl FiatBridge {
             .persistent()
             .set(&DataKey::TokenRegistry(token.clone()), &config);
 
+        // ── Events ────────────────────────────────────────────────────
         env.events()
             .publish((Symbol::new(&env, "deposit"), from), amount);
-        Ok(())
+        env.events()
+            .publish((Symbol::new(&env, "receipt_issued"),), receipt_id);
+
+        Ok(receipt_id)
     }
 
     /// Withdraw tokens from the bridge. Caller must authorise.
