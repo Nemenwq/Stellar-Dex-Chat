@@ -7,12 +7,6 @@ import {
   CheckCircle,
   AlertCircle,
   ArrowDownUp,
-  AlertTriangle,
-  ArrowRight,
-  Check,
-  CheckCircle2,
-  Copy,
-  FileText,
 } from 'lucide-react';
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
 import {

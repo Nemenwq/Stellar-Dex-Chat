@@ -14,14 +14,8 @@ import {
   Save,
   UserPlus,
   Star,
-  CheckCircle2,
-  Copy,
-  FileText,
-  Landmark,
-  Wallet,
 } from 'lucide-react';
 import { convertCryptoToFiat } from '@/lib/cryptoPriceService';
-import { PayoutProviderName } from '@/lib/payout/providers/types';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useBeneficiaries, Beneficiary } from '@/hooks/useBeneficiaries';
 
@@ -71,8 +65,6 @@ export default function BankDetailsModal({
     renameBeneficiary,
     deleteBeneficiary,
   } = useBeneficiaries();
-
-  const [activeTab, setActiveTab] = useState<'details' | 'summary'>('details');
 
   const { addNotification } = useNotifications();
 
