@@ -303,12 +303,13 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
 
   const clearChat = useCallback(() => {
     setMessages([]);
-    setConversationState({
+    setConversationState((prev: ConversationState) => ({
       messageCount: 0,
       hasUserCancelled: false,
       pendingTransactionData: null,
       shouldTriggerTransaction: false,
-    });
+      isAdmin: prev.isAdmin,
+    }));
     createNewSession([]);
   }, [createNewSession]);
 
@@ -319,12 +320,13 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         setMessages(
           sessionMessages.length > 0 ? sessionMessages : [initialMessage],
         );
-        setConversationState({
+        setConversationState((prev: ConversationState) => ({
           messageCount: 0,
           hasUserCancelled: false,
           pendingTransactionData: null,
           shouldTriggerTransaction: false,
-        });
+          isAdmin: prev.isAdmin,
+        }));
       }
     },
     [loadSession, initialMessage],
