@@ -18,6 +18,7 @@ pub enum Error {
     RequestNotFound = 8,
     ReferenceTooLong = 9,
     DailyLimitExceeded = 10,
+    BatchTooLarge = 11,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -39,8 +40,18 @@ pub struct Receipt {
     pub reference: Bytes,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WithdrawEntry {
+    pub to: Address,
+    pub amount: i128,
+}
+
 /// Maximum allowed length for a deposit reference (bytes).
 const MAX_REFERENCE_LEN: u32 = 64;
+
+/// Maximum number of entries allowed in a single batch withdrawal.
+const MAX_BATCH_SIZE: u32 = 25;
 
 // ── Storage keys ──────────────────────────────────────────────────────────
 #[contracttype]
@@ -521,6 +532,65 @@ impl FiatBridge {
             .instance()
             .get(&DataKey::ReceiptCounter)
             .unwrap_or(0)
+    }
+
+    /// Process multiple withdrawals atomically in a single transaction. Admin only.
+    ///
+    /// All entries are validated before any transfer occurs. If any entry has a
+    /// zero or negative amount, or the combined total exceeds the contract
+    /// balance, the entire call reverts. Batches larger than MAX_BATCH_SIZE are
+    /// rejected immediately.
+    pub fn batch_withdraw(env: Env, entries: Vec<WithdrawEntry>) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let entry_count = entries.len();
+        if entry_count > MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
+
+        // ── Validate all entries and compute total before touching balances ──
+        let mut total: i128 = 0;
+        for i in 0..entry_count {
+            let entry = entries.get(i).unwrap();
+            if entry.amount <= 0 {
+                return Err(Error::ZeroAmount);
+            }
+            total += entry.amount;
+        }
+
+        let token_id: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .ok_or(Error::NotInitialized)?;
+        let token_client = token::Client::new(&env, &token_id);
+
+        let balance = token_client.balance(&env.current_contract_address());
+        if total > balance {
+            return Err(Error::InsufficientFunds);
+        }
+
+        // ── Execute transfers ─────────────────────────────────────────────
+        for i in 0..entry_count {
+            let entry = entries.get(i).unwrap();
+            token_client.transfer(
+                &env.current_contract_address(),
+                &entry.to,
+                &entry.amount,
+            );
+            env.events()
+                .publish((Symbol::new(&env, "withdraw"), entry.to), entry.amount);
+        }
+
+        env.events()
+            .publish((Symbol::new(&env, "batch_complete"),), total);
+
+        Ok(())
     }
 }
 

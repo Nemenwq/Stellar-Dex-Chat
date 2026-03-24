@@ -511,3 +511,104 @@ fn test_daily_limit_zero_disables_cap() {
     assert_eq!(bridge.get_daily_limit(), 0);
     assert_eq!(bridge.get_window_remaining(), i128::MAX);
 }
+
+// ── batch withdrawal tests ────────────────────────────────────────────
+
+/// A batch of 5 valid entries all succeed in one transaction.
+#[test]
+fn test_batch_withdraw_happy_path() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, _, token, token_sac) = setup_bridge(&env, 5_000);
+    let users: std::vec::Vec<Address> = (0..5).map(|_| Address::generate(&env)).collect();
+    token_sac.mint(&users[0], &2_000);
+    bridge.deposit(&users[0], &2_000, &Bytes::new(&env));
+
+    let mut entries = soroban_sdk::Vec::new(&env);
+    for u in &users {
+        entries.push_back(WithdrawEntry { to: u.clone(), amount: 100 });
+    }
+
+    bridge.batch_withdraw(&entries);
+
+    // Each of the 5 users received 100 tokens.
+    for u in &users {
+        assert_eq!(token.balance(u), 100);
+    }
+    // Contract balance reduced by 500.
+    assert_eq!(token.balance(&contract_id), 1_500);
+}
+
+/// A batch where one entry has a zero amount reverts the entire call.
+#[test]
+fn test_batch_withdraw_zero_amount_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, _, token, token_sac) = setup_bridge(&env, 1_000);
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    token_sac.mint(&user_a, &500);
+    bridge.deposit(&user_a, &500, &Bytes::new(&env));
+
+    let mut entries = soroban_sdk::Vec::new(&env);
+    entries.push_back(WithdrawEntry { to: user_a.clone(), amount: 100 });
+    entries.push_back(WithdrawEntry { to: user_b.clone(), amount: 0 }); // invalid
+
+    let result = bridge.try_batch_withdraw(&entries);
+    assert_eq!(result, Err(Ok(Error::ZeroAmount)));
+
+    // Balances unchanged.
+    assert_eq!(token.balance(&contract_id), 500);
+    assert_eq!(token.balance(&user_a), 0); // minted 500, deposited all 500
+}
+
+/// A batch whose total exceeds the contract balance reverts entirely.
+#[test]
+fn test_batch_withdraw_insufficient_balance_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, _, token, token_sac) = setup_bridge(&env, 1_000);
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    token_sac.mint(&user_a, &300);
+    bridge.deposit(&user_a, &300, &Bytes::new(&env));
+
+    // Total = 200 + 200 = 400 > 300 (contract balance)
+    let mut entries = soroban_sdk::Vec::new(&env);
+    entries.push_back(WithdrawEntry { to: user_a.clone(), amount: 200 });
+    entries.push_back(WithdrawEntry { to: user_b.clone(), amount: 200 });
+
+    let result = bridge.try_batch_withdraw(&entries);
+    assert_eq!(result, Err(Ok(Error::InsufficientFunds)));
+
+    // Contract balance unchanged.
+    assert_eq!(token.balance(&contract_id), 300);
+}
+
+/// A batch exceeding MAX_BATCH_SIZE (25) is rejected before any transfers.
+#[test]
+fn test_batch_withdraw_too_large_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, _, token, token_sac) = setup_bridge(&env, 100_000);
+    let funder = Address::generate(&env);
+    token_sac.mint(&funder, &100_000);
+    bridge.deposit(&funder, &100_000, &Bytes::new(&env));
+
+    // Build 26 entries — one over the MAX_BATCH_SIZE of 25.
+    let mut entries = soroban_sdk::Vec::new(&env);
+    for _ in 0..26 {
+        let u = Address::generate(&env);
+        entries.push_back(WithdrawEntry { to: u, amount: 1 });
+    }
+
+    let result = bridge.try_batch_withdraw(&entries);
+    assert_eq!(result, Err(Ok(Error::BatchTooLarge)));
+
+    // Contract balance unchanged.
+    assert_eq!(token.balance(&contract_id), 100_000);
+}
