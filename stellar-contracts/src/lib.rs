@@ -1,6 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Bytes, Env,
+    Symbol, Vec,
 };
 
 // ── Error codes ───────────────────────────────────────────────────────────
@@ -51,6 +52,8 @@ pub enum DataKey {
     LockPeriod,
     WithdrawQueue(u64),
     NextRequestID,
+    ReceiptCounter,
+    Receipt(u64),
     AllowlistEnabled,
     Allowed(Address),
 }

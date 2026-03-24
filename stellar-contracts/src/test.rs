@@ -3,7 +3,7 @@ extern crate std;
 
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
+    testutils::{Address as _, Events, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     Address, Bytes, Env,
 };
@@ -256,7 +256,7 @@ fn test_allowlist_disabled_anyone_can_deposit() {
 
     // Allowlist is off by default – any address can deposit.
     assert!(!bridge.get_allowlist_enabled());
-    bridge.deposit(&user, &100);
+    bridge.deposit(&user, &100, &Bytes::new(&env));
     assert_eq!(token.balance(&user), 900);
 }
 
@@ -272,7 +272,7 @@ fn test_allowlist_enabled_blocks_unlisted_address() {
     bridge.set_allowlist_enabled(&true);
     assert!(bridge.get_allowlist_enabled());
 
-    let result = bridge.try_deposit(&user, &100);
+    let result = bridge.try_deposit(&user, &100, &Bytes::new(&env));
     assert_eq!(result, Err(Ok(Error::NotAllowed)));
 }
 
@@ -289,7 +289,7 @@ fn test_allowlist_add_then_deposit_succeeds() {
     bridge.allowlist_add(&user);
 
     assert!(bridge.is_allowed(&user));
-    bridge.deposit(&user, &200);
+    bridge.deposit(&user, &200, &Bytes::new(&env));
     assert_eq!(token.balance(&user), 800);
 }
 
@@ -306,14 +306,14 @@ fn test_allowlist_remove_blocks_deposit() {
     bridge.allowlist_add(&user);
 
     // First deposit succeeds.
-    bridge.deposit(&user, &100);
+    bridge.deposit(&user, &100, &Bytes::new(&env));
     assert_eq!(token.balance(&user), 900);
 
     // Remove from allowlist – subsequent deposit should fail.
     bridge.allowlist_remove(&user);
     assert!(!bridge.is_allowed(&user));
 
-    let result = bridge.try_deposit(&user, &100);
+    let result = bridge.try_deposit(&user, &100, &Bytes::new(&env));
     assert_eq!(result, Err(Ok(Error::NotAllowed)));
 }
 
@@ -328,12 +328,12 @@ fn test_allowlist_toggle_off_reenables_deposits() {
 
     // Enable allowlist – deposit blocked.
     bridge.set_allowlist_enabled(&true);
-    let result = bridge.try_deposit(&user, &100);
+    let result = bridge.try_deposit(&user, &100, &Bytes::new(&env));
     assert_eq!(result, Err(Ok(Error::NotAllowed)));
 
     // Disable allowlist – unrestricted deposits resume immediately.
     bridge.set_allowlist_enabled(&false);
-    bridge.deposit(&user, &100);
+    bridge.deposit(&user, &100, &Bytes::new(&env));
     assert_eq!(token.balance(&user), 900);
 }
 
@@ -357,8 +357,8 @@ fn test_allowlist_batch_add_and_remove() {
     assert!(bridge.is_allowed(&user_a));
     assert!(bridge.is_allowed(&user_b));
 
-    bridge.deposit(&user_a, &100);
-    bridge.deposit(&user_b, &100);
+    bridge.deposit(&user_a, &100, &Bytes::new(&env));
+    bridge.deposit(&user_b, &100, &Bytes::new(&env));
     assert_eq!(token.balance(&user_a), 900);
     assert_eq!(token.balance(&user_b), 900);
 
@@ -369,6 +369,6 @@ fn test_allowlist_batch_add_and_remove() {
     assert!(!bridge.is_allowed(&user_a));
     assert!(!bridge.is_allowed(&user_b));
 
-    let result = bridge.try_deposit(&user_a, &100);
+    let result = bridge.try_deposit(&user_a, &100, &Bytes::new(&env));
     assert_eq!(result, Err(Ok(Error::NotAllowed)));
 }
