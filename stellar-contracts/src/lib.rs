@@ -17,6 +17,7 @@ pub enum Error {
     WithdrawalLocked = 7,
     RequestNotFound = 8,
     TokenNotWhitelisted = 9,
+    ReferenceTooLong = 10,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -36,6 +37,19 @@ pub struct TokenConfig {
     pub total_deposited: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Receipt {
+    pub id: u64,
+    pub depositor: Address,
+    pub amount: i128,
+    pub ledger: u32,
+    pub reference: Bytes,
+}
+
+/// Maximum allowed length for a deposit reference (bytes).
+const MAX_REFERENCE_LEN: u32 = 64;
+
 // ── Storage keys ──────────────────────────────────────────────────────────
 #[contracttype]
 pub enum DataKey {
@@ -45,6 +59,8 @@ pub enum DataKey {
     WithdrawQueue(u64),
     NextRequestID,
     TokenRegistry(Address),
+    ReceiptCounter,
+    Receipt(u64),
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────
@@ -73,9 +89,16 @@ impl FiatBridge {
         Ok(())
     }
 
-    /// Lock tokens inside the bridge. Caller must authorise.
+    /// Lock tokens inside the bridge and issue a deposit receipt.
     /// The token must be registered in the whitelist.
-    pub fn deposit(env: Env, from: Address, amount: i128, token: Address) -> Result<(), Error> {
+    /// Returns the unique receipt ID on success.
+    pub fn deposit(
+        env: Env,
+        from: Address,
+        amount: i128,
+        token: Address,
+        reference: Bytes,
+    ) -> Result<u64, Error> {
         from.require_auth();
 
         if reference.len() > MAX_REFERENCE_LEN {
@@ -101,6 +124,27 @@ impl FiatBridge {
             &amount,
         );
 
+        // ── Create deposit receipt ────────────────────────────────────
+        let receipt_id: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ReceiptCounter)
+            .unwrap_or(0);
+        let receipt = Receipt {
+            id: receipt_id,
+            depositor: from.clone(),
+            amount,
+            ledger: env.ledger().sequence(),
+            reference,
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::Receipt(receipt_id), &receipt);
+        env.storage()
+            .instance()
+            .set(&DataKey::ReceiptCounter, &(receipt_id + 1));
+
+        // ── Update per-token totals ───────────────────────────────────
         config.total_deposited += amount;
         env.storage()
             .persistent()
@@ -139,7 +183,12 @@ impl FiatBridge {
     }
 
     /// Register a withdrawal request that matures after the lock period. Admin only.
-    pub fn request_withdrawal(env: Env, to: Address, amount: i128, token: Address) -> Result<u64, Error> {
+    pub fn request_withdrawal(
+        env: Env,
+        to: Address,
+        amount: i128,
+        token: Address,
+    ) -> Result<u64, Error> {
         let admin: Address = env
             .storage()
             .instance()
@@ -151,7 +200,11 @@ impl FiatBridge {
             return Err(Error::ZeroAmount);
         }
 
-        let lock_period: u32 = env.storage().instance().get(&DataKey::LockPeriod).unwrap_or(0);
+        let lock_period: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LockPeriod)
+            .unwrap_or(0);
         let unlock_ledger = env.ledger().sequence() + lock_period;
 
         let request_id: u64 = env
@@ -196,7 +249,11 @@ impl FiatBridge {
             return Err(Error::InsufficientFunds);
         }
 
-        token_client.transfer(&env.current_contract_address(), &request.to, &request.amount);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &request.to,
+            &request.amount,
+        );
 
         env.storage()
             .persistent()
@@ -337,6 +394,7 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)
     }
+
     /// Returns the default (init) token address.
     pub fn get_token(env: Env) -> Result<Address, Error> {
         env.storage()
@@ -344,6 +402,7 @@ impl FiatBridge {
             .get(&DataKey::Token)
             .ok_or(Error::NotInitialized)
     }
+
     /// Per-deposit limit for the default (init) token.
     pub fn get_limit(env: Env) -> Result<i128, Error> {
         let tok: Address = env
@@ -358,6 +417,7 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         Ok(config.limit)
     }
+
     /// Current balance of the default (init) token held by this contract.
     pub fn get_balance(env: Env) -> Result<i128, Error> {
         let token_id: Address = env
@@ -367,6 +427,7 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         Ok(token::Client::new(&env, &token_id).balance(&env.current_contract_address()))
     }
+
     /// Cumulative deposit total for the default (init) token.
     pub fn get_total_deposited(env: Env) -> Result<i128, Error> {
         let tok: Address = env
@@ -381,21 +442,78 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         Ok(config.total_deposited)
     }
+
     /// Get details of a withdrawal request.
     pub fn get_withdrawal_request(env: Env, request_id: u64) -> Option<WithdrawRequest> {
         env.storage()
             .persistent()
             .get(&DataKey::WithdrawQueue(request_id))
     }
+
     /// Get the current lock period in ledgers.
     pub fn get_lock_period(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::LockPeriod).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&DataKey::LockPeriod)
+            .unwrap_or(0)
     }
+
     /// Look up a token's configuration (limit and cumulative deposits).
     pub fn get_token_config(env: Env, token: Address) -> Option<TokenConfig> {
         env.storage()
             .persistent()
             .get(&DataKey::TokenRegistry(token))
+    }
+
+    // ── Receipt view functions ─────────────────────────────────────────
+
+    /// Look up a deposit receipt by its ID.
+    pub fn get_receipt(env: Env, id: u64) -> Option<Receipt> {
+        env.storage().persistent().get(&DataKey::Receipt(id))
+    }
+
+    /// Paginated lookup of receipts belonging to `depositor`.
+    ///
+    /// Scans receipt IDs starting at `from_id` and returns up to `limit`
+    /// matching receipts.
+    pub fn get_receipts_by_depositor(
+        env: Env,
+        depositor: Address,
+        from_id: u64,
+        limit: u32,
+    ) -> Vec<Receipt> {
+        let counter: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ReceiptCounter)
+            .unwrap_or(0);
+        let mut results: Vec<Receipt> = Vec::new(&env);
+        let mut found: u32 = 0;
+        let mut id = from_id;
+
+        while id < counter && found < limit {
+            if let Some(receipt) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, Receipt>(&DataKey::Receipt(id))
+            {
+                if receipt.depositor == depositor {
+                    results.push_back(receipt);
+                    found += 1;
+                }
+            }
+            id += 1;
+        }
+
+        results
+    }
+
+    /// Get the current receipt counter (total number of receipts issued).
+    pub fn get_receipt_counter(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::ReceiptCounter)
+            .unwrap_or(0)
     }
 }
 
