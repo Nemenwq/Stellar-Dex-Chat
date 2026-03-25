@@ -213,10 +213,16 @@ impl FiatBridge {
     /// Withdraw tokens from the bridge. Caller must authorise.
     /// No whitelist check — allows draining balances of removed tokens.
     pub fn withdraw(env: Env, to: Address, amount: i128, token: Address) -> Result<(), Error> {
-        to.require_auth();
         if amount <= 0 {
             return Err(Error::ZeroAmount);
         }
+
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
 
         let token_client = token::Client::new(&env, &token);
 
