@@ -267,7 +267,73 @@ fn test_transfer_admin() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 100);
     let new_admin = Address::generate(&env);
     bridge.transfer_admin(&new_admin);
-    assert_eq!(bridge.get_admin(), new_admin);
+    // After nomination the original admin should remain active
+    // and the pending admin should be set to the nominated address
+    assert_ne!(bridge.get_admin(), new_admin);
+    assert_eq!(bridge.get_pending_admin(), Some(new_admin));
+}
+
+#[test]
+fn test_accept_admin_succeeds_for_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 100);
+    let nominated = Address::generate(&env);
+
+    // Nominate
+    bridge.transfer_admin(&nominated);
+    assert_eq!(bridge.get_pending_admin(), Some(nominated.clone()));
+
+    // Pending admin accepts (must provide their own address and be authorized)
+    bridge.accept_admin(&nominated);
+
+    // Now the nominated address is the active admin and pending cleared
+    assert_eq!(bridge.get_admin(), nominated.clone());
+    assert_eq!(bridge.get_pending_admin(), None);
+}
+
+#[test]
+fn test_cancel_admin_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, _, _, _) = setup_bridge(&env, 100);
+    let nominated = Address::generate(&env);
+
+    bridge.transfer_admin(&nominated);
+    assert_eq!(bridge.get_pending_admin(), Some(nominated));
+
+    bridge.cancel_admin_transfer();
+    assert_eq!(bridge.get_pending_admin(), None);
+    // current admin should remain unchanged
+    assert_eq!(bridge.get_admin(), admin);
+}
+
+#[test]
+fn test_accept_admin_unauthorized_when_not_pending() {
+    let env = Env::default();
+    // Do not mock auths so require_auth checks are enforced
+
+    let (contract_id, bridge, _, _, _, _) = setup_bridge(&env, 100);
+    let nominated = Address::generate(&env);
+
+    // Manually set PendingAdmin in the contract's instance storage to simulate
+    // nomination without granting the test caller the nominated address's auth.
+    // Use `as_contract` to access the contract-scoped storage from the test.
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdmin, &nominated);
+    });
+
+    // Attempt to accept as the test caller (not the nominated address) should fail
+    // We pass a different claimant (the test harness caller) implicitly by not
+    // providing the nominated address; call try_accept_admin with a wrong
+    // claimant to exercise the Unauthorized path.
+    let wrong = Address::generate(&env);
+    let result = bridge.try_accept_admin(&wrong);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
 
 #[test]
@@ -559,4 +625,30 @@ fn test_get_nonexistent_receipt() {
 
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 500);
     assert_eq!(bridge.get_receipt(&999), None);
+}
+
+#[test]
+fn test_instance_storage_ttl_extension() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // 1. Setup the bridge which does an `init` (a state-mutating function)
+    let (_, bridge, admin, token_addr, _, _) = setup_bridge(&env, 500);
+
+    // 2. Initial state is valid
+    assert_eq!(bridge.get_admin(), admin);
+
+    // 3. Advance the ledger significantly past the original default TTL (~30 days, assumed 520_000 ledgers)
+    let current_ledger = env.ledger().sequence();
+    env.ledger().with_mut(|li| {
+        li.sequence_number = current_ledger + 520_000;
+    });
+
+    // 4. Make another state-mutating call (e.g. set_limit) after ledger advancement
+    // This will extend the TTL again.
+    bridge.set_limit(&token_addr, &1000);
+
+    // 5. Confirm the contract is still callable and instance storage is preserved
+    assert_eq!(bridge.get_limit(), 1000);
+    assert_eq!(bridge.get_admin(), admin);
 }
