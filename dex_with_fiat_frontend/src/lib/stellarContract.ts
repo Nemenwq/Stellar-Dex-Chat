@@ -76,8 +76,23 @@ async function buildAndSimulate(
   };
 }
 
+export async function pollTransaction(hash: string): Promise<string> {
+  let getResult = await server.getTransaction(hash);
+  while (getResult.status === rpc.Api.GetTransactionStatus.NOT_FOUND) {
+    await new Promise((r) => setTimeout(r, 1500));
+    getResult = await server.getTransaction(hash);
+  }
+  if (getResult.status === rpc.Api.GetTransactionStatus.FAILED) {
+    throw new Error('Transaction failed on-chain');
+  }
+  return hash;
+}
+
 /** Submit a signed XDR and wait for confirmation. */
-async function submitAndWait(signedXdr: string): Promise<string> {
+async function submitAndWait(
+  signedXdr: string,
+  onHashKnown?: (hash: string) => void,
+): Promise<string> {
   const tx = TransactionBuilder.fromXDR(signedXdr, NETWORK_PASSPHRASE);
   const sendResult = await server.sendTransaction(tx);
   if (sendResult.status === 'ERROR') {
@@ -85,17 +100,8 @@ async function submitAndWait(signedXdr: string): Promise<string> {
       `Submission failed: ${JSON.stringify(sendResult.errorResult)}`,
     );
   }
-
-  // Poll until finalized
-  let getResult = await server.getTransaction(sendResult.hash);
-  while (getResult.status === rpc.Api.GetTransactionStatus.NOT_FOUND) {
-    await new Promise((r) => setTimeout(r, 1500));
-    getResult = await server.getTransaction(sendResult.hash);
-  }
-  if (getResult.status === rpc.Api.GetTransactionStatus.FAILED) {
-    throw new Error('Transaction failed on-chain');
-  }
-  return sendResult.hash;
+  onHashKnown?.(sendResult.hash);
+  return pollTransaction(sendResult.hash);
 }
 
 // ── Write functions (require wallet signature) ────────────────────────────
@@ -149,6 +155,7 @@ export async function depositToContract(
   publicKey: string,
   amount: bigint,
   signTx: (xdr: string) => Promise<string>,
+  onHashKnown?: (hash: string) => void,
 ): Promise<string> {
   await validateBridgeAmountLimit(amount);
   const contract = new Contract(CONTRACT_ID);
@@ -159,7 +166,7 @@ export async function depositToContract(
   );
   const { assembledXdr } = await buildAndSimulate(publicKey, op);
   const signed = await signTx(assembledXdr);
-  return submitAndWait(signed);
+  return submitAndWait(signed, onHashKnown);
 }
 
 /**
@@ -171,6 +178,7 @@ export async function withdrawFromContract(
   recipientPublicKey: string,
   amount: bigint,
   signTx: (xdr: string) => Promise<string>,
+  onHashKnown?: (hash: string) => void,
 ): Promise<string> {
   const contract = new Contract(CONTRACT_ID);
   const op = contract.call(
@@ -180,7 +188,7 @@ export async function withdrawFromContract(
   );
   const { assembledXdr } = await buildAndSimulate(adminPublicKey, op);
   const signed = await signTx(assembledXdr);
-  return submitAndWait(signed);
+  return submitAndWait(signed, onHashKnown);
 }
 
 // ── Read-only view calls (no signature needed) ────────────────────────────
