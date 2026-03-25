@@ -8,6 +8,7 @@ import {
   scValToNative,
   rpc,
 } from '@stellar/stellar-sdk';
+import { withNetworkReadQueue } from './networkQueue';
 
 const RPC_URL =
   process.env.NEXT_PUBLIC_STELLAR_RPC_URL ||
@@ -187,37 +188,39 @@ export async function withdrawFromContract(
 
 /** Simulate a read-only contract call and return the decoded return value. */
 async function viewCall<T>(functionName: string): Promise<T> {
-  // Use a dummy account (Stellar Foundation's well-known testnet account) for simulation
-  const DUMMY_SOURCE =
-    'GBEFLW6RTALNHCL7HW2INWB4ASHZ7E6MF6E2IOIIMBVEAU2B2B4XLRQW';
-  const contract = new Contract(CONTRACT_ID);
+  return withNetworkReadQueue(async () => {
+    // Use a dummy account (Stellar Foundation's well-known testnet account) for simulation
+    const DUMMY_SOURCE =
+      'GBEFLW6RTALNHCL7HW2INWB4ASHZ7E6MF6E2IOIIMBVEAU2B2B4XLRQW';
+    const contract = new Contract(CONTRACT_ID);
 
-  // We don't need a funded account — just a valid one for building the tx
-  let account;
-  try {
-    account = await server.getAccount(DUMMY_SOURCE);
-  } catch {
-    // If testnet doesn't know the account, create a skeleton account object
-    const { Account } = await import('@stellar/stellar-sdk');
-    account = new Account(DUMMY_SOURCE, '0');
-  }
+    // We don't need a funded account — just a valid one for building the tx
+    let account;
+    try {
+      account = await server.getAccount(DUMMY_SOURCE);
+    } catch {
+      // If testnet doesn't know the account, create a skeleton account object
+      const { Account } = await import('@stellar/stellar-sdk');
+      account = new Account(DUMMY_SOURCE, '0');
+    }
 
-  const tx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(contract.call(functionName))
-    .setTimeout(30)
-    .build();
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(contract.call(functionName))
+      .setTimeout(30)
+      .build();
 
-  const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(sim)) {
-    throw new Error(`View call failed: ${sim.error}`);
-  }
-  const retval = (sim as rpc.Api.SimulateTransactionSuccessResponse).result
-    ?.retval;
-  if (!retval) throw new Error('No return value');
-  return scValToNative(retval) as T;
+    const sim = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationError(sim)) {
+      throw new Error(`View call failed: ${sim.error}`);
+    }
+    const retval = (sim as rpc.Api.SimulateTransactionSuccessResponse).result
+      ?.retval;
+    if (!retval) throw new Error('No return value');
+    return scValToNative(retval) as T;
+  }, `stellarContract.viewCall:${functionName}`);
 }
 
 /** Returns the current token balance (in stroops) held by the bridge contract. */
