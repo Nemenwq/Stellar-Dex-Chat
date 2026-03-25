@@ -19,6 +19,7 @@ pub enum Error {
     TokenNotWhitelisted = 9,
     ReferenceTooLong = 10,
     CooldownActive = 11,
+    NoPendingAdmin = 12,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -65,6 +66,7 @@ const MAX_BATCH_SIZE: u32 = 25;
 #[contracttype]
 pub enum DataKey {
     Admin,
+    PendingAdmin,
     Token,
     BridgeLimit,
     TotalDeposited,
@@ -129,11 +131,7 @@ impl FiatBridge {
             .unwrap_or(0);
         if cooldown > 0 {
             let last_key = DataKey::LastDepositLedger(from.clone());
-            if let Some(last_ledger) = env
-                .storage()
-                .instance()
-                .get::<DataKey, u32>(&last_key)
-            {
+            if let Some(last_ledger) = env.storage().instance().get::<DataKey, u32>(&last_key) {
                 if env.ledger().sequence() - last_ledger < cooldown {
                     return Err(Error::CooldownActive);
                 }
@@ -157,11 +155,7 @@ impl FiatBridge {
             return Err(Error::ExceedsLimit);
         }
 
-        token::Client::new(&env, &token).transfer(
-            &from,
-            &env.current_contract_address(),
-            &amount,
-        );
+        token::Client::new(&env, &token).transfer(&from, &env.current_contract_address(), &amount);
 
         // ── Create deposit receipt ────────────────────────────────────
         let receipt_id: u64 = env
@@ -398,7 +392,73 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
-        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        // Nominate a pending admin rather than immediately replacing the active admin
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdmin, &new_admin);
+
+        // Emit event for off-chain indexing/observability
+        env.events()
+            .publish((Symbol::new(&env, "admin_nominated"),), new_admin.clone());
+
+        Ok(())
+    }
+
+    /// Accept a previously nominated admin. The nominated address must call this
+    /// to finalize the transfer. Until this is called the existing admin remains active.
+    pub fn accept_admin(env: Env, claimant: Address) -> Result<(), Error> {
+        // Read pending admin
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(Error::NoPendingAdmin)?;
+
+        // Only the pending admin may finalize the transfer. If the provided
+        // claimant does not match the pending address, return Unauthorized.
+        if claimant != pending {
+            return Err(Error::Unauthorized);
+        }
+
+        // Ensure the claimant authorises this action (they must control the key)
+        claimant.require_auth();
+
+        // Move pending into active admin and clear pending
+        env.storage().instance().set(&DataKey::Admin, &claimant);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+
+        env.events()
+            .publish((Symbol::new(&env, "admin_accepted"),), claimant.clone());
+
+        Ok(())
+    }
+
+    /// Cancel a pending admin nomination. Admin only.
+    pub fn cancel_admin_transfer(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        if !env.storage().instance().has(&DataKey::PendingAdmin) {
+            return Err(Error::NoPendingAdmin);
+        }
+
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .unwrap();
+
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+
+        env.events().publish(
+            (Symbol::new(&env, "admin_transfer_cancelled"),),
+            pending.clone(),
+        );
+
         Ok(())
     }
 
@@ -462,6 +522,11 @@ impl FiatBridge {
             .instance()
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)
+    }
+
+    /// Returns the currently nominated (pending) admin, if any.
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::PendingAdmin)
     }
 
     /// Returns the default (init) token address.
@@ -529,7 +594,6 @@ impl FiatBridge {
             .persistent()
             .get(&DataKey::WithdrawQueue(request_id))
     }
-
 
     /// Get the current lock period in ledgers.
     pub fn get_lock_period(env: Env) -> u32 {
