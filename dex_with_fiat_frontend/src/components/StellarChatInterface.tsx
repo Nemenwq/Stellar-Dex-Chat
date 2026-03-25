@@ -11,11 +11,13 @@ import ChatHistorySidebar from './ChatHistorySidebar';
 import StellarFiatModal from './StellarFiatModal';
 import BankDetailsModal from './BankDetailsModal';
 import UserSettings from './UserSettings';
+import NotificationsCenter from './NotificationsCenter';
 import { TransactionData } from '@/types';
 import SkeletonChat from '@/components/ui/skeleton/SkeletonChat';
 import SkeletonSidebar from '@/components/ui/skeleton/SkeletonSidebar';
 import { useUserPreferences } from '@/contexts/UserPreferencesContext';
 import { getAdmin } from '@/lib/stellarContract';
+import { getQueuedReadRequestsCount } from '@/lib/networkQueue';
 
 export default function StellarChatInterface() {
   const { connection, connect, disconnect, accounts, selectedAccountIndex, selectAccount, sessionExpired, clearSessionExpired } = useStellarWallet();
@@ -33,6 +35,10 @@ export default function StellarChatInterface() {
    const [showAccountDropdown, setShowAccountDropdown] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
+  const [isOnline, setIsOnline] = useState(
+    typeof window !== 'undefined' ? window.navigator.onLine : true,
+  );
+  const [queuedReadables, setQueuedReadables] = useState(0);
   const accountDropdownRef = useRef<HTMLDivElement>(null);
 
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -57,6 +63,32 @@ export default function StellarChatInterface() {
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  useEffect(() => {
+    const onOnline = () => {
+      setIsOnline(true);
+      setQueuedReadables(getQueuedReadRequestsCount());
+    };
+    const onOffline = () => {
+      setIsOnline(false);
+      setQueuedReadables(getQueuedReadRequestsCount());
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', onOnline);
+      window.addEventListener('offline', onOffline);
+    }
+
+    // initial count
+    setQueuedReadables(getQueuedReadRequestsCount());
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', onOnline);
+        window.removeEventListener('offline', onOffline);
+      }
+    };
   }, []);
 
   // Check if current user is admin
@@ -314,6 +346,8 @@ export default function StellarChatInterface() {
               <Plus className="w-5 h-5" />
             </button>
 
+            <NotificationsCenter />
+
             <button
               onClick={() => setShowSettings(true)}
               title="Settings"
@@ -399,6 +433,18 @@ export default function StellarChatInterface() {
         )}
           </div>
         </header>
+
+        {/* Network status */}
+        {!isOnline && (
+          <div
+            className="flex-shrink-0 justify-center py-1 text-xs font-medium text-red-100 bg-red-500/90"
+            role="status"
+            aria-live="polite"
+          >
+            Offline detected. Read-only operations are queued and will retry when online.
+            {queuedReadables > 0 ? ` (${queuedReadables} queued)` : ''}
+          </div>
+        )}
 
         {/* Network badge */}
         {connection.isConnected && (

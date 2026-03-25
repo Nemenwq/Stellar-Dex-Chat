@@ -11,12 +11,13 @@ import {
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
 import {
   BRIDGE_LIMIT_WARNING_PERCENT,
-  depositToContract,
   getBridgeLimit,
-  withdrawFromContract,
   stroopsToDisplay,
   simulateDeposit,
   simulateWithdraw,
+  pollTransaction,
+  depositToContract,
+  withdrawFromContract,
   FeeEstimate,
 } from '@/lib/stellarContract';
 import { perf } from '@/lib/perf';
@@ -25,6 +26,7 @@ import {
   formatFiatAmount,
 } from '@/lib/cryptoPriceService';
 import SkeletonPayout from '@/components/ui/skeleton/SkeletonPayout';
+import { useNotifications } from '@/hooks/useNotifications';
 
 interface StellarFiatModalProps {
   isOpen: boolean;
@@ -37,6 +39,15 @@ interface StellarFiatModalProps {
 }
 
 type TxStatus = 'idle' | 'loading' | 'success' | 'error';
+
+const PENDING_TX_KEY = 'stellar_pending_tx';
+
+interface PendingTxRecord {
+  hash: string;
+  amount: string;
+  isAdminMode: boolean;
+  recipient: string;
+}
 
 function parseAmountToStroops(value: string): bigint | null {
   const normalized = value.trim();
@@ -71,6 +82,7 @@ export default function StellarFiatModal({
   onDepositSuccess,
 }: StellarFiatModalProps) {
   const { connection, signTx } = useStellarWallet();
+  const { addNotification } = useNotifications();
 
   const [amount, setAmount] = useState(defaultAmount);
   const [activePreset, setActivePreset] = useState<number | null>(null);
@@ -148,6 +160,47 @@ export default function StellarFiatModal({
       cancelled = true;
     };
   }, [defaultAmount, isAdminMode, isOpen, recipientAddress]);
+
+  // Pending transaction recovery — runs after the reset effect above
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const stored = localStorage.getItem(PENDING_TX_KEY);
+    if (!stored) return;
+
+    let pending: PendingTxRecord;
+    try {
+      pending = JSON.parse(stored);
+    } catch {
+      localStorage.removeItem(PENDING_TX_KEY);
+      return;
+    }
+
+    setAmount(pending.amount);
+    setRecipient(pending.recipient);
+    setStatus('loading');
+    setErrorMsg('');
+    setTxHash('');
+
+    let cancelled = false;
+    pollTransaction(pending.hash)
+      .then((hash) => {
+        if (cancelled) return;
+        setTxHash(hash);
+        setStatus('success');
+        localStorage.removeItem(PENDING_TX_KEY);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setErrorMsg('Recovered transaction failed on-chain');
+        setStatus('error');
+        localStorage.removeItem(PENDING_TX_KEY);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || !connection.isConnected) {
@@ -276,7 +329,16 @@ export default function StellarFiatModal({
     setStatus('loading');
     setErrorMsg('');
     perf.mark('Tx: Submission');
+
+    const onHashKnown = (hash: string) => {
+      localStorage.setItem(
+        PENDING_TX_KEY,
+        JSON.stringify({ hash, amount, isAdminMode, recipient } satisfies PendingTxRecord),
+      );
+    };
+
     try {
+      addNotification('tx_submit', `Submitting ${isAdminMode ? 'withdrawal' : 'deposit'} transaction...`);
       let hash: string;
       if (isAdminMode) {
         const to = recipient || connection.publicKey;
@@ -285,20 +347,28 @@ export default function StellarFiatModal({
           to,
           stroopsAmount,
           signTx,
+          onHashKnown,
         );
       } else {
         hash = await depositToContract(
           connection.publicKey,
           stroopsAmount,
           signTx,
+          onHashKnown,
         );
       }
       setTxHash(hash);
       perf.measure('Tx: Submission');
       setStatus('success');
+      localStorage.removeItem(PENDING_TX_KEY);
+      addNotification('tx_confirm', `Transaction confirmed successfully! (${hash.slice(0, 8)}...)`);
+      if (!isAdminMode && onDepositSuccess) {
+        onDepositSuccess(parseFloat(amount || '0'));
+      }
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Transaction failed');
       setStatus('error');
+      localStorage.removeItem(PENDING_TX_KEY);
     }
   };
 
