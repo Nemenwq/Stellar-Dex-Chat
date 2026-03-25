@@ -8,7 +8,6 @@ import {
   scValToNative,
   rpc,
 } from '@stellar/stellar-sdk';
-import { withNetworkReadQueue } from './networkQueue';
 
 const RPC_URL =
   process.env.NEXT_PUBLIC_STELLAR_RPC_URL ||
@@ -26,10 +25,16 @@ const NETWORK_PASSPHRASE = Networks.TESTNET;
 
 export const BRIDGE_LIMIT_WARNING_PERCENT = 80;
 
-const server = new rpc.Server(RPC_URL, { allowHttp: false });
+// Dummy source account used for simulating read-only contract calls.
+// This is a well-known Stellar Foundation testnet account and does not
+// need to be funded — it's only used as a valid source when building
+// transactions for contract view simulations.
+export const DUMMY_SOURCE =
+  'GBEFLW6RTALNHCL7HW2INWB4ASHZ7E6MF6E2IOIIMBVEAU2B2B4XLRQW';
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-
+// FeeEstimate describes estimated fees returned by transaction simulation.
+// `minFee` is represented as a string of stroops (to avoid bigint JSON issues),
+// while `fee`, `baseFee`, and `resourceFee` are numbers in XLM for UI display.
 export interface FeeEstimate {
   minFee: string;
   fee: number;
@@ -37,7 +42,60 @@ export interface FeeEstimate {
   resourceFee: number;
 }
 
-/** Build, simulate, and assemble a transaction. Returns the assembled XDR and fee estimate. */
+const server = new rpc.Server(RPC_URL, { allowHttp: false });
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+// Simple in-memory TTL cache for view calls
+const CACHE_TTL_SECONDS = 10;
+const cache = new Map<string, { value: unknown; expires: number }>();
+
+export function getCachedValue<T>(key: string): T | undefined {
+  const entry = cache.get(key);
+  if (!entry) {
+    console.log('cache miss', key);
+    return undefined;
+  }
+  if (Date.now() > entry.expires) {
+    cache.delete(key);
+    console.log('cache miss', key);
+    return undefined;
+  }
+  console.log('cache hit', key);
+  return entry.value as T;
+}
+
+export function setCachedValue(key: string, value: unknown) {
+  cache.set(key, { value, expires: Date.now() + CACHE_TTL_SECONDS * 1000 });
+}
+
+export function clearCache() {
+  cache.clear();
+  console.log('cache cleared');
+}
+
+// Expose debug helpers on window in browser for manual testing (dev only)
+declare global {
+  interface Window {
+    clearBridgeCache: typeof clearCache;
+    getBridgeLimit: () => Promise<bigint>;
+    getContractBalance: () => Promise<bigint>;
+    getTotalDeposited: () => Promise<bigint>;
+  }
+}
+
+try {
+  if (typeof window !== 'undefined') {
+    window.clearBridgeCache = clearCache;
+    window.getBridgeLimit = async () => getBridgeLimit();
+    window.getContractBalance = async () => getContractBalance();
+    window.getTotalDeposited = async () => getTotalDeposited();
+  }
+} catch {
+  // ignore
+}
+
+/** Build, simulate, and assemble a transaction. Returns the assembled XDR. */
 async function buildAndSimulate(
   publicKey: string,
   operation: ReturnType<Contract['call']>,
@@ -167,7 +225,9 @@ export async function depositToContract(
   );
   const { assembledXdr } = await buildAndSimulate(publicKey, op);
   const signed = await signTx(assembledXdr);
-  return submitAndWait(signed, onHashKnown);
+  const hash = await submitAndWait(signed, onHashKnown);
+  clearCache();
+  return hash;
 }
 
 /**
@@ -189,18 +249,22 @@ export async function withdrawFromContract(
   );
   const { assembledXdr } = await buildAndSimulate(adminPublicKey, op);
   const signed = await signTx(assembledXdr);
-  return submitAndWait(signed, onHashKnown);
+  const hash = await submitAndWait(signed, onHashKnown);
+  clearCache();
+  return hash;
 }
 
 // ── Read-only view calls (no signature needed) ────────────────────────────
 
 /** Simulate a read-only contract call and return the decoded return value. */
 async function viewCall<T>(functionName: string): Promise<T> {
-  return withNetworkReadQueue(async () => {
-    // Use a dummy account (Stellar Foundation's well-known testnet account) for simulation
-    const DUMMY_SOURCE =
-      'GBEFLW6RTALNHCL7HW2INWB4ASHZ7E6MF6E2IOIIMBVEAU2B2B4XLRQW';
-    const contract = new Contract(CONTRACT_ID);
+  // Check in-memory cache first
+  const cached = getCachedValue<T>(functionName);
+  if (cached !== undefined) {
+    return cached;
+  }
+  // Use a dummy account (Stellar Foundation's well-known testnet account) for cls
+  const contract = new Contract(CONTRACT_ID);
 
     // We don't need a funded account — just a valid one for building the tx
     let account;
@@ -220,15 +284,16 @@ async function viewCall<T>(functionName: string): Promise<T> {
       .setTimeout(30)
       .build();
 
-    const sim = await server.simulateTransaction(tx);
-    if (rpc.Api.isSimulationError(sim)) {
-      throw new Error(`View call failed: ${sim.error}`);
-    }
-    const retval = (sim as rpc.Api.SimulateTransactionSuccessResponse).result
-      ?.retval;
-    if (!retval) throw new Error('No return value');
-    return scValToNative(retval) as T;
-  }, `stellarContract.viewCall:${functionName}`);
+  const sim = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim)) {
+    throw new Error(`View call failed: ${sim.error}`);
+  }
+  const retval = (sim as rpc.Api.SimulateTransactionSuccessResponse).result
+    ?.retval;
+  if (!retval) throw new Error('No return value');
+  const result = scValToNative(retval) as T;
+  setCachedValue(functionName, result);
+  return result;
 }
 
 /** Returns the current token balance (in stroops) held by the bridge contract. */
