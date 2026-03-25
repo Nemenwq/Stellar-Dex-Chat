@@ -1,11 +1,38 @@
-#![cfg(test)]
+#[test]
+fn test_schema_version_after_init() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _admin, _token_addr, _token, _token_sac) = setup_bridge(&env, 100);
+    assert_eq!(bridge.get_schema_version(), 1u32);
+}
+
+#[test]
+fn test_migrate_noop_as_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _admin, _token_addr, _token, _token_sac) = setup_bridge(&env, 100);
+    // Should be a no-op and return Ok(())
+    assert_eq!(bridge.migrate(), ());
+    // Version should remain 1
+    assert_eq!(bridge.get_schema_version(), 1u32);
+}
+
+#[test]
+fn test_migrate_unauthorized() {
+    let env = Env::default();
+    // Do not mock auths so require_auth is enforced
+    let (_, bridge, _admin, _token_addr, _token, _token_sac) = setup_bridge(&env, 100);
+    let result = bridge.try_migrate();
+    assert!(matches!(result, Err(Err(_))));
+}
 extern crate std;
 
 use super::*;
+use soroban_sdk::testutils::{Events, Ledger};
 use soroban_sdk::{
-    testutils::{Address as _, Events, Ledger},
+    testutils::Address as _,
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Bytes, Env,
+    Address, Env,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────
