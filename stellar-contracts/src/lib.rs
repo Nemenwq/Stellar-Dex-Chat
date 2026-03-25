@@ -220,6 +220,13 @@ impl FiatBridge {
             return Err(Error::ZeroAmount);
         }
 
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
         let token_client = token::Client::new(&env, &token);
 
         let balance = token_client.balance(&env.current_contract_address());
