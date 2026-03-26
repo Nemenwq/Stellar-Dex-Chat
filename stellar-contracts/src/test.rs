@@ -25,6 +25,91 @@ mod tests {
             StellarAssetClient::new(e, &addr),
         )
     }
+#![cfg(test)]
+extern crate std;
+
+use proptest::prelude::*;
+
+use super::*;
+use soroban_sdk::{
+    testutils::{Address as _, Events, Ledger},
+    token::{Client as TokenClient, StellarAssetClient},
+    Address, Bytes, Env,
+};
+
+// ── helpers ──────────────────────────────────────────────────────────
+
+fn create_token<'a>(
+    e: &Env,
+    admin: &Address,
+) -> (Address, TokenClient<'a>, StellarAssetClient<'a>) {
+    let addr = e
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    (
+        addr.clone(),
+        TokenClient::new(e, &addr),
+        StellarAssetClient::new(e, &addr),
+    )
+}
+
+fn setup_bridge(
+    env: &Env,
+    limit: i128,
+) -> (
+    Address,
+    FiatBridgeClient,
+    Address,
+    Address,
+    TokenClient,
+    StellarAssetClient,
+) {
+    let contract_id = env.register(FiatBridge, ());
+    let bridge = FiatBridgeClient::new(env, &contract_id);
+    let admin = Address::generate(env);
+    let token_admin = Address::generate(env);
+    let (token_addr, token, token_sac) = create_token(env, &token_admin);
+    bridge.init(&admin, &token_addr, &limit);
+    (contract_id, bridge, admin, token_addr, token, token_sac)
+}
+
+// ── happy-path tests ──────────────────────────────────────────────────
+
+#[test]
+fn test_deposit_and_withdraw() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, token_addr, token, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env));
+    assert_eq!(token.balance(&user), 800);
+    assert_eq!(token.balance(&contract_id), 200);
+
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr);
+    bridge.execute_withdrawal(&req_id, &None);
+
+    assert_eq!(token.balance(&user), 900);
+    assert_eq!(token.balance(&contract_id), 100);
+}
+
+#[test]
+fn test_time_locked_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, token_addr, token, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+    bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env));
+
+    bridge.set_lock_period(&100);
+    assert_eq!(bridge.get_lock_period(), 100);
+
+    let start_ledger = env.ledger().sequence();
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr);
 
     fn setup_bridge(
         env: &Env,
@@ -47,6 +132,8 @@ mod tests {
     }
 
     // ...existing test functions and property-based tests...
+    let result = bridge.try_execute_withdrawal(&req_id, &None);
+    assert_eq!(result, Err(Ok(Error::WithdrawalLocked)));
 
     #[test]
     fn test_deposit_and_withdraw() {
@@ -56,6 +143,11 @@ mod tests {
         let (contract_id, bridge, _, token_addr, token, token_sac) = setup_bridge(&env, 500);
         let user = Address::generate(&env);
         token_sac.mint(&user, &1_000);
+    bridge.execute_withdrawal(&req_id, &None);
+    assert_eq!(token.balance(&user), 900);
+    assert_eq!(token.balance(&contract_id), 100);
+    assert_eq!(bridge.get_withdrawal_request(&req_id), None);
+}
 
         bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env));
         assert_eq!(token.balance(&user), 800);
@@ -77,6 +169,9 @@ mod tests {
         let user = Address::generate(&env);
         token_sac.mint(&user, &1_000);
         bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env));
+    let result = bridge.try_execute_withdrawal(&req_id, &None);
+    assert_eq!(result, Err(Ok(Error::RequestNotFound)));
+}
 
         bridge.set_lock_period(&100);
         assert_eq!(bridge.get_lock_period(), 100);
@@ -346,6 +441,10 @@ mod tests {
         let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 500);
         let user = Address::generate(&env);
         token_sac.mint(&user, &1_000);
+    let req_id = bridge.request_withdrawal(&user, &200, &token_addr);
+    let result = bridge.try_execute_withdrawal(&req_id, &None);
+    assert_eq!(result, Err(Ok(Error::InsufficientFunds)));
+}
 
         bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env));
         let deposit_events = std::format!("{:?}", env.events().all());
@@ -723,4 +822,188 @@ mod tests {
             }
         }
     }
+}
+
+// ── Tests for new admin security features ────────────────────────────────
+
+#[test]
+fn test_refund_deposit() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let limit = 1000;
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, limit);
+    let user = Address::generate(&env);
+    
+    token_sac.mint(&user, &500);
+    let ref_bytes = Bytes::from_slice(&env, b"test_ref");
+    
+    let receipt_id = bridge.deposit(&user, &500, &token_addr, &ref_bytes);
+    
+    let receipt_before = bridge.get_receipt(&receipt_id).unwrap();
+    assert_eq!(receipt_before.refunded, false);
+    
+    bridge.refund_deposit(&receipt_id);
+    
+    let receipt_after = bridge.get_receipt(&receipt_id).unwrap();
+    assert_eq!(receipt_after.refunded, true);
+    
+    assert_eq!(token_sac.balance(&user), 500);
+}
+
+#[test]
+fn test_refund_deposit_errors() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let limit = 1000;
+    let (_, bridge, _admin, token_addr, _, token_sac) = setup_bridge(&env, limit);
+    let user = Address::generate(&env);
+
+    token_sac.mint(&user, &500);
+    let ref_bytes = Bytes::from_slice(&env, b"test_ref");
+    let receipt_id = bridge.deposit(&user, &500, &token_addr, &ref_bytes);
+
+    bridge.refund_deposit(&receipt_id);
+    
+    assert_eq!(
+        bridge.try_refund_deposit(&receipt_id),
+        Err(Ok(Error::AlreadyRefunded))
+    );
+    
+    assert_eq!(
+        bridge.try_refund_deposit(&999),
+        Err(Ok(Error::ReceiptNotFound))
+    );
+}
+
+#[test]
+fn test_admin_timelock() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let limit = 1000;
+    let (_, bridge, admin, token_addr, _, _) = setup_bridge(&env, limit);
+    
+    let action_type = Symbol::new(&env, "test_action");
+    let payload = Bytes::from_slice(&env, b"test_payload");
+    let delay_ledgers = MIN_TIMELOCK_DELAY;
+    
+    let action_id = bridge.queue_admin_action(&action_type, &payload, &delay_ledgers);
+    
+    let queued_action = bridge.get_queued_admin_action(&action_id).unwrap();
+    assert_eq!(queued_action.action_type, action_type);
+    assert_eq!(queued_action.payload, payload);
+    assert_eq!(queued_action.target_ledger, env.ledger().sequence() + delay_ledgers);
+    
+    assert_eq!(
+        bridge.try_execute_admin_action(&action_id),
+        Err(Ok(Error::ActionNotReady))
+    );
+    
+    // Advance past the timelock delay
+    let target_ledger = env.ledger().sequence() + delay_ledgers + 1;
+    env.ledger().with_mut(|li| {
+        li.sequence_number = target_ledger;
+    });
+    
+    bridge.execute_admin_action(&action_id);
+    
+    assert_eq!(bridge.get_queued_admin_action(&action_id), None);
+}
+
+#[test]
+fn test_admin_timelock_cancellation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let limit = 1000;
+    let (_, bridge, admin, token_addr, _, _) = setup_bridge(&env, limit);
+    
+    let action_type = Symbol::new(&env, "test_action");
+    let payload = Bytes::from_slice(&env, b"test_payload");
+    let delay_ledgers = MIN_TIMELOCK_DELAY;
+    
+    let action_id = bridge.queue_admin_action(&action_type, &payload, &delay_ledgers);
+    
+    bridge.cancel_admin_action(&action_id);
+    
+    assert_eq!(bridge.get_queued_admin_action(&action_id), None);
+}
+
+#[test]
+fn test_partial_withdrawal_execution() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let limit = 1000;
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, limit);
+    let user = Address::generate(&env);
+    
+    token_sac.mint(&user, &500);
+    let ref_bytes = Bytes::new(&env);
+    bridge.deposit(&user, &500, &token_addr, &ref_bytes);
+    
+    let request_id = bridge.request_withdrawal(&user, &500, &token_addr);
+    for _ in 0..100 {
+        env.ledger().with_mut(|li| {
+            li.sequence_number += 1;
+        });
+    }
+    
+    bridge.execute_withdrawal(&request_id, &Some(200));
+    
+    let remaining_request = bridge.get_withdrawal_request(&request_id).unwrap();
+    assert_eq!(remaining_request.amount, 300);
+    assert_eq!(token_sac.balance(&user), 200);
+    
+    bridge.execute_withdrawal(&request_id, &Some(300));
+    
+    assert_eq!(bridge.get_withdrawal_request(&request_id), None);
+    assert_eq!(token_sac.balance(&user), 500);
+
+ }
+
+#[test]
+fn test_emergency_recovery() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let limit = 1000;
+    let (_, bridge, _admin, _token_addr, _, _) = setup_bridge(&env, limit);
+    let recovery_address = Address::generate(&env);
+
+    bridge.set_emergency_recovery_address(&recovery_address);
+    bridge.set_inactivity_threshold(&100);
+
+    for _ in 0..150 {
+        env.ledger().with_mut(|li| {
+            li.sequence_number += 1;
+        });
+    }
+
+    bridge.claim_admin();
+
+    assert_eq!(bridge.get_admin(), recovery_address);
+    assert_eq!(bridge.get_emergency_recovery_address(), None);
+}
+
+#[test]
+fn test_emergency_recovery_errors() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let limit = 1000;
+    let (_, bridge, _admin, _token_addr, _, _) = setup_bridge(&env, limit);
+    let recovery_address = Address::generate(&env);
+
+    bridge.set_emergency_recovery_address(&recovery_address);
+
+    // Claim before inactivity threshold
+    assert_eq!(
+        bridge.try_claim_admin(),
+        Err(Ok(Error::InactivityThresholdNotReached))
+    );
+
+    // No recovery address configured
+    let env2 = Env::default();
+    env2.mock_all_auths();
+    let (_, bridge2, _admin2, _token_addr2, _, _) = setup_bridge(&env2, limit);
+    assert_eq!(
+        bridge2.try_claim_admin(),
+        Err(Ok(Error::NoEmergencyRecoveryAddress))
+    );
 }
