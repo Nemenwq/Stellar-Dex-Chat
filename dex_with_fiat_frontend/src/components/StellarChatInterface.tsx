@@ -1,8 +1,24 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Wallet, LogOut, Moon, Sun, Menu, X, Plus, Star, Settings, ChevronDown, User, AlertCircle } from 'lucide-react';
-import { useStellarWallet, EXPECTED_NETWORK } from '@/contexts/StellarWalletContext';
+import {
+  Wallet,
+  LogOut,
+  Moon,
+  Sun,
+  Menu,
+  X,
+  Plus,
+  Star,
+  Settings,
+  ChevronDown,
+  User,
+  AlertCircle,
+} from 'lucide-react';
+import {
+  useStellarWallet,
+  EXPECTED_NETWORK,
+} from '@/contexts/StellarWalletContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import useChat from '@/hooks/useChat';
 import ChatMessages from './ChatMessages';
@@ -16,11 +32,22 @@ import { TransactionData } from '@/types';
 import SkeletonChat from '@/components/ui/skeleton/SkeletonChat';
 import SkeletonSidebar from '@/components/ui/skeleton/SkeletonSidebar';
 import { useUserPreferences } from '@/contexts/UserPreferencesContext';
-import { getAdmin } from '@/lib/stellarContract';
+import { getAdmin, stroopsToDisplay } from '@/lib/stellarContract';
 import { getQueuedReadRequestsCount } from '@/lib/networkQueue';
+import useBridgeStats from '@/hooks/useBridgeStats';
 
 export default function StellarChatInterface() {
-  const { connection, connect, disconnect, accounts, selectedAccountIndex, selectAccount, sessionExpired, clearSessionExpired, isNetworkMismatch } = useStellarWallet();
+  const {
+    connection,
+    connect,
+    disconnect,
+    accounts,
+    selectedAccountIndex,
+    selectAccount,
+    sessionExpired,
+    clearSessionExpired,
+    isNetworkMismatch,
+  } = useStellarWallet();
   const { isDarkMode, toggleDarkMode } = useTheme();
   const { fiatCurrency } = useUserPreferences();
 
@@ -32,7 +59,7 @@ export default function StellarChatInterface() {
   const [bankDetailsXlmAmount, setBankDetailsXlmAmount] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const [isSheetMounted, setIsSheetMounted] = useState(false);
-   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
+  const [showAccountDropdown, setShowAccountDropdown] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [isOnline, setIsOnline] = useState(
@@ -57,7 +84,15 @@ export default function StellarChatInterface() {
     setIsAdmin: setChatIsAdmin,
   } = useChat();
 
-   // Track viewport width to switch between sidebar and bottom-sheet
+  const {
+    balance,
+    limit,
+    totalDeposited,
+    loading: statsLoading,
+    error: statsError,
+  } = useBridgeStats();
+
+  // Track viewport width to switch between sidebar and bottom-sheet
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
@@ -99,7 +134,10 @@ export default function StellarChatInterface() {
           const adminAddr = await getAdmin();
           setIsAdmin(adminAddr === connection.address);
         } catch (err: unknown) {
-          console.error('Failed to check admin role:', err instanceof Error ? err.message : 'Unknown error');
+          console.error(
+            'Failed to check admin role:',
+            err instanceof Error ? err.message : 'Unknown error',
+          );
           setIsAdmin(false);
         }
       } else {
@@ -227,21 +265,27 @@ export default function StellarChatInterface() {
     dragDelta.current = 0;
   }, [closeSheet]);
 
-   // When the AI decides a transaction is ready, open the modal
-  const handleTransactionReady = useCallback((data: TransactionData) => {
-    if (isNetworkMismatch) return;
-    if (data.amountIn) setDefaultAmount(data.amountIn);
-    setIsAdminMode(false);
-    setShowModal(true);
-  }, [isNetworkMismatch]);
+  // When the AI decides a transaction is ready, open the modal
+  const handleTransactionReady = useCallback(
+    (data: TransactionData) => {
+      if (isNetworkMismatch) return;
+      if (data.amountIn) setDefaultAmount(data.amountIn);
+      setIsAdminMode(false);
+      setShowModal(true);
+    },
+    [isNetworkMismatch],
+  );
 
   // After a successful deposit, close the deposit modal and open bank details
-  const handleDepositSuccess = useCallback((result: { xlmAmount: number; note?: string }) => {
-    setShowModal(false);
-    setDefaultAmount('');
-    setBankDetailsXlmAmount(result.xlmAmount);
-    setShowBankDetails(true);
-  }, []);
+  const handleDepositSuccess = useCallback(
+    (result: { xlmAmount: number; note?: string }) => {
+      setShowModal(false);
+      setDefaultAmount('');
+      setBankDetailsXlmAmount(result.xlmAmount);
+      setShowBankDetails(true);
+    },
+    [],
+  );
 
   // Register the callback in useEffect to ensure it runs reliably
   useEffect(() => {
@@ -254,7 +298,7 @@ export default function StellarChatInterface() {
         case 'connect_wallet':
           connect();
           break;
-         case 'confirm_fiat':
+        case 'confirm_fiat':
           if (isNetworkMismatch) break;
           setIsAdminMode(false);
           setShowModal(true);
@@ -366,69 +410,79 @@ export default function StellarChatInterface() {
               )}
             </button>
 
-        {connection.isConnected ? (
-          <div className="flex items-center gap-2">
-            <div ref={accountDropdownRef} className="relative">
-              <button
-                onClick={() => accounts.length > 1 && setShowAccountDropdown(!showAccountDropdown)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${isDarkMode ? 'bg-gray-800 text-gray-200 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} ${accounts.length > 1 ? 'cursor-pointer' : 'cursor-default'}`}
-              >
-                <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
-                <span className="font-mono">
-                  {connection.address.slice(0, 6)}…
-                  {connection.address.slice(-4)}
-                </span>
-                {accounts.length > 1 && (
-                  <ChevronDown className={`w-3 h-3 transition-transform ${showAccountDropdown ? 'rotate-180' : ''}`} />
-                )}
-              </button>
-              {showAccountDropdown && accounts.length > 1 && (
-                <div
-                  className={`absolute right-0 top-full mt-1 w-56 rounded-lg shadow-lg border z-50 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
-                >
-                  <div className={`px-3 py-2 text-xs font-semibold border-b ${isDarkMode ? 'text-gray-400 border-gray-700' : 'text-gray-500 border-gray-200'}`}>
-                    Switch Account
-                  </div>
-                  {accounts.map((account, idx) => (
-                    <button
-                      key={account.address}
-                      onClick={() => {
-                        selectAccount(idx);
-                        setShowAccountDropdown(false);
-                      }}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors ${idx === selectedAccountIndex ? (isDarkMode ? 'bg-blue-900/50 text-blue-400' : 'bg-blue-50 text-blue-600') : (isDarkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-700 hover:bg-gray-50')}`}
+            {connection.isConnected ? (
+              <div className="flex items-center gap-2">
+                <div ref={accountDropdownRef} className="relative">
+                  <button
+                    onClick={() =>
+                      accounts.length > 1 &&
+                      setShowAccountDropdown(!showAccountDropdown)
+                    }
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${isDarkMode ? 'bg-gray-800 text-gray-200 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} ${accounts.length > 1 ? 'cursor-pointer' : 'cursor-default'}`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+                    <span className="font-mono">
+                      {connection.address.slice(0, 6)}…
+                      {connection.address.slice(-4)}
+                    </span>
+                    {accounts.length > 1 && (
+                      <ChevronDown
+                        className={`w-3 h-3 transition-transform ${showAccountDropdown ? 'rotate-180' : ''}`}
+                      />
+                    )}
+                  </button>
+                  {showAccountDropdown && accounts.length > 1 && (
+                    <div
+                      className={`absolute right-0 top-full mt-1 w-56 rounded-lg shadow-lg border z-50 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
                     >
-                      <User className="w-3.5 h-3.5 flex-shrink-0" />
-                      <span className="font-mono truncate">
-                        {account.address.slice(0, 6)}…{account.address.slice(-4)}
-                      </span>
-                      {idx === selectedAccountIndex && (
-                        <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded ${isDarkMode ? 'bg-blue-900/50' : 'bg-blue-100'}`}>
-                          Active
-                        </span>
-                      )}
-                    </button>
-                  ))}
+                      <div
+                        className={`px-3 py-2 text-xs font-semibold border-b ${isDarkMode ? 'text-gray-400 border-gray-700' : 'text-gray-500 border-gray-200'}`}
+                      >
+                        Switch Account
+                      </div>
+                      {accounts.map((account, idx) => (
+                        <button
+                          key={account.address}
+                          onClick={() => {
+                            selectAccount(idx);
+                            setShowAccountDropdown(false);
+                          }}
+                          className={`w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors ${idx === selectedAccountIndex ? (isDarkMode ? 'bg-blue-900/50 text-blue-400' : 'bg-blue-50 text-blue-600') : isDarkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-700 hover:bg-gray-50'}`}
+                        >
+                          <User className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span className="font-mono truncate">
+                            {account.address.slice(0, 6)}…
+                            {account.address.slice(-4)}
+                          </span>
+                          {idx === selectedAccountIndex && (
+                            <span
+                              className={`ml-auto text-[10px] px-1.5 py-0.5 rounded ${isDarkMode ? 'bg-blue-900/50' : 'bg-blue-100'}`}
+                            >
+                              Active
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            <button
-              onClick={disconnect}
-              title="Disconnect"
-              className={`p-2 rounded-lg transition-colors ${isDarkMode ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-600'}`}
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={connect}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white text-sm font-medium rounded-lg transition-all"
-          >
-            <Wallet className="w-4 h-4" />
-            Connect Freighter
-          </button>
-        )}
+                <button
+                  onClick={disconnect}
+                  title="Disconnect"
+                  className={`p-2 rounded-lg transition-colors ${isDarkMode ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-600'}`}
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={connect}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white text-sm font-medium rounded-lg transition-all"
+              >
+                <Wallet className="w-4 h-4" />
+                Connect Freighter
+              </button>
+            )}
           </div>
         </header>
 
@@ -439,7 +493,8 @@ export default function StellarChatInterface() {
             role="status"
             aria-live="polite"
           >
-            Offline detected. Read-only operations are queued and will retry when online.
+            Offline detected. Read-only operations are queued and will retry
+            when online.
             {queuedReadables > 0 ? ` (${queuedReadables} queued)` : ''}
           </div>
         )}
@@ -508,9 +563,53 @@ export default function StellarChatInterface() {
             {isNetworkMismatch && (
               <span className="flex items-center gap-1 text-[11px]">
                 <AlertCircle className="w-3.5 h-3.5" />
-                Deposits and withdrawals are disabled.
-                Switch to {EXPECTED_NETWORK} in Freighter: Settings → Network → {EXPECTED_NETWORK}.
+                Deposits and withdrawals are disabled. Switch to{' '}
+                {EXPECTED_NETWORK} in Freighter: Settings → Network →{' '}
+                {EXPECTED_NETWORK}.
               </span>
+            )}
+          </div>
+        )}
+
+        {/* Bridge Stats Bar */}
+        {connection.isConnected && (
+          <div
+            className={`flex-shrink-0 py-2 px-4 text-xs ${
+              isDarkMode
+                ? 'bg-gray-800/30 text-gray-300'
+                : 'bg-gray-100 text-gray-600'
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            {statsError ? (
+              <span className="text-red-400">{statsError}</span>
+            ) : statsLoading ? (
+              <span className="text-gray-500">Loading stats…</span>
+            ) : (
+              <div className="flex flex-col gap-1 sm:flex-row sm:gap-4 sm:items-center">
+                <span className="font-medium">
+                  Bridge Balance:{' '}
+                  <span className="text-blue-400">
+                    {balance !== null ? stroopsToDisplay(balance) : '—'} XLM
+                  </span>
+                </span>
+                <span className="font-medium">
+                  Deposit Limit:{' '}
+                  <span className="text-blue-400">
+                    {limit !== null ? stroopsToDisplay(limit) : '—'} XLM
+                  </span>
+                </span>
+                <span className="font-medium">
+                  Total Deposited:{' '}
+                  <span className="text-blue-400">
+                    {totalDeposited !== null
+                      ? stroopsToDisplay(totalDeposited)
+                      : '—'}{' '}
+                    XLM
+                  </span>
+                </span>
+              </div>
             )}
           </div>
         )}
@@ -580,7 +679,7 @@ export default function StellarChatInterface() {
       )}
 
       {/* Deposit / Withdraw Modal */}
-       <StellarFiatModal
+      <StellarFiatModal
         isOpen={showModal}
         onClose={() => {
           setShowModal(false);
@@ -601,43 +700,50 @@ export default function StellarChatInterface() {
         xlmAmount={bankDetailsXlmAmount}
       />
 
-  {/* Settings panel */}
-  <UserSettings
-    isOpen={showSettings}
-    onClose={() => setShowSettings(false)}
-  />
+      {/* Settings panel */}
+      <UserSettings
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+      />
 
-  {/* Session expired banner */}
-  {sessionExpired && (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-full px-4">
-      <div className={`flex items-center gap-3 p-4 rounded-lg shadow-lg border ${isDarkMode ? 'bg-gray-800 border-yellow-600/50' : 'bg-white border-yellow-500'}`}>
-        <AlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0" />
-        <div className="flex-1">
-          <p className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-            Wallet Session Expired
-          </p>
-          <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-            Your wallet session has expired after 24 hours. Please reconnect to continue.
-          </p>
+      {/* Session expired banner */}
+      {sessionExpired && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-full px-4">
+          <div
+            className={`flex items-center gap-3 p-4 rounded-lg shadow-lg border ${isDarkMode ? 'bg-gray-800 border-yellow-600/50' : 'bg-white border-yellow-500'}`}
+          >
+            <AlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0" />
+            <div className="flex-1">
+              <p
+                className={`text-sm font-medium ${isDarkMode ? 'text-white' : 'text-gray-900'}`}
+              >
+                Wallet Session Expired
+              </p>
+              <p
+                className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}
+              >
+                Your wallet session has expired after 24 hours. Please reconnect
+                to continue.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                clearSessionExpired();
+                connect();
+              }}
+              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-yellow-500 hover:bg-yellow-600 text-white transition-colors"
+            >
+              Reconnect
+            </button>
+            <button
+              onClick={clearSessionExpired}
+              className={`flex-shrink-0 p-1 rounded-lg transition-colors ${isDarkMode ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
-        <button
-          onClick={() => {
-            clearSessionExpired();
-            connect();
-          }}
-          className="flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-yellow-500 hover:bg-yellow-600 text-white transition-colors"
-        >
-          Reconnect
-        </button>
-        <button
-          onClick={clearSessionExpired}
-          className={`flex-shrink-0 p-1 rounded-lg transition-colors ${isDarkMode ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
+      )}
     </div>
-  )}
-</div>
-);
+  );
 }
