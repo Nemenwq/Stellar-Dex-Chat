@@ -136,6 +136,21 @@ export interface PaystackTransfer {
   reference: string;
 }
 
+// Admin Reconciliation Types
+export interface ReconciliationRecord {
+  id: string;
+  depositTxHash: string;
+  depositAmount: string;
+  depositUser: string;
+  depositDate: string;
+  payoutId: string;
+  payoutAmount: string;
+  payoutRecipient: string;
+  payoutStatus: 'pending' | 'completed' | 'failed';
+  payoutDate: string;
+  status: 'matched' | 'unmatched' | 'error';
+}
+
 // Stellar Wallet
 export interface StellarWalletConnection {
   address: string;
