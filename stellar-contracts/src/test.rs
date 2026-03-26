@@ -176,18 +176,18 @@ fn test_deposit_cooldown_blocks_rapid_second_deposit() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 500);
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 500);
     let user = Address::generate(&env);
     token_sac.mint(&user, &1_000);
 
     bridge.set_cooldown(&10);
     let start_ledger = env.ledger().sequence();
 
-    bridge.deposit(&user, &100);
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env));
     assert_eq!(bridge.get_last_deposit_ledger(&user), Some(start_ledger));
 
     // Same address, same ledger window → must fail
-    let result = bridge.try_deposit(&user, &50);
+    let result = bridge.try_deposit(&user, &50, &token_addr, &Bytes::new(&env));
     assert_eq!(result, Err(Ok(Error::CooldownActive)));
 }
 
@@ -196,22 +196,22 @@ fn test_deposit_succeeds_after_cooldown_period() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 500);
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 500);
     let user = Address::generate(&env);
     token_sac.mint(&user, &1_000);
 
     bridge.set_cooldown(&7);
     let start_ledger = env.ledger().sequence();
 
-    bridge.deposit(&user, &100);
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env));
 
     // Advance past the cooldown window
     env.ledger().with_mut(|li| {
-        li.sequence = start_ledger + 7;
+        li.sequence_number = start_ledger + 7;
     });
 
     // Should succeed now
-    bridge.deposit(&user, &50);
+    bridge.deposit(&user, &50, &token_addr, &Bytes::new(&env));
 }
 
 #[test]
@@ -219,7 +219,7 @@ fn test_deposit_cooldown_is_per_address_only() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 500);
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 500);
     let user_a = Address::generate(&env);
     let user_b = Address::generate(&env);
     token_sac.mint(&user_a, &1_000);
@@ -227,13 +227,13 @@ fn test_deposit_cooldown_is_per_address_only() {
 
     bridge.set_cooldown(&10);
 
-    bridge.deposit(&user_a, &100);
+    bridge.deposit(&user_a, &100, &token_addr, &Bytes::new(&env));
 
     // Different address is unaffected by user_a's cooldown
-    bridge.deposit(&user_b, &100);
+    bridge.deposit(&user_b, &100, &token_addr, &Bytes::new(&env));
 
     // user_a still blocked
-    let result = bridge.try_deposit(&user_a, &50);
+    let result = bridge.try_deposit(&user_a, &50, &token_addr, &Bytes::new(&env));
     assert_eq!(result, Err(Ok(Error::CooldownActive)));
 }
 
@@ -242,18 +242,18 @@ fn test_last_deposit_record_expires_with_ttl() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 500);
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 500);
     let user = Address::generate(&env);
     token_sac.mint(&user, &1_000);
 
     bridge.set_cooldown(&5);
     let start_ledger = env.ledger().sequence();
-    bridge.deposit(&user, &100);
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env));
     assert_eq!(bridge.get_last_deposit_ledger(&user), Some(start_ledger));
 
     // Move beyond cooldown TTL so the temporary key naturally expires
     env.ledger().with_mut(|li| {
-        li.sequence = start_ledger + 6;
+        li.sequence_number = start_ledger + 6;
     });
 
     assert_eq!(bridge.get_last_deposit_ledger(&user), None);
@@ -347,7 +347,7 @@ fn test_per_user_deposit_tracking() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, _, _, _, token_sac) = setup_bridge(&env, 1000);
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 1000);
     let user1 = Address::generate(&env);
     let user2 = Address::generate(&env);
     token_sac.mint(&user1, &500);
@@ -358,17 +358,17 @@ fn test_per_user_deposit_tracking() {
     assert_eq!(bridge.get_user_deposited(&user2), 0);
 
     // User1 first deposit
-    bridge.deposit(&user1, &100);
+    bridge.deposit(&user1, &100, &token_addr, &Bytes::new(&env));
     assert_eq!(bridge.get_user_deposited(&user1), 100);
     assert_eq!(bridge.get_total_deposited(), 100);
 
     // User1 second deposit
-    bridge.deposit(&user1, &50);
+    bridge.deposit(&user1, &50, &token_addr, &Bytes::new(&env));
     assert_eq!(bridge.get_user_deposited(&user1), 150);
     assert_eq!(bridge.get_total_deposited(), 150);
 
     // User2 first deposit
-    bridge.deposit(&user2, &200);
+    bridge.deposit(&user2, &200, &token_addr, &Bytes::new(&env));
     assert_eq!(bridge.get_user_deposited(&user2), 200);
     assert_eq!(bridge.get_user_deposited(&user1), 150); // user1 stays same
     assert_eq!(bridge.get_total_deposited(), 350);
