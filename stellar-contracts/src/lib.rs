@@ -138,13 +138,18 @@ pub enum DataKey {
     LastDepositLedger(Address),
     /// Contract schema version for safe migrations. Always bump on breaking storage changes.
     SchemaVersion,
-}
 
-    QueuedAdminAction(u64),
+    // ── Added for admin actions and recovery ──
+    /// Auto-incrementing counter for admin actions
     NextActionID,
-    EmergencyRecoveryAddress,
+    /// Last ledger when an admin action was performed
     LastAdminActionLedger,
+    /// Inactivity threshold for admin recovery
     InactivityThreshold,
+    /// Queued admin action by action ID
+    QueuedAdminAction(u64),
+    /// Emergency recovery address
+    EmergencyRecoveryAddress,
 }
 
 /// Approximate number of ledgers in a 24-hour window (5-second close time).
@@ -184,8 +189,12 @@ impl FiatBridge {
         // Set schema version to 1 on initialization
         env.storage().instance().set(&DataKey::SchemaVersion, &1u32);
         env.storage().instance().set(&DataKey::NextActionID, &0u64);
-        env.storage().instance().set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
-        env.storage().instance().set(&DataKey::InactivityThreshold, &DEFAULT_INACTIVITY_THRESHOLD);
+        env.storage()
+            .instance()
+            .set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
+        env.storage()
+            .instance()
+            .set(&DataKey::InactivityThreshold, &DEFAULT_INACTIVITY_THRESHOLD);
         Ok(())
     }
     /// Returns the current contract schema version (for migrations).
@@ -408,7 +417,11 @@ impl FiatBridge {
     }
 
     /// Execute a matured withdrawal request. Supports partial execution.
-    pub fn execute_withdrawal(env: Env, request_id: u64, partial_amount: Option<i128>) -> Result<(), Error> {
+    pub fn execute_withdrawal(
+        env: Env,
+        request_id: u64,
+        partial_amount: Option<i128>,
+    ) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let mut request: WithdrawRequest = env
             .storage()
@@ -525,8 +538,14 @@ impl FiatBridge {
             return Err(Error::AlreadyRefunded);
         }
 
-        let token_client = token::Client::new(&env, &env.storage().instance().get(&DataKey::Token).ok_or(Error::NotInitialized)?);
-        
+        let token_client = token::Client::new(
+            &env,
+            &env.storage()
+                .instance()
+                .get(&DataKey::Token)
+                .ok_or(Error::NotInitialized)?,
+        );
+
         token_client.transfer(
             &env.current_contract_address(),
             &receipt.depositor,
@@ -834,7 +853,7 @@ impl FiatBridge {
     /// Claim admin role using emergency recovery. Only callable after inactivity period.
     pub fn claim_admin(env: Env) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
-        
+
         let recovery_address: Address = env
             .storage()
             .instance()
@@ -864,7 +883,7 @@ impl FiatBridge {
         env.storage()
             .instance()
             .remove(&DataKey::EmergencyRecoveryAddress);
-        
+
         env.events().publish(
             (Symbol::new(&env, "admin_claimed"),),
             recovery_address.clone(),
@@ -1089,12 +1108,16 @@ impl FiatBridge {
 
     /// Get a queued admin action by ID.
     pub fn get_queued_admin_action(env: Env, action_id: u64) -> Option<QueuedAdminAction> {
-        env.storage().persistent().get(&DataKey::QueuedAdminAction(action_id))
+        env.storage()
+            .persistent()
+            .get(&DataKey::QueuedAdminAction(action_id))
     }
 
     /// Get the emergency recovery address.
     pub fn get_emergency_recovery_address(env: Env) -> Option<Address> {
-        env.storage().instance().get(&DataKey::EmergencyRecoveryAddress)
+        env.storage()
+            .instance()
+            .get(&DataKey::EmergencyRecoveryAddress)
     }
 
     /// Get the last admin action ledger.
@@ -1155,7 +1178,9 @@ impl FiatBridge {
     }
 
     fn update_last_admin_action_ledger(env: &Env) {
-        env.storage().instance().set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
+        env.storage()
+            .instance()
+            .set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
     }
 }
 
