@@ -18,6 +18,11 @@ import {
 import { convertCryptoToFiat } from '@/lib/cryptoPriceService';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useBeneficiaries, Beneficiary } from '@/hooks/useBeneficiaries';
+import { useTxHistory } from '@/hooks/useTxHistory';
+import TransferTimeline, {
+  StatusEvent,
+  TransferStatus,
+} from '@/components/TransferTimeline';
 
 interface Bank {
   id: number;
@@ -67,6 +72,7 @@ export default function BankDetailsModal({
   } = useBeneficiaries();
 
   const { addNotification } = useNotifications();
+  const { addEntry } = useTxHistory();
 
   const [step, setStep] = useState<Step>(1);
 
@@ -78,28 +84,40 @@ export default function BankDetailsModal({
   const [showSavePrompt, setShowSavePrompt] = useState(false);
   const [saveCustomName, setSaveCustomName] = useState('');
 
-  // Step 1 — bank selection
+  // Step 1 - bank selection
   const [banks, setBanks] = useState<Bank[]>([]);
   const [banksLoading, setBanksLoading] = useState(false);
   const [banksError, setBanksError] = useState('');
   const [bankSearch, setBankSearch] = useState('');
   const [selectedBank, setSelectedBank] = useState<Bank | null>(null);
 
-  // Step 2 — account details
+  // Step 2 - account details
   const [accountNumber, setAccountNumber] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState('');
   const [verifiedAccount, setVerifiedAccount] =
     useState<VerifyAccountData | null>(null);
 
-  // Step 3 — confirm payout
+  // Step 3 - confirm payout
   const [ngnAmount, setNgnAmount] = useState<number | null>(null);
   const [ngnLoading, setNgnLoading] = useState(false);
   const [payoutLoading, setPayoutLoading] = useState(false);
   const [payoutError, setPayoutError] = useState('');
+  const [payoutNote, setPayoutNote] = useState('');
 
-  // Step 4 — success
+  // Step 4 - success
   const [transferReference, setTransferReference] = useState('');
+
+  // Transfer timeline
+  const [statusEvents, setStatusEvents] = useState<StatusEvent[]>([]);
+  const [isPollingStatus, setIsPollingStatus] = useState(false);
+
+  const pushStatusEvent = (status: TransferStatus, label?: string) => {
+    setStatusEvents((prev: StatusEvent[]) => [
+      ...prev,
+      { status, timestamp: new Date(), label },
+    ]);
+  };
 
   // Fetch banks when modal opens
   useEffect(() => {
@@ -168,6 +186,8 @@ export default function BankDetailsModal({
     if (!selectedBank || !verifiedAccount) return;
     setPayoutLoading(true);
     setPayoutError('');
+    setStatusEvents([]);
+    pushStatusEvent('initiated', 'Transfer initiated');
     addNotification('payout_pending', 'Fiat payout request is pending...');
     try {
       // 1. Create Paystack transfer recipient
@@ -193,6 +213,9 @@ export default function BankDetailsModal({
         );
       }
 
+      pushStatusEvent('pending', 'Submitted to bank — awaiting confirmation');
+      setIsPollingStatus(true);
+
       // 2. Initiate the NGN bank transfer
       // The route handler multiplies the amount by 100 before calling Paystack,
       // so we send the NGN value directly (not kobo).
@@ -202,7 +225,7 @@ export default function BankDetailsModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           source: 'balance',
-          reason: `XLM to NGN — ${xlmAmount} XLM`,
+          reason: `XLM to NGN - ${xlmAmount} XLM`,
           amount: ngnValue,
           recipient: recipientJson.data.recipient_code,
         }),
@@ -221,13 +244,35 @@ export default function BankDetailsModal({
       setTransferReference(
         transferJson.data.reference || transferJson.data.transfer_code || '',
       );
+      addEntry({
+        kind: 'payout',
+        status: 'completed',
+        amount: String(xlmAmount),
+        asset: 'XLM',
+        fiatAmount:
+          ngnAmount !== null
+            ? ngnAmount.toLocaleString('en-NG', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })
+            : undefined,
+        fiatCurrency: 'NGN',
+        note: payoutNote.trim() || undefined,
+        reference:
+          transferJson.data.reference || transferJson.data.transfer_code || '',
+        message: `Fiat payout initiated to ${selectedBank.name}.`,
+      });
       // Simulation block
       await new Promise(resolve => setTimeout(resolve, 2500));
+      setIsPollingStatus(false);
+      pushStatusEvent('success', 'Bank transfer confirmed');
       setStep(4);
       addNotification('payout_success', 'Fiat payout successfully completed!');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Payout failed. Please try again.';
       setPayoutError(errorMsg);
+      setIsPollingStatus(false);
+      pushStatusEvent('failed', `Transfer failed: ${errorMsg}`);
       addNotification('payout_fail', `Payout failed: ${errorMsg}`);
     } finally {
       setPayoutLoading(false);
@@ -250,6 +295,7 @@ export default function BankDetailsModal({
     setNgnLoading(false);
     setPayoutLoading(false);
     setPayoutError('');
+    setPayoutNote('');
     setTransferReference('');
     setShowSavedBeneficiaries(false);
     setSelectedSavedBeneficiary(null);
@@ -257,6 +303,8 @@ export default function BankDetailsModal({
     setEditingName('');
     setShowSavePrompt(false);
     setSaveCustomName('');
+    setStatusEvents([]);
+    setIsPollingStatus(false);
     onClose();
   };
 
@@ -309,23 +357,23 @@ export default function BankDetailsModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="relative w-full max-w-md mx-4 bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl p-6">
+    <div className="theme-overlay fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
+      <div className="theme-surface theme-border relative w-full max-w-md mx-4 border rounded-2xl shadow-2xl p-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <Building2 className="w-5 h-5 text-blue-400" />
-            <h2 className="text-lg font-semibold text-white">Fiat Payout</h2>
+            <h2 className="theme-text-primary text-lg font-semibold">Fiat Payout</h2>
           </div>
           <button
             onClick={handleClose}
-            className="text-gray-400 hover:text-white transition-colors"
+            className="theme-text-muted hover:theme-text-primary transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Step indicators — hidden on the success screen */}
+        {/* Step indicators - hidden on the success screen */}
         {step < 4 && (
           <div className="flex items-center gap-1 mb-6">
             {([1, 2, 3] as const).map((s) => (
@@ -626,24 +674,24 @@ export default function BankDetailsModal({
         {/* ── Step 3: Confirm Payout ── */}
         {step === 3 && (
           <div>
-            <p className="text-sm text-gray-400 mb-4">
+            <p className="theme-text-secondary text-sm mb-4">
               Review your payout details
             </p>
 
-            <div className="bg-gray-800 rounded-xl p-4 space-y-3 mb-4">
+            <div className="theme-surface-muted theme-border rounded-xl border p-4 space-y-3 mb-4">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-400">XLM deposited</span>
-                <span className="text-white font-medium">
+                <span className="theme-text-secondary">XLM deposited</span>
+                <span className="theme-text-primary font-medium">
                   {xlmAmount} XLM
                 </span>
               </div>
 
               <div className="flex justify-between text-sm items-center">
-                <span className="text-gray-400">Estimated NGN</span>
+                <span className="theme-text-secondary">Estimated NGN</span>
                 {ngnLoading ? (
                   <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
                 ) : ngnAmount !== null ? (
-                  <span className="text-white font-medium">
+                  <span className="theme-text-primary font-medium">
                     ₦
                     {ngnAmount.toLocaleString('en-NG', {
                       minimumFractionDigits: 2,
@@ -651,34 +699,48 @@ export default function BankDetailsModal({
                     })}
                   </span>
                 ) : (
-                  <span className="text-gray-500">—</span>
+                  <span className="theme-text-muted">-</span>
                 )}
               </div>
 
-              <div className="border-t border-gray-700 pt-3 space-y-3">
+              <div className="theme-border border-t pt-3 space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Bank</span>
-                  <span className="text-white font-medium">
+                  <span className="theme-text-secondary">Bank</span>
+                  <span className="theme-text-primary font-medium">
                     {selectedBank?.name}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Account name</span>
-                  <span className="text-white font-medium">
+                  <span className="theme-text-secondary">Account name</span>
+                  <span className="theme-text-primary font-medium">
                     {verifiedAccount?.account_name}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Account number</span>
-                  <span className="text-white font-medium font-mono">
+                  <span className="theme-text-secondary">Account number</span>
+                  <span className="theme-text-primary font-medium font-mono">
                     {accountNumber}
                   </span>
                 </div>
               </div>
             </div>
 
+            <div className="mb-4">
+              <label className="theme-text-secondary block text-sm mb-1">
+                Optional payout note
+              </label>
+              <textarea
+                value={payoutNote}
+                onChange={(e) => setPayoutNote(e.target.value)}
+                placeholder="Add a note for this payout"
+                rows={2}
+                maxLength={160}
+                className="theme-input w-full border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 resize-none"
+              />
+            </div>
+
             {payoutError && (
-              <div className="flex items-center gap-2 text-red-400 text-sm mb-4 bg-red-400/10 rounded-lg px-3 py-2">
+              <div className="theme-soft-danger flex items-center gap-2 text-sm mb-4 rounded-lg px-3 py-2 border">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
                 <span>{payoutError}</span>
               </div>
@@ -689,7 +751,7 @@ export default function BankDetailsModal({
                 type="button"
                 onClick={() => setStep(2)}
                 disabled={payoutLoading}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white py-3 rounded-lg font-medium transition-colors"
+                className="theme-secondary-button flex-1 disabled:opacity-50 py-3 rounded-lg font-medium transition-colors"
               >
                 Back
               </button>
@@ -697,7 +759,7 @@ export default function BankDetailsModal({
                 type="button"
                 onClick={handleConfirmPayout}
                 disabled={payoutLoading}
-                className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-70 text-white py-3 rounded-lg font-medium transition-colors"
+                className="theme-primary-button flex-1 flex items-center justify-center gap-2 disabled:bg-blue-800 disabled:opacity-70 text-white py-3 rounded-lg font-medium transition-colors"
               >
                 {payoutLoading ? (
                   <>
@@ -709,6 +771,19 @@ export default function BankDetailsModal({
                 )}
               </button>
             </div>
+
+            {/* Payout Status Timeline — visible while processing */}
+            {statusEvents.length > 0 && (
+              <div className="mt-6">
+                <p className="theme-text-muted text-xs font-semibold uppercase tracking-wider mb-3">
+                  Transfer Status
+                </p>
+                <TransferTimeline
+                  events={statusEvents}
+                  isPolling={isPollingStatus}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -716,29 +791,44 @@ export default function BankDetailsModal({
         {step === 4 && (
           <div className="text-center py-4">
             <CheckCircle className="w-14 h-14 text-green-400 mx-auto mb-4" />
-            <p className="text-white font-semibold text-lg mb-2">
+            <p className="theme-text-primary font-semibold text-lg mb-2">
               Payout Initiated!
             </p>
-            <p className="text-gray-400 text-sm mb-6">
+            <p className="theme-text-secondary text-sm mb-6">
               Your bank transfer is processing. This usually takes a few
               minutes.
             </p>
+            {payoutNote && (
+              <p className="theme-text-secondary text-xs mb-6">
+                Note: <span className="theme-text-primary">{payoutNote}</span>
+              </p>
+            )}
 
             {transferReference && (
-              <div className="bg-gray-800 rounded-lg px-4 py-3 mb-6 text-left">
-                <p className="text-xs text-gray-500 mb-1">
+              <div className="theme-surface-muted rounded-lg px-4 py-3 mb-6 text-left">
+                <p className="theme-text-muted text-xs mb-1">
                   Transfer Reference
                 </p>
-                <p className="text-white font-mono text-sm break-all">
+                <p className="theme-text-primary font-mono text-sm break-all">
                   {transferReference}
                 </p>
+              </div>
+            )}
+
+            {/* Timeline showing all status transitions */}
+            {statusEvents.length > 0 && (
+              <div className="mb-6 text-left">
+                <p className="theme-text-muted text-xs font-semibold uppercase tracking-wider mb-3">
+                  Transfer History
+                </p>
+                <TransferTimeline events={statusEvents} isPolling={false} />
               </div>
             )}
 
             <button
               type="button"
               onClick={handleClose}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-medium transition-colors"
+              className="theme-primary-button w-full py-3 rounded-lg font-medium transition-colors"
             >
               Close
             </button>

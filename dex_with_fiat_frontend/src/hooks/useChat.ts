@@ -1,7 +1,12 @@
 'use client';
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { ChatMessage, AIAnalysisResult, TransactionData } from '@/types';
+import {
+  ChatMessage,
+  AIAnalysisResult,
+  GuardrailCategory,
+  TransactionData,
+} from '@/types';
 import { AIAssistant } from '@/lib/aiAssistant';
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
 import { useChatHistory } from './useChatHistory';
@@ -13,6 +18,8 @@ interface ConversationState {
   pendingTransactionData: TransactionData | null;
   shouldTriggerTransaction: boolean;
   isAdmin: boolean;
+  awaitingClarification: boolean;
+  clarificationQuestion: string | null;
 }
 
 const useChat = () => {
@@ -33,6 +40,8 @@ const useChat = () => {
       pendingTransactionData: null,
       shouldTriggerTransaction: false,
       isAdmin: false,
+      awaitingClarification: false,
+      clarificationQuestion: null,
     },
   );
 
@@ -136,6 +145,8 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           hasUserCancelled: true,
           pendingTransactionData: null,
           shouldTriggerTransaction: false,
+          awaitingClarification: false,
+          clarificationQuestion: null,
         }));
       }
 
@@ -183,8 +194,15 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           (pendingTransactionData.tokenIn ||
             pendingTransactionData.amountIn ||
             pendingTransactionData.fiatAmount);
+        const needsClarification =
+          analysis.intent === 'fiat_conversion' &&
+          analysis.confidence < AIAssistant.LOW_CONFIDENCE_THRESHOLD;
+        const clarificationQuestion = needsClarification
+          ? aiAssistant.getClarificationQuestion(analysis)
+          : null;
 
         const shouldAutoTrigger =
+          !needsClarification &&
           !conversationState.hasUserCancelled &&
           (newMessageCount >= 5 ||
             (hasMinimalTransactionData &&
@@ -197,7 +215,12 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
 
         let enhancedResponse = analysis.suggestedResponse;
 
+        if (needsClarification && clarificationQuestion) {
+          enhancedResponse = `**One quick clarification**: ${clarificationQuestion}`;
+        }
+
         if (
+          !needsClarification &&
           newMessageCount >= 3 &&
           hasMinimalTransactionData &&
           !conversationState.hasUserCancelled
@@ -206,6 +229,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
 
 **Ready to Proceed**: I have the details needed for your conversion. Let me set this up for you to review and sign.`;
         } else if (
+          !needsClarification &&
           newMessageCount >= 4 &&
           !hasMinimalTransactionData &&
           !conversationState.hasUserCancelled
@@ -241,6 +265,8 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           hasUserCancelled: isCancellation ? true : prev.hasUserCancelled,
           pendingTransactionData,
           shouldTriggerTransaction,
+          awaitingClarification: needsClarification,
+          clarificationQuestion,
         }));
 
         const shouldShowTransactionData =
@@ -256,6 +282,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           content: enhancedResponse,
           timestamp: new Date(),
           metadata: {
+            guardrail: analysis.guardrail,
             transactionData: shouldShowTransactionData
               ? (analysis.extractedData as TransactionData)
               : undefined,
@@ -265,11 +292,14 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
               hasTransactionData: !!pendingTransactionData,
               shouldAutoTrigger: !!shouldAutoTrigger,
               isAdmin: conversationState.isAdmin,
+              lowConfidence: needsClarification,
             }),
             confirmationRequired:
               analysis.intent === 'fiat_conversion' || shouldTriggerTransaction,
             autoTriggerTransaction: shouldTriggerTransaction,
             conversationCount: newMessageCount,
+            lowConfidence: needsClarification,
+            clarificationQuestion: clarificationQuestion || undefined,
           },
         };
 
@@ -309,6 +339,8 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
       pendingTransactionData: null,
       shouldTriggerTransaction: false,
       isAdmin: prev.isAdmin,
+      awaitingClarification: false,
+      clarificationQuestion: null,
     }));
     createNewSession([]);
   }, [createNewSession]);
@@ -326,6 +358,8 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           pendingTransactionData: null,
           shouldTriggerTransaction: false,
           isAdmin: prev.isAdmin,
+          awaitingClarification: false,
+          clarificationQuestion: null,
         }));
       }
     },
@@ -387,6 +421,7 @@ function generateSuggestedActions(
     hasTransactionData?: boolean;
     shouldAutoTrigger?: boolean;
     isAdmin?: boolean;
+    lowConfidence?: boolean;
   },
 ) {
   const actions = [];
@@ -395,6 +430,11 @@ function generateSuggestedActions(
   const hasTransactionData = context?.hasTransactionData || false;
   const shouldAutoTrigger = context?.shouldAutoTrigger || false;
   const isAdmin = context?.isAdmin || false;
+  const lowConfidence = context?.lowConfidence || false;
+
+  if (analysis.intent === 'guardrail' && analysis.guardrail) {
+    return generateGuardrailActions(analysis.guardrail.category, isConnected);
+  }
 
   if (shouldAutoTrigger && hasTransactionData) {
     actions.push({
@@ -411,7 +451,12 @@ function generateSuggestedActions(
     return actions;
   }
 
-  if (messageCount >= 3 && hasTransactionData && !shouldAutoTrigger) {
+  if (
+    messageCount >= 3 &&
+    hasTransactionData &&
+    !shouldAutoTrigger &&
+    !lowConfidence
+  ) {
     actions.push({
       id: 'proceed_now',
       type: 'confirm_fiat' as const,
@@ -435,7 +480,7 @@ function generateSuggestedActions(
       });
     }
 
-    if (!shouldAutoTrigger) {
+    if (!shouldAutoTrigger && !lowConfidence) {
       actions.push({
         id: 'proceed_conversion',
         type: 'confirm_fiat' as const,
@@ -494,7 +539,7 @@ function generateSuggestedActions(
       'withdraw',
       'sell',
     ].some((keyword) => content.includes(keyword));
-    if (hasConversionKeywords) {
+    if (hasConversionKeywords && !lowConfidence) {
       actions.push(
         {
           id: 'start_conversion',
@@ -555,6 +600,46 @@ function generateSuggestedActions(
       },
     );
   }
+
+  return actions;
+}
+
+function generateGuardrailActions(
+  category: GuardrailCategory,
+  isWalletConnected: boolean,
+) {
+  const actions = [];
+
+  if (!isWalletConnected) {
+    actions.push({
+      id: 'guardrail_connect_wallet',
+      type: 'connect_wallet' as const,
+      label: 'Connect Freighter',
+    });
+  }
+
+  if (category === 'unsupported_request') {
+    actions.push({
+      id: 'guardrail_supported_question',
+      type: 'query' as const,
+      label: 'Show Supported Tasks',
+      data: {
+        query:
+          'What supported actions can you help me with in Stellar Dex Chat?',
+      },
+    });
+  }
+
+  actions.push({
+    id: 'guardrail_market_rates',
+    type: 'market_rates' as const,
+    label: 'Check XLM Rates',
+  });
+  actions.push({
+    id: 'guardrail_learn_more',
+    type: 'learn_more' as const,
+    label: 'How It Works',
+  });
 
   return actions;
 }
