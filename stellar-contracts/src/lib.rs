@@ -401,14 +401,22 @@ impl FiatBridge {
         );
 
         if let Some(partial) = partial_amount {
-            request.amount -= partial;
-            env.storage()
-                .persistent()
-                .set(&DataKey::WithdrawQueue(request_id), &request);
+            let remaining = request.amount - partial;
+
+            if remaining <= 0 {
+                env.storage()
+                    .persistent()
+                    .remove(&DataKey::WithdrawQueue(request_id));
+            } else {
+                request.amount = remaining;
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::WithdrawQueue(request_id), &request);
+            }
 
             env.events().publish(
                 (Symbol::new(&env, "partial_withdrawal_executed"), request_id),
-                (execute_amount, request.amount),
+                (execute_amount, remaining),
             );
         } else {
             env.storage()
