@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ReconciliationRecord } from '../../../types';
 
 export default function ReconciliationDashboard() {
@@ -14,10 +14,6 @@ export default function ReconciliationDashboard() {
   useEffect(() => {
     fetchReconciliationData();
   }, []);
-
-  useEffect(() => {
-    filterRecords();
-  }, [records, statusFilter, startDate, endDate]);
 
   const fetchReconciliationData = async () => {
     try {
@@ -35,7 +31,7 @@ export default function ReconciliationDashboard() {
     }
   };
 
-  const filterRecords = () => {
+  const filterRecords = useCallback(() => {
     let filtered = records;
 
     if (statusFilter !== 'all') {
@@ -51,7 +47,11 @@ export default function ReconciliationDashboard() {
     }
 
     setFilteredRecords(filtered);
-  };
+  }, [records, statusFilter, startDate, endDate]);
+
+  useEffect(() => {
+    filterRecords();
+  }, [filterRecords]);
 
   const exportToCSV = () => {
     const headers = [

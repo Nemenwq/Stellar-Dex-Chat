@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { ReconciliationRecord } from '../../../../types';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // In production, add authentication check here
     // For now, return mock data
