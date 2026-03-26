@@ -154,11 +154,13 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "SchemaVersion"
                             "symbol": "InactivityThreshold"
                           }
                         ]
                       },
                       "val": {
+                        "u32": 1
                         "u32": 1555200
                       }
                     },

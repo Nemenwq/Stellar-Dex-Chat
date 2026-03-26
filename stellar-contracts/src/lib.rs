@@ -102,9 +102,6 @@ pub struct WithdrawEntry {
 /// Maximum allowed length for a deposit reference (bytes).
 const MAX_REFERENCE_LEN: u32 = 64;
 
-/// Maximum number of entries allowed in a single batch withdrawal.
-const MAX_BATCH_SIZE: u32 = 25;
-
 // ── Storage keys ──────────────────────────────────────────────────────────
 /// All persistent and instance storage keys used by FiatBridge.
 #[contracttype]
@@ -139,11 +136,20 @@ pub enum DataKey {
     DepositCooldown,
     /// Ledger sequence of the last deposit made by a specific address.
     LastDepositLedger(Address),
-    QueuedAdminAction(u64),
+    /// Contract schema version for safe migrations. Always bump on breaking storage changes.
+    SchemaVersion,
+
+    // ── Added for admin actions and recovery ──
+    /// Auto-incrementing counter for admin actions
     NextActionID,
-    EmergencyRecoveryAddress,
+    /// Last ledger when an admin action was performed
     LastAdminActionLedger,
+    /// Inactivity threshold for admin recovery
     InactivityThreshold,
+    /// Queued admin action by action ID
+    QueuedAdminAction(u64),
+    /// Emergency recovery address
+    EmergencyRecoveryAddress,
 }
 
 /// Approximate number of ledgers in a 24-hour window (5-second close time).
@@ -179,10 +185,60 @@ impl FiatBridge {
         env.storage()
             .persistent()
             .set(&DataKey::TokenRegistry(token), &config);
+
+        // Set schema version to 1 on initialization
+        env.storage().instance().set(&DataKey::SchemaVersion, &1u32);
         env.storage().instance().set(&DataKey::NextActionID, &0u64);
-        env.storage().instance().set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
-        env.storage().instance().set(&DataKey::InactivityThreshold, &DEFAULT_INACTIVITY_THRESHOLD);
+        env.storage()
+            .instance()
+            .set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
+        env.storage()
+            .instance()
+            .set(&DataKey::InactivityThreshold, &DEFAULT_INACTIVITY_THRESHOLD);
         Ok(())
+    }
+    /// Returns the current contract schema version (for migrations).
+    /// Defaults to 1 if not present (for backward compatibility).
+    pub fn get_schema_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::SchemaVersion)
+            .unwrap_or(1u32)
+    }
+
+    /// Admin-only migration entrypoint. Applies pending migrations and bumps schema version.
+    ///
+    /// Convention: Each breaking storage change must bump the schema version and add a branch here.
+    ///
+    /// Example:
+    ///   match version {
+    ///     1 => { /* migrate to 2 */ env.storage().instance().set(&DataKey::SchemaVersion, &2u32); },
+    ///     2 => { /* migrate to 3 */ ... },
+    ///     _ => {}
+    ///   }
+    pub fn migrate(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let version = env
+            .storage()
+            .instance()
+            .get(&DataKey::SchemaVersion)
+            .unwrap_or(1u32);
+
+        match version {
+            1 => {
+                // No migrations pending for version 1 → 1
+                // Add future migrations here as new branches
+                Ok(())
+            }
+            // _ => Ok(()), // For future versions
+            _ => Ok(()),
+        }
     }
 
     /// Lock tokens inside the bridge and issue a deposit receipt.
@@ -230,7 +286,8 @@ impl FiatBridge {
             return Err(Error::ExceedsLimit);
         }
 
-        token::Client::new(&env, &token).transfer(&from, &env.current_contract_address(), &amount);
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(&from, env.current_contract_address(), &amount);
 
         // ── Create deposit receipt ────────────────────────────────────
         let receipt_id: u64 = env
@@ -297,13 +354,12 @@ impl FiatBridge {
         admin.require_auth();
 
         let token_client = token::Client::new(&env, &token);
-
-        let balance = token_client.balance(&env.current_contract_address());
+        let contract_addr = env.current_contract_address();
+        let balance = token_client.balance(&contract_addr);
         if amount > balance {
             return Err(Error::InsufficientFunds);
         }
-
-        token_client.transfer(&env.current_contract_address(), &to, &amount);
+        token_client.transfer(&contract_addr, &to, &amount);
 
         env.events()
             .publish((Symbol::new(&env, "withdraw"), to), amount);
@@ -361,7 +417,11 @@ impl FiatBridge {
     }
 
     /// Execute a matured withdrawal request. Supports partial execution.
-    pub fn execute_withdrawal(env: Env, request_id: u64, partial_amount: Option<i128>) -> Result<(), Error> {
+    pub fn execute_withdrawal(
+        env: Env,
+        request_id: u64,
+        partial_amount: Option<i128>,
+    ) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let mut request: WithdrawRequest = env
             .storage()
@@ -374,6 +434,12 @@ impl FiatBridge {
         }
 
         let token_client = token::Client::new(&env, &request.token);
+        let contract_addr = env.current_contract_address();
+        let balance = token_client.balance(&contract_addr);
+        if request.amount > balance {
+            return Err(Error::InsufficientFunds);
+        }
+        token_client.transfer(&contract_addr, &request.to, &request.amount);
         let balance = token_client.balance(&env.current_contract_address());
 
         let execute_amount = match partial_amount {
@@ -472,8 +538,14 @@ impl FiatBridge {
             return Err(Error::AlreadyRefunded);
         }
 
-        let token_client = token::Client::new(&env, &env.storage().instance().get(&DataKey::Token).ok_or(Error::NotInitialized)?);
-        
+        let token_client = token::Client::new(
+            &env,
+            &env.storage()
+                .instance()
+                .get(&DataKey::Token)
+                .ok_or(Error::NotInitialized)?,
+        );
+
         token_client.transfer(
             &env.current_contract_address(),
             &receipt.depositor,
@@ -781,7 +853,7 @@ impl FiatBridge {
     /// Claim admin role using emergency recovery. Only callable after inactivity period.
     pub fn claim_admin(env: Env) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
-        
+
         let recovery_address: Address = env
             .storage()
             .instance()
@@ -811,7 +883,7 @@ impl FiatBridge {
         env.storage()
             .instance()
             .remove(&DataKey::EmergencyRecoveryAddress);
-        
+
         env.events().publish(
             (Symbol::new(&env, "admin_claimed"),),
             recovery_address.clone(),
@@ -1036,12 +1108,16 @@ impl FiatBridge {
 
     /// Get a queued admin action by ID.
     pub fn get_queued_admin_action(env: Env, action_id: u64) -> Option<QueuedAdminAction> {
-        env.storage().persistent().get(&DataKey::QueuedAdminAction(action_id))
+        env.storage()
+            .persistent()
+            .get(&DataKey::QueuedAdminAction(action_id))
     }
 
     /// Get the emergency recovery address.
     pub fn get_emergency_recovery_address(env: Env) -> Option<Address> {
-        env.storage().instance().get(&DataKey::EmergencyRecoveryAddress)
+        env.storage()
+            .instance()
+            .get(&DataKey::EmergencyRecoveryAddress)
     }
 
     /// Get the last admin action ledger.
@@ -1095,25 +1171,18 @@ impl FiatBridge {
         if cooldown == 0 {
             return None;
         }
-        let last: Option<u32> = env
-            .storage()
+        env.storage()
             .instance()
-            .get(&DataKey::LastDepositLedger(user));
-        match last {
-            None => None,
-            Some(ledger) => {
-                if env.ledger().sequence() - ledger < cooldown {
-                    Some(ledger)
-                } else {
-                    None
-                }
-            }
-        }
+            .get(&DataKey::LastDepositLedger(user))
+            .filter(|&ledger| env.ledger().sequence() - ledger < cooldown)
     }
 
     fn update_last_admin_action_ledger(env: &Env) {
-        env.storage().instance().set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
+        env.storage()
+            .instance()
+            .set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
     }
 }
 
+#[cfg(any(test, feature = "testutils"))]
 mod test;
