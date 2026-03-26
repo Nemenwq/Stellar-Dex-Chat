@@ -3,9 +3,9 @@ import { transferStore } from '@/lib/transferStore';
 
 export async function GET(
     request: NextRequest,
-    { params }: { params: { reference: string } }
+    { params }: { params: Promise<{ reference: string }> }
 ) {
-    const { reference } = params;
+    const { reference } = await params;
 
     if (!reference) {
         return NextResponse.json(

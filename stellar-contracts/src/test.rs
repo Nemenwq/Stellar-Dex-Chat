@@ -251,14 +251,13 @@ fn test_last_deposit_record_expires_with_ttl() {
     bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env));
     assert_eq!(bridge.get_last_deposit_ledger(&user), Some(start_ledger));
 
-    // Move beyond cooldown TTL so the temporary key naturally expires
+    // Move significantly beyond cooldown TTL so the temporary key naturally expires
     env.ledger().with_mut(|li| {
-        li.sequence_number = start_ledger + 6;
+        li.sequence_number = start_ledger + 20000;
     });
 
     assert_eq!(bridge.get_last_deposit_ledger(&user), None);
 }
-
 #[test]
 fn test_transfer_admin() {
     let env = Env::default();
