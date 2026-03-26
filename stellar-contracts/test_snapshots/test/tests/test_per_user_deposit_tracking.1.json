@@ -71,7 +71,6 @@
       ]
     ],
     [],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
@@ -337,6 +336,14 @@
                     "val": {
                       "bytes": ""
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "refunded"
+                    },
+                    "val": {
+                      "bool": false
+                    }
                   }
                 ]
               }
@@ -405,6 +412,14 @@
                     "val": {
                       "bytes": ""
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "refunded"
+                    },
+                    "val": {
+                      "bool": false
+                    }
                   }
                 ]
               }
@@ -472,6 +487,14 @@
                     },
                     "val": {
                       "bytes": ""
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "refunded"
+                    },
+                    "val": {
+                      "bool": false
                     }
                   }
                 ]
@@ -563,18 +586,6 @@
                       },
                       "val": {
                         "u64": "3"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "SchemaVersion"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "u32": 1
                       }
                     },
                     {

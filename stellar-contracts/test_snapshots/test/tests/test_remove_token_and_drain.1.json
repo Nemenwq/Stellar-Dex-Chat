@@ -279,6 +279,14 @@
                     "val": {
                       "bytes": ""
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "refunded"
+                    },
+                    "val": {
+                      "bool": false
+                    }
                   }
                 ]
               }
@@ -325,18 +333,6 @@
                       },
                       "val": {
                         "u64": "1"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "SchemaVersion"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "u32": 1
                       }
                     },
                     {
