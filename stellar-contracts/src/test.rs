@@ -1,6 +1,8 @@
 #![cfg(test)]
 extern crate std;
 
+use proptest::prelude::*;
+
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
@@ -652,3 +654,74 @@ fn test_instance_storage_ttl_extension() {
     assert_eq!(bridge.get_limit(), 1000);
     assert_eq!(bridge.get_admin(), admin);
 }
+
+// ── property-based tests ──────────────────────────────────────────────
+
+proptest! {
+    #[test]
+    fn prop_deposit_rejects_invalid_amounts(amount in i128::MIN..i128::MAX) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let limit = 1000;
+        let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, limit);
+        let user = Address::generate(&env);
+        // Mint enough token to pass the insufficient funds check for valid amounts
+        token_sac.mint(&user, &i128::MAX); 
+
+        let ref_bytes = Bytes::new(&env);
+        let result = bridge.try_deposit(&user, &amount, &token_addr, &ref_bytes);
+
+        if amount <= 0 {
+            prop_assert_eq!(result, Err(Ok(Error::ZeroAmount)));
+        } else if amount > limit {
+            prop_assert_eq!(result, Err(Ok(Error::ExceedsLimit)));
+        } else {
+            prop_assert_eq!(result.is_ok(), true);
+        }
+    }
+
+    #[test]
+    fn prop_total_deposited_monotonic(amounts in prop::collection::vec(1i128..1000i128, 1..20)) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let limit = 2000;
+        let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, limit);
+        let user = Address::generate(&env);
+        token_sac.mint(&user, &i128::MAX); 
+
+        let ref_bytes = Bytes::new(&env);
+        let mut previous_total = bridge.get_total_deposited();
+
+        for amount in amounts {
+            bridge.deposit(&user, &amount, &token_addr, &ref_bytes);
+            let current_total = bridge.get_total_deposited();
+            prop_assert!(current_total > previous_total);
+            previous_total = current_total;
+        }
+    }
+
+    #[test]
+    fn prop_withdraw_never_exceeds_balance(deposit_amount in 1i128..1000i128, withdraw_amount in i128::MIN..i128::MAX) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let limit = 1000;
+        let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, limit);
+        let user = Address::generate(&env);
+        let drain_to = Address::generate(&env);
+        token_sac.mint(&user, &i128::MAX); 
+
+        let ref_bytes = Bytes::new(&env);
+        bridge.deposit(&user, &deposit_amount, &token_addr, &ref_bytes);
+        
+        let result = bridge.try_withdraw(&drain_to, &withdraw_amount, &token_addr);
+
+        if withdraw_amount <= 0 {
+            prop_assert_eq!(result, Err(Ok(Error::ZeroAmount)));
+        } else if withdraw_amount > deposit_amount {
+            prop_assert_eq!(result, Err(Ok(Error::InsufficientFunds)));
+        } else {
+            prop_assert_eq!(result.is_ok(), true);
+        }
+    }
+}
+
