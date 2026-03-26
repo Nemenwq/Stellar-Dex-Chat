@@ -169,6 +169,108 @@ pub struct FiatBridge;
 
 #[contractimpl]
 impl FiatBridge {
+    /// Allow a third-party payer to deposit tokens on behalf of a beneficiary.
+    /// All checks and per-user tracking apply to the beneficiary.
+    /// Returns the unique receipt ID on success.
+    pub fn deposit_for(
+        env: Env,
+        payer: Address,
+        beneficiary: Address,
+        amount: i128,
+        token: Address,
+        reference: Bytes,
+    ) -> Result<u64, Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        payer.require_auth();
+
+        // ── Cooldown check (applies to beneficiary) ───────────────
+        let cooldown: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::DepositCooldown)
+            .unwrap_or(0);
+        if cooldown > 0 {
+            let last_key = DataKey::LastDepositLedger(beneficiary.clone());
+            if let Some(last_ledger) = env.storage().instance().get::<DataKey, u32>(&last_key) {
+                if env.ledger().sequence() - last_ledger < cooldown {
+                    return Err(Error::CooldownActive);
+                }
+            }
+        }
+
+        if reference.len() > MAX_REFERENCE_LEN {
+            return Err(Error::ReferenceTooLong);
+        }
+        if amount <= 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        let mut config: TokenConfig = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TokenRegistry(token.clone()))
+            .ok_or(Error::TokenNotWhitelisted)?;
+
+        if amount > config.limit {
+            return Err(Error::ExceedsLimit);
+        }
+
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(&payer, env.current_contract_address(), &amount);
+
+        // ── Create deposit receipt (beneficiary is credited) ──────
+        let receipt_id: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ReceiptCounter)
+            .unwrap_or(0);
+        let receipt = Receipt {
+            id: receipt_id,
+            depositor: beneficiary.clone(),
+            amount,
+            ledger: env.ledger().sequence(),
+            reference,
+            refunded: false,
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::Receipt(receipt_id), &receipt);
+        env.storage()
+            .instance()
+            .set(&DataKey::ReceiptCounter, &(receipt_id + 1));
+
+        // ── Update per-token totals ───────────────────────────────
+        config.total_deposited += amount;
+        env.storage()
+            .persistent()
+            .set(&DataKey::TokenRegistry(token.clone()), &config);
+
+        let user_key = DataKey::UserDeposited(beneficiary.clone());
+        let user_total: i128 = env.storage().instance().get(&user_key).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&user_key, &(user_total + amount));
+        // ── Events ────────────────────────────────────────────────
+        // Emit deposit_for event
+        env.events().publish(
+            (Symbol::new(&env, "dep_for"),),
+            (payer.clone(), beneficiary.clone(), amount),
+        );
+
+        // Emit receipt issued event
+        env.events()
+            .publish((Symbol::new(&env, "rcpt_issd"),), (receipt_id, amount));
+
+        // ── Record last deposit ledger for cooldown (beneficiary) ─
+        if cooldown > 0 {
+            env.storage().instance().set(
+                &DataKey::LastDepositLedger(beneficiary),
+                &env.ledger().sequence(),
+            );
+        }
+
+        Ok(receipt_id)
+    }
     /// Emergency admin-only function to drain all held funds to a recipient in one atomic operation.
     pub fn emergency_drain(env: Env, recipient: Address) -> Result<(), Error> {
         // Only admin can call
@@ -198,10 +300,8 @@ impl FiatBridge {
 
         token_client.transfer(&contract_addr, &recipient, &balance);
 
-        env.events().publish(
-            (Symbol::new(&env, "emergency_drain"), recipient.clone()),
-            balance,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "emg_drain"), recipient.clone()), balance);
 
         // If get_total_withdrawn exists, increment it here (not implemented in this codebase)
 
@@ -365,7 +465,7 @@ impl FiatBridge {
         env.events()
             .publish((Symbol::new(&env, "deposit"), from.clone()), amount);
         env.events()
-            .publish((Symbol::new(&env, "receipt_issued"),), receipt_id);
+            .publish((Symbol::new(&env, "rcpt_issd"),), receipt_id);
 
         // ── Record last deposit ledger for cooldown ─────────────────────
         if cooldown > 0 {
