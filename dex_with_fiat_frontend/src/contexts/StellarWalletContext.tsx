@@ -28,6 +28,7 @@ declare global {
       getAccounts?: () => Promise<{ accounts: string[]; error?: string }>;
       setAllowedBack?: (address: string) => Promise<void>;
     };
+    mockStellarConnect?: (address: string) => void;
   }
 }
 
@@ -71,6 +72,7 @@ interface StellarWalletContextType {
   error: string | null;
   sessionExpired: boolean;
   clearSessionExpired: () => void;
+  mockConnect: (address: string) => void;
 }
 
 const defaultConnection: StellarWalletConnection = {
@@ -94,6 +96,7 @@ const StellarWalletContext = createContext<StellarWalletContextType>({
   error: null,
   sessionExpired: false,
   clearSessionExpired: () => {},
+  mockConnect: () => {},
 });
 
 export function StellarWalletProvider({ children }: { children: ReactNode }) {
@@ -260,6 +263,25 @@ const clearSessionExpired = useCallback(() => {
   setSessionExpired(false);
 }, []);
 
+const mockConnect = useCallback((addr: string) => {
+  const connectionData = {
+    address: addr,
+    publicKey: addr,
+    isConnected: true,
+    network: 'TESTNET',
+    networkPassphrase: 'Test SDF Network ; September 2015',
+  };
+  setConnection(connectionData);
+  localStorage.setItem(STORAGE_KEY_ADDRESS, addr);
+  localStorage.setItem(STORAGE_KEY_TIMESTAMP, String(Date.now()));
+}, []);
+
+useEffect(() => {
+  if (typeof window !== 'undefined') {
+    window.mockStellarConnect = mockConnect;
+  }
+}, [mockConnect]);
+
 return (
   <StellarWalletContext.Provider
     value={{
@@ -275,6 +297,7 @@ return (
       error,
       sessionExpired,
       clearSessionExpired,
+      mockConnect,
     }}
   >
     {children}
