@@ -28,6 +28,7 @@ declare global {
       getAccounts?: () => Promise<{ accounts: string[]; error?: string }>;
       setAllowedBack?: (address: string) => Promise<void>;
     };
+    mockStellarConnect?: (address: string) => void;
   }
 }
 
@@ -277,7 +278,7 @@ const mockConnect = useCallback((addr: string) => {
 
 useEffect(() => {
   if (typeof window !== 'undefined') {
-    (window as any).mockStellarConnect = mockConnect;
+    window.mockStellarConnect = mockConnect;
   }
 }, [mockConnect]);
 
