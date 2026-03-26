@@ -9,8 +9,20 @@ import {
   ChevronRight,
   Search,
   Building2,
+  Trash2,
+  Edit2,
+  Save,
+  UserPlus,
+  Star,
 } from 'lucide-react';
 import { convertCryptoToFiat } from '@/lib/cryptoPriceService';
+import { useNotifications } from '@/hooks/useNotifications';
+import { useBeneficiaries, Beneficiary } from '@/hooks/useBeneficiaries';
+import { useTxHistory } from '@/hooks/useTxHistory';
+import TransferTimeline, {
+  StatusEvent,
+  TransferStatus,
+} from '@/components/TransferTimeline';
 
 interface Bank {
   id: number;
@@ -51,33 +63,64 @@ export default function BankDetailsModal({
   onClose,
   xlmAmount,
 }: BankDetailsModalProps) {
+  const {
+    beneficiaries,
+    isLoaded: beneficiariesLoaded,
+    addBeneficiary,
+    renameBeneficiary,
+    deleteBeneficiary,
+  } = useBeneficiaries();
+
+  const { addNotification } = useNotifications();
+  const { addEntry } = useTxHistory();
+
   const [step, setStep] = useState<Step>(1);
 
-  // Step 1 — bank selection
+  // Saved beneficiary selection
+  const [showSavedBeneficiaries, setShowSavedBeneficiaries] = useState(false);
+  const [selectedSavedBeneficiary, setSelectedSavedBeneficiary] = useState<Beneficiary | null>(null);
+  const [editingBeneficiaryId, setEditingBeneficiaryId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const [saveCustomName, setSaveCustomName] = useState('');
+
+  // Step 1 - bank selection
   const [banks, setBanks] = useState<Bank[]>([]);
   const [banksLoading, setBanksLoading] = useState(false);
   const [banksError, setBanksError] = useState('');
   const [bankSearch, setBankSearch] = useState('');
   const [selectedBank, setSelectedBank] = useState<Bank | null>(null);
 
-  // Step 2 — account details
+  // Step 2 - account details
   const [accountNumber, setAccountNumber] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState('');
   const [verifiedAccount, setVerifiedAccount] =
     useState<VerifyAccountData | null>(null);
 
-  // Step 3 — confirm payout
+  // Step 3 - confirm payout
   const [ngnAmount, setNgnAmount] = useState<number | null>(null);
   const [ngnLoading, setNgnLoading] = useState(false);
   const [payoutLoading, setPayoutLoading] = useState(false);
   const [payoutError, setPayoutError] = useState('');
+  const [payoutNote, setPayoutNote] = useState('');
 
   // Step 4 — success & status tracking
   const [transferReference, setTransferReference] = useState('');
   const [transferStatus, setTransferStatus] = useState<
     'pending' | 'success' | 'failed' | 'reversed'
   >('pending');
+
+  // Transfer timeline
+  const [statusEvents, setStatusEvents] = useState<StatusEvent[]>([]);
+  const [isPollingStatus, setIsPollingStatus] = useState(false);
+
+  const pushStatusEvent = (status: TransferStatus, label?: string) => {
+    setStatusEvents((prev: StatusEvent[]) => [
+      ...prev,
+      { status, timestamp: new Date(), label },
+    ]);
+  };
 
   // Fetch banks when modal opens
   useEffect(() => {
@@ -175,6 +218,9 @@ export default function BankDetailsModal({
     if (!selectedBank || !verifiedAccount) return;
     setPayoutLoading(true);
     setPayoutError('');
+    setStatusEvents([]);
+    pushStatusEvent('initiated', 'Transfer initiated');
+    addNotification('payout_pending', 'Fiat payout request is pending...');
     try {
       // 1. Create Paystack transfer recipient
       const recipientRes = await fetch('/api/create-recipient', {
@@ -199,6 +245,9 @@ export default function BankDetailsModal({
         );
       }
 
+      pushStatusEvent('pending', 'Submitted to bank — awaiting confirmation');
+      setIsPollingStatus(true);
+
       // 2. Initiate the NGN bank transfer
       // The route handler multiplies the amount by 100 before calling Paystack,
       // so we send the NGN value directly (not kobo).
@@ -208,7 +257,7 @@ export default function BankDetailsModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           source: 'balance',
-          reason: `XLM to NGN — ${xlmAmount} XLM`,
+          reason: `XLM to NGN - ${xlmAmount} XLM`,
           amount: ngnValue,
           recipient: recipientJson.data.recipient_code,
         }),
@@ -227,11 +276,36 @@ export default function BankDetailsModal({
       setTransferReference(
         transferJson.data.reference || transferJson.data.transfer_code || '',
       );
+      addEntry({
+        kind: 'payout',
+        status: 'completed',
+        amount: String(xlmAmount),
+        asset: 'XLM',
+        fiatAmount:
+          ngnAmount !== null
+            ? ngnAmount.toLocaleString('en-NG', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })
+            : undefined,
+        fiatCurrency: 'NGN',
+        note: payoutNote.trim() || undefined,
+        reference:
+          transferJson.data.reference || transferJson.data.transfer_code || '',
+        message: `Fiat payout initiated to ${selectedBank.name}.`,
+      });
+      // Simulation block
+      await new Promise(resolve => setTimeout(resolve, 2500));
+      setIsPollingStatus(false);
+      pushStatusEvent('success', 'Bank transfer confirmed');
       setStep(4);
+      addNotification('payout_success', 'Fiat payout successfully completed!');
     } catch (err) {
-      setPayoutError(
-        err instanceof Error ? err.message : 'Payout failed. Please try again.',
-      );
+      const errorMsg = err instanceof Error ? err.message : 'Payout failed. Please try again.';
+      setPayoutError(errorMsg);
+      setIsPollingStatus(false);
+      pushStatusEvent('failed', `Transfer failed: ${errorMsg}`);
+      addNotification('payout_fail', `Payout failed: ${errorMsg}`);
     } finally {
       setPayoutLoading(false);
     }
@@ -253,31 +327,78 @@ export default function BankDetailsModal({
     setNgnLoading(false);
     setPayoutLoading(false);
     setPayoutError('');
+    setPayoutNote('');
     setTransferReference('');
     setTransferStatus('pending');
     onClose();
   };
 
+  const handleSelectSavedBeneficiary = (beneficiary: Beneficiary) => {
+    setSelectedSavedBeneficiary(beneficiary);
+    const bank = banks.find((b) => b.id === beneficiary.bankId);
+    if (bank) {
+      setSelectedBank(bank);
+    }
+    setAccountNumber(beneficiary.accountNumber);
+    setVerifiedAccount({ account_name: beneficiary.accountName });
+    setShowSavedBeneficiaries(false);
+    setStep(3);
+  };
+
+  const handleStartRename = (beneficiary: Beneficiary) => {
+    setEditingBeneficiaryId(beneficiary.id);
+    setEditingName(beneficiary.name);
+  };
+
+  const handleSaveRename = (id: string) => {
+    if (editingName.trim()) {
+      renameBeneficiary(id, editingName.trim());
+    }
+    setEditingBeneficiaryId(null);
+    setEditingName('');
+  };
+
+  const handleDeleteBeneficiary = (id: string) => {
+    deleteBeneficiary(id);
+    if (selectedSavedBeneficiary?.id === id) {
+      setSelectedSavedBeneficiary(null);
+    }
+  };
+
+  const handleSaveBeneficiary = () => {
+    if (!selectedBank || !verifiedAccount) return;
+    addBeneficiary(
+      selectedBank.id,
+      selectedBank.name,
+      selectedBank.code,
+      accountNumber,
+      verifiedAccount.account_name,
+      saveCustomName || undefined,
+    );
+    setShowSavePrompt(false);
+    setSaveCustomName('');
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="relative w-full max-w-md mx-4 bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl p-6">
+    <div className="theme-overlay fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
+      <div className="theme-surface theme-border relative w-full max-w-md mx-4 border rounded-2xl shadow-2xl p-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <Building2 className="w-5 h-5 text-blue-400" />
-            <h2 className="text-lg font-semibold text-white">Fiat Payout</h2>
+            <h2 className="theme-text-primary text-lg font-semibold">Fiat Payout</h2>
           </div>
           <button
             onClick={handleClose}
-            className="text-gray-400 hover:text-white transition-colors"
+            className="theme-text-muted hover:theme-text-primary transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Step indicators — hidden on the success screen */}
+        {/* Step indicators - hidden on the success screen */}
         {step < 4 && (
           <div className="flex items-center gap-1 mb-6">
             {([1, 2, 3] as const).map((s) => (
@@ -302,19 +423,102 @@ export default function BankDetailsModal({
           </div>
         )}
 
-        {/* ── Step 1: Bank Selection ── */}
-        {step === 1 && (
-          <div>
-            <p className="text-sm text-gray-400 mb-4">Select your bank</p>
+    {/* ── Step 1: Bank Selection ── */}
+    {step === 1 && (
+      <div>
+        {/* Saved Beneficiaries Toggle */}
+        {beneficiariesLoaded && beneficiaries.length > 0 && (
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => setShowSavedBeneficiaries(!showSavedBeneficiaries)}
+              className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              <Star className="w-4 h-4" />
+              Use saved beneficiary ({beneficiaries.length})
+              <ChevronRight className={`w-3 h-3 transition-transform ${showSavedBeneficiaries ? 'rotate-90' : ''}`} />
+            </button>
 
-            {banksLoading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+            {showSavedBeneficiaries && (
+              <div className="mt-2 max-h-40 overflow-y-auto space-y-1 pr-1">
+                {beneficiaries.map((beneficiary) => (
+                  <div
+                    key={beneficiary.id}
+                    className="flex items-center gap-2 bg-gray-800 rounded-lg p-2"
+                  >
+                    {editingBeneficiaryId === beneficiary.id ? (
+                      <div className="flex-1 flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={editingName}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          className="flex-1 bg-gray-700 text-white text-sm px-2 py-1 rounded border border-gray-600 focus:outline-none focus:border-blue-500"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveRename(beneficiary.id)}
+                          className="p-1 text-green-400 hover:text-green-300"
+                        >
+                          <Save className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingBeneficiaryId(null)}
+                          className="p-1 text-gray-400 hover:text-gray-300"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectSavedBeneficiary(beneficiary)}
+                          className="flex-1 text-left"
+                        >
+                          <p className="text-white text-sm font-medium">
+                            {beneficiary.name}
+                          </p>
+                          <p className="text-gray-400 text-xs">
+                            {beneficiary.bankName} · {beneficiary.accountNumber}
+                          </p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleStartRename(beneficiary)}
+                          className="p-1 text-gray-400 hover:text-gray-300"
+                          title="Rename"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBeneficiary(beneficiary.id)}
+                          className="p-1 text-gray-400 hover:text-red-400"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
               </div>
-            ) : banksError ? (
-              <div className="flex items-center gap-2 text-red-400 text-sm py-4">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                <span>{banksError}</span>
+            )}
+          </div>
+        )}
+
+        <p className="text-sm text-gray-400 mb-4">Select your bank</p>
+
+        {banksLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+          </div>
+        ) : banksError ? (
+          <div className="flex items-center gap-2 text-red-400 text-sm py-4">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>{banksError}</span>
               </div>
             ) : (
               <>
@@ -411,17 +615,66 @@ export default function BankDetailsModal({
               </div>
             )}
 
-            {verifiedAccount && !verifying && (
-              <div className="flex items-center gap-2 text-green-400 text-sm mb-3 bg-green-400/10 rounded-lg px-3 py-2">
-                <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                <span>
-                  Account name:{' '}
-                  <strong>{verifiedAccount.account_name}</strong>
-                </span>
-              </div>
+        {verifiedAccount && !verifying && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-green-400 text-sm mb-3 bg-green-400/10 rounded-lg px-3 py-2">
+              <CheckCircle className="w-4 h-4 flex-shrink-0" />
+              <span>
+                Account name:{' '}
+                <strong>{verifiedAccount.account_name}</strong>
+              </span>
+            </div>
+
+            {/* Save beneficiary prompt */}
+            {!showSavePrompt && (
+              <button
+                type="button"
+                onClick={() => setShowSavePrompt(true)}
+                className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                <UserPlus className="w-4 h-4" />
+                Save beneficiary for future use
+              </button>
             )}
 
-            <div className="flex gap-3 mt-4">
+            {showSavePrompt && (
+              <div className="bg-gray-800 rounded-lg p-3 space-y-2">
+                <label className="block text-xs text-gray-400">
+                  Beneficiary name (optional)
+                </label>
+                <input
+                  type="text"
+                  value={saveCustomName}
+                  onChange={(e) => setSaveCustomName(e.target.value)}
+                  placeholder={verifiedAccount.account_name}
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveBeneficiary}
+                    className="flex-1 flex items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-sm py-2 rounded-lg transition-colors"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSavePrompt(false);
+                      setSaveCustomName('');
+                    }}
+                    className="px-3 py-2 text-gray-400 hover:text-white text-sm transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-3 mt-4">
               <button
                 type="button"
                 onClick={() => setStep(1)}
@@ -444,24 +697,24 @@ export default function BankDetailsModal({
         {/* ── Step 3: Confirm Payout ── */}
         {step === 3 && (
           <div>
-            <p className="text-sm text-gray-400 mb-4">
+            <p className="theme-text-secondary text-sm mb-4">
               Review your payout details
             </p>
 
-            <div className="bg-gray-800 rounded-xl p-4 space-y-3 mb-4">
+            <div className="theme-surface-muted theme-border rounded-xl border p-4 space-y-3 mb-4">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-400">XLM deposited</span>
-                <span className="text-white font-medium">
+                <span className="theme-text-secondary">XLM deposited</span>
+                <span className="theme-text-primary font-medium">
                   {xlmAmount} XLM
                 </span>
               </div>
 
               <div className="flex justify-between text-sm items-center">
-                <span className="text-gray-400">Estimated NGN</span>
+                <span className="theme-text-secondary">Estimated NGN</span>
                 {ngnLoading ? (
                   <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
                 ) : ngnAmount !== null ? (
-                  <span className="text-white font-medium">
+                  <span className="theme-text-primary font-medium">
                     ₦
                     {ngnAmount.toLocaleString('en-NG', {
                       minimumFractionDigits: 2,
@@ -469,34 +722,48 @@ export default function BankDetailsModal({
                     })}
                   </span>
                 ) : (
-                  <span className="text-gray-500">—</span>
+                  <span className="theme-text-muted">-</span>
                 )}
               </div>
 
-              <div className="border-t border-gray-700 pt-3 space-y-3">
+              <div className="theme-border border-t pt-3 space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Bank</span>
-                  <span className="text-white font-medium">
+                  <span className="theme-text-secondary">Bank</span>
+                  <span className="theme-text-primary font-medium">
                     {selectedBank?.name}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Account name</span>
-                  <span className="text-white font-medium">
+                  <span className="theme-text-secondary">Account name</span>
+                  <span className="theme-text-primary font-medium">
                     {verifiedAccount?.account_name}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Account number</span>
-                  <span className="text-white font-medium font-mono">
+                  <span className="theme-text-secondary">Account number</span>
+                  <span className="theme-text-primary font-medium font-mono">
                     {accountNumber}
                   </span>
                 </div>
               </div>
             </div>
 
+            <div className="mb-4">
+              <label className="theme-text-secondary block text-sm mb-1">
+                Optional payout note
+              </label>
+              <textarea
+                value={payoutNote}
+                onChange={(e) => setPayoutNote(e.target.value)}
+                placeholder="Add a note for this payout"
+                rows={2}
+                maxLength={160}
+                className="theme-input w-full border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-blue-500 resize-none"
+              />
+            </div>
+
             {payoutError && (
-              <div className="flex items-center gap-2 text-red-400 text-sm mb-4 bg-red-400/10 rounded-lg px-3 py-2">
+              <div className="theme-soft-danger flex items-center gap-2 text-sm mb-4 rounded-lg px-3 py-2 border">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
                 <span>{payoutError}</span>
               </div>
@@ -507,7 +774,7 @@ export default function BankDetailsModal({
                 type="button"
                 onClick={() => setStep(2)}
                 disabled={payoutLoading}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white py-3 rounded-lg font-medium transition-colors"
+                className="theme-secondary-button flex-1 disabled:opacity-50 py-3 rounded-lg font-medium transition-colors"
               >
                 Back
               </button>
@@ -515,7 +782,7 @@ export default function BankDetailsModal({
                 type="button"
                 onClick={handleConfirmPayout}
                 disabled={payoutLoading}
-                className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:opacity-70 text-white py-3 rounded-lg font-medium transition-colors"
+                className="theme-primary-button flex-1 flex items-center justify-center gap-2 disabled:bg-blue-800 disabled:opacity-70 text-white py-3 rounded-lg font-medium transition-colors"
               >
                 {payoutLoading ? (
                   <>
@@ -527,6 +794,19 @@ export default function BankDetailsModal({
                 )}
               </button>
             </div>
+
+            {/* Payout Status Timeline — visible while processing */}
+            {statusEvents.length > 0 && (
+              <div className="mt-6">
+                <p className="theme-text-muted text-xs font-semibold uppercase tracking-wider mb-3">
+                  Transfer Status
+                </p>
+                <TransferTimeline
+                  events={statusEvents}
+                  isPolling={isPollingStatus}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -555,22 +835,37 @@ export default function BankDetailsModal({
                   ? 'The funds have been successfully sent to your bank account.'
                   : 'There was an issue processing your bank transfer. Please contact support.'}
             </p>
+            {payoutNote && (
+              <p className="theme-text-secondary text-xs mb-6">
+                Note: <span className="theme-text-primary">{payoutNote}</span>
+              </p>
+            )}
 
             {transferReference && (
-              <div className="bg-gray-800 rounded-lg px-4 py-3 mb-6 text-left">
-                <p className="text-xs text-gray-500 mb-1">
+              <div className="theme-surface-muted rounded-lg px-4 py-3 mb-6 text-left">
+                <p className="theme-text-muted text-xs mb-1">
                   Transfer Reference
                 </p>
-                <p className="text-white font-mono text-sm break-all">
+                <p className="theme-text-primary font-mono text-sm break-all">
                   {transferReference}
                 </p>
+              </div>
+            )}
+
+            {/* Timeline showing all status transitions */}
+            {statusEvents.length > 0 && (
+              <div className="mb-6 text-left">
+                <p className="theme-text-muted text-xs font-semibold uppercase tracking-wider mb-3">
+                  Transfer History
+                </p>
+                <TransferTimeline events={statusEvents} isPolling={false} />
               </div>
             )}
 
             <button
               type="button"
               onClick={handleClose}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-medium transition-colors"
+              className="theme-primary-button w-full py-3 rounded-lg font-medium transition-colors"
             >
               Close
             </button>

@@ -234,6 +234,14 @@
                     "val": {
                       "bytes": ""
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "refunded"
+                    },
+                    "val": {
+                      "bool": false
+                    }
                   }
                 ]
               }
@@ -378,6 +386,42 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "InactivityThreshold"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 1555200
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "LastAdminActionLedger"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "NextActionID"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "NextRequestID"
                           }
                         ]
@@ -402,12 +446,12 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "Token"
+                            "symbol": "SchemaVersion"
                           }
                         ]
                       },
                       "val": {
-                        "address": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN"
+                        "u32": 1
                       }
                     },
                     {
@@ -432,7 +476,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 535680
       },
       {
         "entry": {
@@ -713,7 +757,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 535680
       }
     ]
   },
