@@ -40,6 +40,14 @@ pub enum Error {
     CooldownActive = 11,
     /// `accept_admin` or `cancel_admin_transfer` was called when no pending admin exists.
     NoPendingAdmin = 12,
+    ReceiptNotFound = 13,
+    AlreadyRefunded = 14,
+    ActionNotQueued = 15,
+    ActionNotReady = 16,
+    InactivityThresholdNotReached = 17,
+    NoEmergencyRecoveryAddress = 18,
+    /// The recipient address is invalid (e.g., contract address itself).
+    InvalidRecipient = 19,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -67,6 +75,23 @@ pub struct Receipt {
     pub amount: i128,
     pub ledger: u32,
     pub reference: Bytes,
+    pub refunded: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QueuedAdminAction {
+    pub action_type: Symbol,
+    pub payload: Bytes,
+    pub target_ledger: u32,
+    pub queued_ledger: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ReceiptStatus {
+    Active,
+    Refunded,
 }
 
 #[contracttype]
@@ -78,9 +103,6 @@ pub struct WithdrawEntry {
 
 /// Maximum allowed length for a deposit reference (bytes).
 const MAX_REFERENCE_LEN: u32 = 64;
-
-/// Maximum number of entries allowed in a single batch withdrawal.
-const MAX_BATCH_SIZE: u32 = 25;
 
 // ── Storage keys ──────────────────────────────────────────────────────────
 /// All persistent and instance storage keys used by FiatBridge.
@@ -116,10 +138,30 @@ pub enum DataKey {
     DepositCooldown,
     /// Ledger sequence of the last deposit made by a specific address.
     LastDepositLedger(Address),
+    /// Contract schema version for safe migrations. Always bump on breaking storage changes.
+    SchemaVersion,
+
+    // ── Added for admin actions and recovery ──
+    /// Auto-incrementing counter for admin actions
+    NextActionID,
+    /// Last ledger when an admin action was performed
+    LastAdminActionLedger,
+    /// Inactivity threshold for admin recovery
+    InactivityThreshold,
+    /// Queued admin action by action ID
+    QueuedAdminAction(u64),
+    /// Emergency recovery address
+    EmergencyRecoveryAddress,
 }
 
 /// Approximate number of ledgers in a 24-hour window (5-second close time).
 const WINDOW_LEDGERS: u32 = 17_280;
+
+/// Minimum timelock delay for admin actions (48 hours in ledgers).
+const MIN_TIMELOCK_DELAY: u32 = 34_560;
+
+/// Default inactivity threshold for emergency recovery (3 months in ledgers).
+const DEFAULT_INACTIVITY_THRESHOLD: u32 = 1_555_200;
 
 // ── Contract ──────────────────────────────────────────────────────────────
 #[contract]
@@ -127,6 +169,44 @@ pub struct FiatBridge;
 
 #[contractimpl]
 impl FiatBridge {
+    /// Emergency admin-only function to drain all held funds to a recipient in one atomic operation.
+    pub fn emergency_drain(env: Env, recipient: Address) -> Result<(), Error> {
+        // Only admin can call
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let contract_addr = env.current_contract_address();
+        if recipient == contract_addr {
+            return Err(Error::InvalidRecipient);
+        }
+
+        // Use default token
+        let token_id: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .ok_or(Error::NotInitialized)?;
+        let token_client = token::Client::new(&env, &token_id);
+        let balance = token_client.balance(&contract_addr);
+        if balance <= 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        token_client.transfer(&contract_addr, &recipient, &balance);
+
+        env.events().publish(
+            (Symbol::new(&env, "emergency_drain"), recipient.clone()),
+            balance,
+        );
+
+        // If get_total_withdrawn exists, increment it here (not implemented in this codebase)
+
+        Ok(())
+    }
     /// Initialise the bridge once. Sets admin and registers the first whitelisted token.
     pub fn init(env: Env, admin: Address, token: Address, limit: i128) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
@@ -145,7 +225,60 @@ impl FiatBridge {
         env.storage()
             .persistent()
             .set(&DataKey::TokenRegistry(token), &config);
+
+        // Set schema version to 1 on initialization
+        env.storage().instance().set(&DataKey::SchemaVersion, &1u32);
+        env.storage().instance().set(&DataKey::NextActionID, &0u64);
+        env.storage()
+            .instance()
+            .set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
+        env.storage()
+            .instance()
+            .set(&DataKey::InactivityThreshold, &DEFAULT_INACTIVITY_THRESHOLD);
         Ok(())
+    }
+    /// Returns the current contract schema version (for migrations).
+    /// Defaults to 1 if not present (for backward compatibility).
+    pub fn get_schema_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::SchemaVersion)
+            .unwrap_or(1u32)
+    }
+
+    /// Admin-only migration entrypoint. Applies pending migrations and bumps schema version.
+    ///
+    /// Convention: Each breaking storage change must bump the schema version and add a branch here.
+    ///
+    /// Example:
+    ///   match version {
+    ///     1 => { /* migrate to 2 */ env.storage().instance().set(&DataKey::SchemaVersion, &2u32); },
+    ///     2 => { /* migrate to 3 */ ... },
+    ///     _ => {}
+    ///   }
+    pub fn migrate(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let version = env
+            .storage()
+            .instance()
+            .get(&DataKey::SchemaVersion)
+            .unwrap_or(1u32);
+
+        match version {
+            1 => {
+                // No migrations pending for version 1 → 1
+                // Add future migrations here as new branches
+                Ok(())
+            }
+            // _ => Ok(()), // For future versions
+            _ => Ok(()),
+        }
     }
 
     /// Lock tokens inside the bridge and issue a deposit receipt.
@@ -193,7 +326,8 @@ impl FiatBridge {
             return Err(Error::ExceedsLimit);
         }
 
-        token::Client::new(&env, &token).transfer(&from, &env.current_contract_address(), &amount);
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(&from, env.current_contract_address(), &amount);
 
         // ── Create deposit receipt ────────────────────────────────────
         let receipt_id: u64 = env
@@ -207,6 +341,7 @@ impl FiatBridge {
             amount,
             ledger: env.ledger().sequence(),
             reference,
+            refunded: false,
         };
         env.storage()
             .persistent()
@@ -259,13 +394,12 @@ impl FiatBridge {
         admin.require_auth();
 
         let token_client = token::Client::new(&env, &token);
-
-        let balance = token_client.balance(&env.current_contract_address());
+        let contract_addr = env.current_contract_address();
+        let balance = token_client.balance(&contract_addr);
         if amount > balance {
             return Err(Error::InsufficientFunds);
         }
-
-        token_client.transfer(&env.current_contract_address(), &to, &amount);
+        token_client.transfer(&contract_addr, &to, &amount);
 
         env.events()
             .publish((Symbol::new(&env, "withdraw"), to), amount);
@@ -322,10 +456,14 @@ impl FiatBridge {
         Ok(request_id)
     }
 
-    /// Execute a matured withdrawal request.
-    pub fn execute_withdrawal(env: Env, request_id: u64) -> Result<(), Error> {
+    /// Execute a matured withdrawal request. Supports partial execution.
+    pub fn execute_withdrawal(
+        env: Env,
+        request_id: u64,
+        partial_amount: Option<i128>,
+    ) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
-        let request: WithdrawRequest = env
+        let mut request: WithdrawRequest = env
             .storage()
             .persistent()
             .get(&DataKey::WithdrawQueue(request_id))
@@ -336,21 +474,61 @@ impl FiatBridge {
         }
 
         let token_client = token::Client::new(&env, &request.token);
-
-        let balance = token_client.balance(&env.current_contract_address());
+        let contract_addr = env.current_contract_address();
+        let balance = token_client.balance(&contract_addr);
         if request.amount > balance {
             return Err(Error::InsufficientFunds);
         }
+        token_client.transfer(&contract_addr, &request.to, &request.amount);
+        let balance = token_client.balance(&env.current_contract_address());
+
+        let execute_amount = match partial_amount {
+            Some(amount) => {
+                if amount <= 0 || amount > request.amount {
+                    return Err(Error::ZeroAmount);
+                }
+                if amount > balance {
+                    return Err(Error::InsufficientFunds);
+                }
+                amount
+            }
+            None => {
+                if request.amount > balance {
+                    return Err(Error::InsufficientFunds);
+                }
+                request.amount
+            }
+        };
 
         token_client.transfer(
             &env.current_contract_address(),
             &request.to,
-            &request.amount,
+            &execute_amount,
         );
 
-        env.storage()
-            .persistent()
-            .remove(&DataKey::WithdrawQueue(request_id));
+        if let Some(partial) = partial_amount {
+            let remaining = request.amount - partial;
+
+            if remaining <= 0 {
+                env.storage()
+                    .persistent()
+                    .remove(&DataKey::WithdrawQueue(request_id));
+            } else {
+                request.amount = remaining;
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::WithdrawQueue(request_id), &request);
+            }
+
+            env.events().publish(
+                (Symbol::new(&env, "partial_withdrawal_executed"), request_id),
+                (execute_amount, remaining),
+            );
+        } else {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::WithdrawQueue(request_id));
+        }
 
         Ok(())
     }
@@ -376,6 +554,56 @@ impl FiatBridge {
         env.storage()
             .persistent()
             .remove(&DataKey::WithdrawQueue(request_id));
+        Ok(())
+    }
+
+    /// Refund a deposit receipt to the original depositor. Admin only.
+    /// Used when off-chain fiat payout fails (KYC, invalid details, etc.).
+    pub fn refund_deposit(env: Env, receipt_id: u64) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let mut receipt: Receipt = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Receipt(receipt_id))
+            .ok_or(Error::ReceiptNotFound)?;
+
+        if receipt.refunded {
+            return Err(Error::AlreadyRefunded);
+        }
+
+        let token_client = token::Client::new(
+            &env,
+            &env.storage()
+                .instance()
+                .get(&DataKey::Token)
+                .ok_or(Error::NotInitialized)?,
+        );
+
+        token_client.transfer(
+            &env.current_contract_address(),
+            &receipt.depositor,
+            &receipt.amount,
+        );
+
+        receipt.refunded = true;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Receipt(receipt_id), &receipt);
+
+        Self::update_last_admin_action_ledger(&env);
+
+        env.events().publish(
+            (Symbol::new(&env, "refund"), receipt_id),
+            receipt.depositor.clone(),
+        );
+
         Ok(())
     }
 
@@ -510,6 +738,195 @@ impl FiatBridge {
         env.events().publish(
             (Symbol::new(&env, "admin_transfer_cancelled"),),
             pending.clone(),
+        );
+
+        Ok(())
+    }
+
+    // ── Admin timelock management ───────────────────────────────────────
+
+    /// Queue an admin action for delayed execution. Admin only.
+    pub fn queue_admin_action(
+        env: Env,
+        action_type: Symbol,
+        payload: Bytes,
+        delay_ledgers: u32,
+    ) -> Result<u64, Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        if delay_ledgers < MIN_TIMELOCK_DELAY {
+            return Err(Error::ActionNotReady);
+        }
+
+        let current_ledger = env.ledger().sequence();
+        let action_id: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextActionID)
+            .unwrap_or(0);
+
+        let action = QueuedAdminAction {
+            action_type: action_type.clone(),
+            payload: payload.clone(),
+            target_ledger: current_ledger + delay_ledgers,
+            queued_ledger: current_ledger,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::QueuedAdminAction(action_id), &action);
+        env.storage()
+            .instance()
+            .set(&DataKey::NextActionID, &(action_id + 1));
+
+        env.events().publish(
+            (Symbol::new(&env, "action_queued"), action_id),
+            (action_type, delay_ledgers),
+        );
+
+        Ok(action_id)
+    }
+
+    /// Execute a queued admin action. Admin only.
+    pub fn execute_admin_action(env: Env, action_id: u64) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let action: QueuedAdminAction = env
+            .storage()
+            .persistent()
+            .get(&DataKey::QueuedAdminAction(action_id))
+            .ok_or(Error::ActionNotQueued)?;
+
+        let current_ledger = env.ledger().sequence();
+        if current_ledger <= action.target_ledger {
+            return Err(Error::ActionNotReady);
+        }
+
+        env.storage()
+            .persistent()
+            .remove(&DataKey::QueuedAdminAction(action_id));
+
+        Self::update_last_admin_action_ledger(&env);
+
+        env.events().publish(
+            (Symbol::new(&env, "action_executed"), action_id),
+            action.action_type.clone(),
+        );
+
+        Ok(())
+    }
+
+    /// Cancel a queued admin action. Admin only.
+    pub fn cancel_admin_action(env: Env, action_id: u64) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let action: QueuedAdminAction = env
+            .storage()
+            .persistent()
+            .get(&DataKey::QueuedAdminAction(action_id))
+            .ok_or(Error::ActionNotQueued)?;
+
+        env.storage()
+            .persistent()
+            .remove(&DataKey::QueuedAdminAction(action_id));
+
+        env.events().publish(
+            (Symbol::new(&env, "action_cancelled"), action_id),
+            action.action_type.clone(),
+        );
+
+        Ok(())
+    }
+
+    /// Set emergency recovery address. Admin only.
+    pub fn set_emergency_recovery_address(env: Env, address: Address) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyRecoveryAddress, &address);
+        Self::update_last_admin_action_ledger(&env);
+        Ok(())
+    }
+
+    /// Set inactivity threshold for emergency recovery. Admin only.
+    pub fn set_inactivity_threshold(env: Env, threshold_ledgers: u32) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::InactivityThreshold, &threshold_ledgers);
+        Self::update_last_admin_action_ledger(&env);
+        Ok(())
+    }
+
+    /// Claim admin role using emergency recovery. Only callable after inactivity period.
+    pub fn claim_admin(env: Env) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+
+        let recovery_address: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::EmergencyRecoveryAddress)
+            .ok_or(Error::NoEmergencyRecoveryAddress)?;
+        recovery_address.require_auth();
+
+        let last_action_ledger: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LastAdminActionLedger)
+            .unwrap_or(0);
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::InactivityThreshold)
+            .unwrap_or(DEFAULT_INACTIVITY_THRESHOLD);
+
+        let current_ledger = env.ledger().sequence();
+        if current_ledger <= last_action_ledger + threshold {
+            return Err(Error::InactivityThresholdNotReached);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Admin, &recovery_address);
+        env.storage()
+            .instance()
+            .remove(&DataKey::EmergencyRecoveryAddress);
+
+        env.events().publish(
+            (Symbol::new(&env, "admin_claimed"),),
+            recovery_address.clone(),
         );
 
         Ok(())
@@ -729,6 +1146,36 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
+    /// Get a queued admin action by ID.
+    pub fn get_queued_admin_action(env: Env, action_id: u64) -> Option<QueuedAdminAction> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::QueuedAdminAction(action_id))
+    }
+
+    /// Get the emergency recovery address.
+    pub fn get_emergency_recovery_address(env: Env) -> Option<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::EmergencyRecoveryAddress)
+    }
+
+    /// Get the last admin action ledger.
+    pub fn get_last_admin_action_ledger(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::LastAdminActionLedger)
+            .unwrap_or(0)
+    }
+
+    /// Get the inactivity threshold.
+    pub fn get_inactivity_threshold(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::InactivityThreshold)
+            .unwrap_or(DEFAULT_INACTIVITY_THRESHOLD)
+    }
+
     // ── Cooldown functions ─────────────────────────────────────────────
 
     /// Set the per-address deposit cooldown period (in ledgers). Admin only.
@@ -764,21 +1211,18 @@ impl FiatBridge {
         if cooldown == 0 {
             return None;
         }
-        let last: Option<u32> = env
-            .storage()
+        env.storage()
             .instance()
-            .get(&DataKey::LastDepositLedger(user));
-        match last {
-            None => None,
-            Some(ledger) => {
-                if env.ledger().sequence() - ledger < cooldown {
-                    Some(ledger)
-                } else {
-                    None
-                }
-            }
-        }
+            .get(&DataKey::LastDepositLedger(user))
+            .filter(|&ledger| env.ledger().sequence() - ledger < cooldown)
+    }
+
+    fn update_last_admin_action_ledger(env: &Env) {
+        env.storage()
+            .instance()
+            .set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
     }
 }
 
+#[cfg(any(test, feature = "testutils"))]
 mod test;
