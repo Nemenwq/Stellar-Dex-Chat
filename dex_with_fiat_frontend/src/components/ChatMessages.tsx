@@ -69,7 +69,9 @@ function HelpCard({
       <div className="flex flex-col h-full">
         <div
           className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 ${
-            isDarkMode ? 'bg-blue-500/10 text-blue-400' : 'bg-blue-50 text-blue-600'
+            isDarkMode
+              ? 'bg-blue-500/10 text-blue-400'
+              : 'bg-blue-50 text-blue-600'
           }`}
         >
           {icon}
@@ -137,7 +139,10 @@ export default function ChatMessages({
   const dismissCard = (id: string) => {
     const updated = [...dismissedCards, id];
     setDismissedCards(updated);
-    localStorage.setItem('dexfiat_dismissed_help_cards', JSON.stringify(updated));
+    localStorage.setItem(
+      'dexfiat_dismissed_help_cards',
+      JSON.stringify(updated),
+    );
   };
 
   // Scroll to bottom when new messages arrive
@@ -231,7 +236,9 @@ export default function ChatMessages({
             <div className="text-center mb-12">
             <div
               className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-4 ${
-                isDarkMode ? 'bg-blue-500/10 text-blue-400' : 'bg-blue-50 text-blue-600'
+                isDarkMode
+                  ? 'bg-blue-500/10 text-blue-400'
+                  : 'bg-blue-50 text-blue-600'
               }`}
             >
               <Sparkles className="w-3 h-3" />
@@ -249,8 +256,8 @@ export default function ChatMessages({
                 isDarkMode ? 'text-gray-400' : 'text-gray-500'
               }`}
             >
-              The most intuitive way to convert your Stellar assets to fiat currency. 
-              Follow the steps below to get started.
+              The most intuitive way to convert your Stellar assets to fiat
+              currency. Follow the steps below to get started.
             </p>
           </div>
 
@@ -270,7 +277,9 @@ export default function ChatMessages({
 
           {/* No cards left placeholder or simple message */}
           {isLoaded && visibleCards.length === 0 && (
-            <div className={`text-center animate-in fade-in duration-500 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+            <div
+              className={`text-center animate-in fade-in duration-500 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}
+            >
               <p>Type a message below to start your conversion journey.</p>
             </div>
           )}

@@ -28,6 +28,7 @@ export interface ChatMessage {
     guardrail?: GuardrailResult;
     lowConfidence?: boolean;
     clarificationQuestion?: string;
+    requestStatus?: 'cancelled';
   };
 }
 
@@ -61,7 +62,7 @@ export interface TransactionData {
 export interface TransactionHistoryEntry {
   id: string;
   kind: 'deposit' | 'payout' | 'risk_warning';
-  status: 'pending' | 'completed' | 'warning' | 'failed';
+  status: 'pending' | 'completed' | 'warning' | 'failed' | 'cancelled';
   amount?: string;
   asset?: string;
   fiatAmount?: string;
@@ -161,7 +162,7 @@ export interface ReconciliationRecord {
   payoutId: string;
   payoutAmount: string;
   payoutRecipient: string;
-  payoutStatus: 'pending' | 'completed' | 'failed';
+  payoutStatus: 'pending' | 'completed' | 'failed' | 'warning' | 'cancelled';
   payoutDate: string;
   status: 'matched' | 'unmatched' | 'error';
 }

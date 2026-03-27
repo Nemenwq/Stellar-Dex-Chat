@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X,
   Loader2,
@@ -25,6 +25,7 @@ import TransferTimeline, {
   StatusEvent,
   TransferStatus,
 } from '@/components/TransferTimeline';
+import { useAccessibleModal } from '@/hooks/useAccessibleModal';
 
 interface Bank {
   id: number;
@@ -65,6 +66,7 @@ export default function BankDetailsModal({
   onClose,
   xlmAmount,
 }: BankDetailsModalProps) {
+  const modalRef = useRef<HTMLDivElement>(null);
   const {
     beneficiaries,
     isLoaded: beneficiariesLoaded,
@@ -80,8 +82,11 @@ export default function BankDetailsModal({
 
   // Saved beneficiary selection
   const [showSavedBeneficiaries, setShowSavedBeneficiaries] = useState(false);
-  const [selectedSavedBeneficiary, setSelectedSavedBeneficiary] = useState<Beneficiary | null>(null);
-  const [editingBeneficiaryId, setEditingBeneficiaryId] = useState<string | null>(null);
+  const [selectedSavedBeneficiary, setSelectedSavedBeneficiary] =
+    useState<Beneficiary | null>(null);
+  const [editingBeneficiaryId, setEditingBeneficiaryId] = useState<
+    string | null
+  >(null);
   const [editingName, setEditingName] = useState('');
   const [showSavePrompt, setShowSavePrompt] = useState(false);
   const [saveCustomName, setSaveCustomName] = useState('');
@@ -108,8 +113,11 @@ export default function BankDetailsModal({
   const [payoutError, setPayoutError] = useState('');
   const [payoutNote, setPayoutNote] = useState('');
 
-  // Step 4 - success
+  // Step 4 — success & status tracking
   const [transferReference, setTransferReference] = useState('');
+  const [transferStatus, setTransferStatus] = useState<
+    'pending' | 'success' | 'failed' | 'reversed'
+  >('pending');
 
   // Transfer timeline
   const [statusEvents, setStatusEvents] = useState<StatusEvent[]>([]);
@@ -173,6 +181,35 @@ export default function BankDetailsModal({
     return () => clearInterval(interval);
   }, [lockedQuote, step]);
 
+  // Poll for transfer status when on the success step
+  useEffect(() => {
+    if (
+      step !== 4 ||
+      !transferReference ||
+      transferStatus === 'success' ||
+      transferStatus === 'failed' ||
+      transferStatus === 'reversed'
+    ) {
+      return;
+    }
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/transfer-status/${transferReference}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data?.status) {
+            setTransferStatus(json.data.status);
+          }
+        }
+      } catch (err) {
+        console.error('Error polling transfer status:', err);
+      }
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
+  }, [step, transferReference, transferStatus]);
+
   const filteredBanks = banks.filter((b) =>
     b.name.toLowerCase().includes(bankSearch.toLowerCase()),
   );
@@ -209,7 +246,13 @@ export default function BankDetailsModal({
   }, [accountNumber, selectedBank]);
 
   const handleConfirmPayout = async () => {
-    if (!selectedBank || !verifiedAccount || !lockedQuote || quoteSecondsLeft === 0) return;
+    if (
+      !selectedBank ||
+      !verifiedAccount ||
+      !lockedQuote ||
+      quoteSecondsLeft === 0
+    )
+      return;
     setPayoutLoading(true);
     setPayoutError('');
     setStatusEvents([]);
@@ -286,13 +329,14 @@ export default function BankDetailsModal({
         message: `Fiat payout initiated to ${selectedBank.name}.`,
       });
       // Simulation block
-      await new Promise(resolve => setTimeout(resolve, 2500));
+      await new Promise((resolve) => setTimeout(resolve, 2500));
       setIsPollingStatus(false);
       pushStatusEvent('success', 'Bank transfer confirmed');
       setStep(4);
       addNotification('payout_success', 'Fiat payout successfully completed!');
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Payout failed. Please try again.';
+      const errorMsg =
+        err instanceof Error ? err.message : 'Payout failed. Please try again.';
       setPayoutError(errorMsg);
       setIsPollingStatus(false);
       pushStatusEvent('failed', `Transfer failed: ${errorMsg}`);
@@ -321,14 +365,7 @@ export default function BankDetailsModal({
     setPayoutError('');
     setPayoutNote('');
     setTransferReference('');
-    setShowSavedBeneficiaries(false);
-    setSelectedSavedBeneficiary(null);
-    setEditingBeneficiaryId(null);
-    setEditingName('');
-    setShowSavePrompt(false);
-    setSaveCustomName('');
-    setStatusEvents([]);
-    setIsPollingStatus(false);
+    setTransferStatus('pending');
     onClose();
   };
 
@@ -378,16 +415,27 @@ export default function BankDetailsModal({
     setSaveCustomName('');
   };
 
+  useAccessibleModal(isOpen, modalRef, onClose);
+
   if (!isOpen) return null;
 
   return (
     <div className="theme-overlay fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
-      <div className="theme-surface theme-border relative w-full max-w-md mx-4 border rounded-2xl shadow-2xl p-6">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Fiat payout"
+        tabIndex={-1}
+        className="theme-surface theme-border relative w-full max-w-md mx-4 border rounded-2xl shadow-2xl p-6"
+      >
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <Building2 className="w-5 h-5 text-blue-400" />
-            <h2 className="theme-text-primary text-lg font-semibold">Fiat Payout</h2>
+            <h2 className="theme-text-primary text-lg font-semibold">
+              Fiat Payout
+            </h2>
           </div>
           <button
             onClick={handleClose}
@@ -403,13 +451,12 @@ export default function BankDetailsModal({
             {([1, 2, 3] as const).map((s) => (
               <React.Fragment key={s}>
                 <div
-                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
-                    step === s
+                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${step === s
                       ? 'bg-blue-600 text-white'
                       : step > s
                         ? 'bg-green-500 text-white'
                         : 'bg-gray-700 text-gray-400'
-                  }`}
+                    }`}
                 >
                   {s}
                 </div>
@@ -423,102 +470,111 @@ export default function BankDetailsModal({
           </div>
         )}
 
-    {/* ── Step 1: Bank Selection ── */}
-    {step === 1 && (
-      <div>
-        {/* Saved Beneficiaries Toggle */}
-        {beneficiariesLoaded && beneficiaries.length > 0 && (
-          <div className="mb-4">
-            <button
-              type="button"
-              onClick={() => setShowSavedBeneficiaries(!showSavedBeneficiaries)}
-              className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition-colors"
-            >
-              <Star className="w-4 h-4" />
-              Use saved beneficiary ({beneficiaries.length})
-              <ChevronRight className={`w-3 h-3 transition-transform ${showSavedBeneficiaries ? 'rotate-90' : ''}`} />
-            </button>
+        {/* ── Step 1: Bank Selection ── */}
+        {step === 1 && (
+          <div>
+            {/* Saved Beneficiaries Toggle */}
+            {beneficiariesLoaded && beneficiaries.length > 0 && (
+              <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowSavedBeneficiaries(!showSavedBeneficiaries)
+                  }
+                  className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  <Star className="w-4 h-4" />
+                  Use saved beneficiary ({beneficiaries.length})
+                  <ChevronRight
+                    className={`w-3 h-3 transition-transform ${showSavedBeneficiaries ? 'rotate-90' : ''}`}
+                  />
+                </button>
 
-            {showSavedBeneficiaries && (
-              <div className="mt-2 max-h-40 overflow-y-auto space-y-1 pr-1">
-                {beneficiaries.map((beneficiary) => (
-                  <div
-                    key={beneficiary.id}
-                    className="flex items-center gap-2 bg-gray-800 rounded-lg p-2"
-                  >
-                    {editingBeneficiaryId === beneficiary.id ? (
-                      <div className="flex-1 flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={editingName}
-                          onChange={(e) => setEditingName(e.target.value)}
-                          className="flex-1 bg-gray-700 text-white text-sm px-2 py-1 rounded border border-gray-600 focus:outline-none focus:border-blue-500"
-                          autoFocus
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleSaveRename(beneficiary.id)}
-                          className="p-1 text-green-400 hover:text-green-300"
-                        >
-                          <Save className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditingBeneficiaryId(null)}
-                          className="p-1 text-gray-400 hover:text-gray-300"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                {showSavedBeneficiaries && (
+                  <div className="mt-2 max-h-40 overflow-y-auto space-y-1 pr-1">
+                    {beneficiaries.map((beneficiary) => (
+                      <div
+                        key={beneficiary.id}
+                        className="flex items-center gap-2 bg-gray-800 rounded-lg p-2"
+                      >
+                        {editingBeneficiaryId === beneficiary.id ? (
+                          <div className="flex-1 flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              className="flex-1 bg-gray-700 text-white text-sm px-2 py-1 rounded border border-gray-600 focus:outline-none focus:border-blue-500"
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSaveRename(beneficiary.id)}
+                              className="p-1 text-green-400 hover:text-green-300"
+                            >
+                              <Save className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingBeneficiaryId(null)}
+                              className="p-1 text-gray-400 hover:text-gray-300"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleSelectSavedBeneficiary(beneficiary)
+                              }
+                              className="flex-1 text-left"
+                            >
+                              <p className="text-white text-sm font-medium">
+                                {beneficiary.name}
+                              </p>
+                              <p className="text-gray-400 text-xs">
+                                {beneficiary.bankName} ·{' '}
+                                {beneficiary.accountNumber}
+                              </p>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleStartRename(beneficiary)}
+                              className="p-1 text-gray-400 hover:text-gray-300"
+                              title="Rename"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDeleteBeneficiary(beneficiary.id)
+                              }
+                              className="p-1 text-gray-400 hover:text-red-400"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
                       </div>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => handleSelectSavedBeneficiary(beneficiary)}
-                          className="flex-1 text-left"
-                        >
-                          <p className="text-white text-sm font-medium">
-                            {beneficiary.name}
-                          </p>
-                          <p className="text-gray-400 text-xs">
-                            {beneficiary.bankName} · {beneficiary.accountNumber}
-                          </p>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleStartRename(beneficiary)}
-                          className="p-1 text-gray-400 hover:text-gray-300"
-                          title="Rename"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteBeneficiary(beneficiary.id)}
-                          className="p-1 text-gray-400 hover:text-red-400"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </>
-                    )}
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        <p className="text-sm text-gray-400 mb-4">Select your bank</p>
+            <p className="text-sm text-gray-400 mb-4">Select your bank</p>
 
-        {banksLoading ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
-          </div>
-        ) : banksError ? (
-          <div className="flex items-center gap-2 text-red-400 text-sm py-4">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            <span>{banksError}</span>
+            {banksLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+              </div>
+            ) : banksError ? (
+              <div className="flex items-center gap-2 text-red-400 text-sm py-4">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{banksError}</span>
               </div>
             ) : (
               <>
@@ -544,11 +600,10 @@ export default function BankDetailsModal({
                         key={bank.id}
                         type="button"
                         onClick={() => setSelectedBank(bank)}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                          selectedBank?.id === bank.id
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${selectedBank?.id === bank.id
                             ? 'bg-blue-600 text-white'
                             : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                        }`}
+                          }`}
                       >
                         {bank.name}
                       </button>
@@ -616,66 +671,66 @@ export default function BankDetailsModal({
               </div>
             )}
 
-        {verifiedAccount && !verifying && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 text-green-400 text-sm mb-3 bg-green-400/10 rounded-lg px-3 py-2">
-              <CheckCircle className="w-4 h-4 flex-shrink-0" />
-              <span>
-                Account name:{' '}
-                <strong>{verifiedAccount.account_name}</strong>
-              </span>
-            </div>
-
-            {/* Save beneficiary prompt */}
-            {!showSavePrompt && (
-              <button
-                type="button"
-                onClick={() => setShowSavePrompt(true)}
-                className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition-colors"
-              >
-                <UserPlus className="w-4 h-4" />
-                Save beneficiary for future use
-              </button>
-            )}
-
-            {showSavePrompt && (
-              <div className="bg-gray-800 rounded-lg p-3 space-y-2">
-                <label className="block text-xs text-gray-400">
-                  Beneficiary name (optional)
-                </label>
-                <input
-                  type="text"
-                  value={saveCustomName}
-                  onChange={(e) => setSaveCustomName(e.target.value)}
-                  placeholder={verifiedAccount.account_name}
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
-                />
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={handleSaveBeneficiary}
-                    className="flex-1 flex items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-sm py-2 rounded-lg transition-colors"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowSavePrompt(false);
-                      setSaveCustomName('');
-                    }}
-                    className="px-3 py-2 text-gray-400 hover:text-white text-sm transition-colors"
-                  >
-                    Cancel
-                  </button>
+            {verifiedAccount && !verifying && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-green-400 text-sm mb-3 bg-green-400/10 rounded-lg px-3 py-2">
+                  <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>
+                    Account name:{' '}
+                    <strong>{verifiedAccount.account_name}</strong>
+                  </span>
                 </div>
+
+                {/* Save beneficiary prompt */}
+                {!showSavePrompt && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSavePrompt(true)}
+                    className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    Save beneficiary for future use
+                  </button>
+                )}
+
+                {showSavePrompt && (
+                  <div className="bg-gray-800 rounded-lg p-3 space-y-2">
+                    <label className="block text-xs text-gray-400">
+                      Beneficiary name (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={saveCustomName}
+                      onChange={(e) => setSaveCustomName(e.target.value)}
+                      placeholder={verifiedAccount.account_name}
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 text-sm"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveBeneficiary}
+                        className="flex-1 flex items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-sm py-2 rounded-lg transition-colors"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowSavePrompt(false);
+                          setSaveCustomName('');
+                        }}
+                        className="px-3 py-2 text-gray-400 hover:text-white text-sm transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        <div className="flex gap-3 mt-4">
+            <div className="flex gap-3 mt-4">
               <button
                 type="button"
                 onClick={() => setStep(1)}
@@ -744,8 +799,11 @@ export default function BankDetailsModal({
                             : 'text-red-400'
                       }`}
                     >
-                      {String(Math.floor(quoteSecondsLeft / 60)).padStart(2, '0')}:
-                      {String(quoteSecondsLeft % 60).padStart(2, '0')}
+                      {String(Math.floor(quoteSecondsLeft / 60)).padStart(
+                        2,
+                        '0',
+                      )}
+                      :{String(quoteSecondsLeft % 60).padStart(2, '0')}
                     </span>
                   ) : (
                     <span className="text-red-400 font-medium">Expired</span>
@@ -802,7 +860,9 @@ export default function BankDetailsModal({
                   disabled={quoteLoading}
                   className="flex items-center gap-1 text-blue-400 hover:text-blue-300 whitespace-nowrap disabled:opacity-50"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${quoteLoading ? 'animate-spin' : ''}`} />
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 ${quoteLoading ? 'animate-spin' : ''}`}
+                  />
                   Refresh
                 </button>
               </div>
@@ -827,7 +887,12 @@ export default function BankDetailsModal({
               <button
                 type="button"
                 onClick={handleConfirmPayout}
-                disabled={payoutLoading || quoteLoading || !lockedQuote || quoteSecondsLeft === 0}
+                disabled={
+                  payoutLoading ||
+                  quoteLoading ||
+                  !lockedQuote ||
+                  quoteSecondsLeft === 0
+                }
                 className="theme-primary-button flex-1 flex items-center justify-center gap-2 disabled:bg-blue-800 disabled:opacity-70 text-white py-3 rounded-lg font-medium transition-colors"
               >
                 {payoutLoading ? (
@@ -859,13 +924,27 @@ export default function BankDetailsModal({
         {/* ── Step 4: Success ── */}
         {step === 4 && (
           <div className="text-center py-4">
-            <CheckCircle className="w-14 h-14 text-green-400 mx-auto mb-4" />
-            <p className="theme-text-primary font-semibold text-lg mb-2">
-              Payout Initiated!
+            {transferStatus === 'success' ? (
+              <CheckCircle className="w-14 h-14 text-green-400 mx-auto mb-4" />
+            ) : transferStatus === 'failed' || transferStatus === 'reversed' ? (
+              <AlertCircle className="w-14 h-14 text-red-400 mx-auto mb-4" />
+            ) : (
+              <Loader2 className="w-14 h-14 text-blue-400 mx-auto mb-4 animate-spin" />
+            )}
+
+            <p className="text-white font-semibold text-lg mb-2 capitalize">
+              {transferStatus === 'pending'
+                ? 'Processing Payout...'
+                : transferStatus === 'success'
+                  ? 'Payout Successful!'
+                  : 'Payout Failed'}
             </p>
-            <p className="theme-text-secondary text-sm mb-6">
-              Your bank transfer is processing. This usually takes a few
-              minutes.
+            <p className="text-gray-400 text-sm mb-6">
+              {transferStatus === 'pending'
+                ? 'Your bank transfer is processing. This usually takes a few minutes.'
+                : transferStatus === 'success'
+                  ? 'The funds have been successfully sent to your bank account.'
+                  : 'There was an issue processing your bank transfer. Please contact support.'}
             </p>
             {payoutNote && (
               <p className="theme-text-secondary text-xs mb-6">
@@ -893,6 +972,37 @@ export default function BankDetailsModal({
                 <TransferTimeline events={statusEvents} isPolling={false} />
               </div>
             )}
+
+            {/* Cancel Payout Button within 2 mins */}
+            {transferReference &&
+              !statusEvents.some((e) => e.status === 'cancelled') && (
+                <div className="mb-6">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(
+                          `/api/transfer-status/${transferReference}`,
+                          { method: 'POST' },
+                        );
+                        const json = await res.json();
+                        if (json.success) {
+                          pushStatusEvent('cancelled', 'Transfer cancelled');
+                          addNotification(
+                            'payout_cancelled',
+                            'Payout was cancelled successfully.',
+                          );
+                        }
+                      } catch (err) {
+                        console.error('Cancel error:', err);
+                      }
+                    }}
+                    className="w-full flex items-center justify-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 py-3 rounded-lg font-medium transition-colors border border-red-500/20"
+                  >
+                    <X className="w-4 h-4" /> Cancel Payout
+                  </button>
+                </div>
+              )}
 
             <button
               type="button"

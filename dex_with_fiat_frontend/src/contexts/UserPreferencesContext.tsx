@@ -11,16 +11,17 @@ const MASKING_STYLE_KEY = 'content-masking-style';
 const DEFAULT_CURRENCY = 'usd';
 
 export const SUPPORTED_FIAT_CURRENCIES = [
-  { code: 'usd', label: 'USD — US Dollar',        symbol: '$'   },
-  { code: 'eur', label: 'EUR — Euro',              symbol: '€'   },
-  { code: 'gbp', label: 'GBP — British Pound',     symbol: '£'   },
-  { code: 'ngn', label: 'NGN — Nigerian Naira',    symbol: '₦'   },
-  { code: 'cad', label: 'CAD — Canadian Dollar',   symbol: 'CA$' },
-  { code: 'aud', label: 'AUD — Australian Dollar', symbol: 'A$'  },
-  { code: 'jpy', label: 'JPY — Japanese Yen',      symbol: '¥'   },
+  { code: 'usd', label: 'USD — US Dollar', symbol: '$' },
+  { code: 'eur', label: 'EUR — Euro', symbol: '€' },
+  { code: 'gbp', label: 'GBP — British Pound', symbol: '£' },
+  { code: 'ngn', label: 'NGN — Nigerian Naira', symbol: '₦' },
+  { code: 'cad', label: 'CAD — Canadian Dollar', symbol: 'CA$' },
+  { code: 'aud', label: 'AUD — Australian Dollar', symbol: 'A$' },
+  { code: 'jpy', label: 'JPY — Japanese Yen', symbol: '¥' },
 ] as const;
 
-export type FiatCurrencyCode = (typeof SUPPORTED_FIAT_CURRENCIES)[number]['code'];
+export type FiatCurrencyCode =
+  (typeof SUPPORTED_FIAT_CURRENCIES)[number]['code'];
 
 interface UserPreferencesContextType {
   fiatCurrency: FiatCurrencyCode;
@@ -36,9 +37,9 @@ interface UserPreferencesContextType {
   setMaskingStyle: (style: MaskingStyle) => void;
 }
 
-const UserPreferencesContext = createContext<UserPreferencesContextType | undefined>(
-  undefined,
-);
+const UserPreferencesContext = createContext<
+  UserPreferencesContextType | undefined
+>(undefined);
 
 export function UserPreferencesProvider({
   children,
@@ -53,8 +54,13 @@ export function UserPreferencesProvider({
 
   // Restore saved preferences on mount
   useEffect(() => {
-    const savedCurrency = localStorage.getItem(STORAGE_KEY) as FiatCurrencyCode | null;
-    if (savedCurrency && SUPPORTED_FIAT_CURRENCIES.some((c) => c.code === savedCurrency)) {
+    const savedCurrency = localStorage.getItem(
+      STORAGE_KEY,
+    ) as FiatCurrencyCode | null;
+    if (
+      savedCurrency &&
+      SUPPORTED_FIAT_CURRENCIES.some((c) => c.code === savedCurrency)
+    ) {
       setFiatCurrencyState(savedCurrency);
     }
 
@@ -63,7 +69,10 @@ export function UserPreferencesProvider({
       setRemindersEnabledState(savedReminders === 'true');
     }
 
-    const savedFrequency = localStorage.getItem(REMINDER_FREQUENCY_KEY) as 'weekly' | 'monthly' | null;
+    const savedFrequency = localStorage.getItem(REMINDER_FREQUENCY_KEY) as
+      | 'weekly'
+      | 'monthly'
+      | null;
     if (savedFrequency === 'weekly' || savedFrequency === 'monthly') {
       setReminderFrequencyState(savedFrequency);
     }

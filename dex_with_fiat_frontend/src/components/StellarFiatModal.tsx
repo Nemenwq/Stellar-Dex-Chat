@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { pollTransaction } from '@/lib/stellarContract';
 import {
@@ -16,6 +16,7 @@ import {
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
 import {
   BRIDGE_LIMIT_WARNING_PERCENT,
+  CONTRACT_ID,
   depositToContract,
   withdrawFromContract,
   clearCache,
@@ -29,6 +30,7 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { useTxHistory } from '@/hooks/useTxHistory';
 import { downloadReceipt } from '@/lib/receipt';
 import type { ChatMessage } from '@/types';
+import { useAccessibleModal } from '@/hooks/useAccessibleModal';
 
 interface StellarFiatModalProps {
   isOpen: boolean;
@@ -66,6 +68,7 @@ export default function StellarFiatModal({
   onDepositSuccess,
   messages = [],
 }: StellarFiatModalProps) {
+  const modalRef = useRef<HTMLDivElement>(null);
   const { connection, signTx } = useStellarWallet();
   const { addNotification } = useNotifications();
   const { addEntry } = useTxHistory();
@@ -78,6 +81,7 @@ export default function StellarFiatModal({
   const [riskConfirmation, setRiskConfirmation] = useState('');
   const [lastLoggedRiskAmount, setLastLoggedRiskAmount] = useState('');
   const [feeEstimate, setFeeEstimate] = useState<FeeEstimate | null>(null);
+  const [requiresPreSignConfirmation, setRequiresPreSignConfirmation] = useState(false);
   const [isLoadingFee, setIsLoadingFee] = useState(false);
   const [status, setStatus] = useState<TxStatus>('idle');
   const [txHash, setTxHash] = useState('');
@@ -134,6 +138,7 @@ export default function StellarFiatModal({
     setTxHash('');
     setErrorMsg('');
     setFeeEstimate(null);
+    setRequiresPreSignConfirmation(false);
     setNote('');
     setRiskConfirmation('');
     setLastLoggedRiskAmount('');
@@ -330,6 +335,11 @@ export default function StellarFiatModal({
       riskConfirmation.trim().toUpperCase() !== RISK_CONFIRMATION_PHRASE) ||
     Date.now() - lastActionTimestamp < SUBMIT_COOLDOWN_MS;
 
+  const operationType = isAdminMode ? 'Withdraw' : 'Deposit';
+  const txNetwork = connection.network || 'TESTNET';
+
+  useAccessibleModal(isOpen, modalRef, onClose);
+
   useEffect(() => {
     if (
       !isOpen ||
@@ -503,14 +513,18 @@ export default function StellarFiatModal({
     setStatus('idle');
     setTxHash('');
     setErrorMsg('');
+    setRequiresPreSignConfirmation(false);
     onClose();
   };
 
   return (
     <div className="theme-overlay fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
       <div
+        ref={modalRef}
         role="dialog"
         aria-modal="true"
+        aria-label={isAdminMode ? 'Withdraw from Bridge' : 'Deposit to Bridge'}
+        tabIndex={-1}
         className="theme-surface theme-border relative w-full max-w-md mx-4 border rounded-2xl shadow-2xl p-6"
       >
         <div className="flex items-center justify-between mb-6">
@@ -738,6 +752,52 @@ export default function StellarFiatModal({
               </div>
             )}
 
+            {requiresPreSignConfirmation && status !== 'loading' && (
+              <div className="theme-surface-muted theme-border mb-4 rounded-xl border px-4 py-3">
+                <h3 className="theme-text-muted text-[10px] font-bold uppercase tracking-widest mb-3">
+                  Pre-Sign Transaction Summary
+                </h3>
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="theme-text-secondary">Operation</span>
+                    <span className="theme-text-primary font-medium">{operationType}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="theme-text-secondary">Amount</span>
+                    <span className="theme-text-primary font-medium">
+                      {stroopsToDisplay(stroopsAmount ?? BigInt(0))} XLM
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="theme-text-secondary">Network</span>
+                    <span className="theme-text-primary font-medium">{txNetwork}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="theme-text-secondary">Contract</span>
+                    <span className="theme-text-primary font-mono text-[10px] break-all text-right">
+                      {CONTRACT_ID}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setRequiresPreSignConfirmation(false)}
+                    className="theme-border theme-text-secondary flex-1 rounded-lg border py-2 text-xs font-medium hover:theme-text-primary transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleAction()}
+                    className="theme-primary-button flex-1 rounded-lg py-2 text-xs font-semibold"
+                  >
+                    Confirm & Sign
+                  </button>
+                </div>
+              </div>
+            )}
+
             {isDepositFlow && (
               <div className="theme-surface-muted theme-border mb-4 rounded-xl border px-4 py-3">
                 <div className="flex items-center justify-between mb-3">
@@ -882,7 +942,7 @@ export default function StellarFiatModal({
                 ) : isAdminMode ? (
                   'Withdraw'
                 ) : (
-                  'Deposit'
+                  requiresPreSignConfirmation ? 'Awaiting Confirmation' : 'Review Transaction'
                 )}
               </button>
 

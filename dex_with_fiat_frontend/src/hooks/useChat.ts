@@ -104,6 +104,32 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const aiAssistant = useMemo(() => new AIAssistant(), []);
+  const activeRequestControllerRef = useRef<AbortController | null>(null);
+
+  const appendCancelledMessage = useCallback((content: string) => {
+    const cancelledMessage: ChatMessage = {
+      id: (Date.now() + 1).toString(),
+      role: 'assistant',
+      content,
+      timestamp: new Date(),
+      metadata: {
+        requestStatus: 'cancelled',
+      },
+    };
+    setMessages((prev: ChatMessage[]) => [...prev, cancelledMessage]);
+  }, []);
+
+  const cancelPendingRequest = useCallback(() => {
+    if (!activeRequestControllerRef.current || !isLoading) {
+      return;
+    }
+    activeRequestControllerRef.current.abort();
+    activeRequestControllerRef.current = null;
+    setIsLoading(false);
+    appendCancelledMessage(
+      'Request cancelled. No worries - you can send a new prompt when ready.',
+    );
+  }, [appendCancelledMessage, isLoading]);
 
   // Subscribe to state machine changes
   useEffect(() => {
@@ -149,6 +175,11 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
       }
 
       // Detect cancellation
+      if (isLoading && activeRequestControllerRef.current) {
+        activeRequestControllerRef.current.abort();
+        activeRequestControllerRef.current = null;
+      }
+
       const isCancellation = /cancel|stop|no thanks|nevermind|abort/i.test(
         content,
       );
@@ -163,6 +194,8 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
 
       setMessages((prev: ChatMessage[]) => [...prev, userMessage]);
       setIsLoading(true);
+      const requestController = new AbortController();
+      activeRequestControllerRef.current = requestController;
 
       // Transition to SENDING_MESSAGE
       machine.transition(ChatEvent.SEND_MESSAGE);
@@ -179,10 +212,18 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         };
 
         perf.mark('AI: Response');
-        const analysis = await aiAssistant.analyzeUserMessage(
-          content,
-          conversationContext,
-        );
+        const abortPromise = new Promise<never>((_, reject) => {
+          requestController.signal.addEventListener(
+            'abort',
+            () => reject(new DOMException('Request aborted', 'AbortError')),
+            { once: true },
+          );
+        });
+
+        const analysis = await Promise.race([
+          aiAssistant.analyzeUserMessage(content, conversationContext),
+          abortPromise,
+        ]);
         perf.measure('AI: Response');
 
         // Update context with new message count
@@ -339,6 +380,9 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           }, 1000);
         }
       } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return;
+        }
         console.error('Chat error:', error);
         machine.updateContext({
           errorMessage: error instanceof Error ? error.message : 'Failed to send message',
@@ -376,39 +420,20 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           return prev;
         });
       } finally {
-        setIsLoading(false);
+        if (activeRequestControllerRef.current === requestController) {
+          activeRequestControllerRef.current = null;
+          setIsLoading(false);
+        }
       }
     },
-    [aiAssistant, connection, messages, onTransactionReady, isAdmin],
-  );
-
-  const retryMessage = useCallback(
-    async (messageId: string) => {
-      const messageToRetry = messages.find((m) => m.id === messageId);
-      if (!messageToRetry || !messageToRetry.originalPayload) {
-        console.error('Message not found or no original payload available');
-        return;
-      }
-
-      // Clear the error state
-      setMessages((prev: ChatMessage[]) =>
-        prev.map((m) =>
-          m.id === messageId
-            ? { ...m, error: undefined }
-            : m,
-        ),
-      );
-
-      // Transition from ERROR to SENDING_MESSAGE if in error state
-      const machineState = machineRef.current.getState();
-      if (machineState.state === ChatState.ERROR) {
-        machineRef.current.transition(ChatEvent.RETRY_FROM_ERROR);
-      }
-
-      // Resend the message
-      await sendMessage(messageToRetry.originalPayload.content);
-    },
-    [messages, sendMessage],
+    [
+      aiAssistant,
+      conversationState,
+      connection,
+      isLoading,
+      messages,
+      onTransactionReady,
+    ],
   );
 
   const clearChat = useCallback(() => {
@@ -483,6 +508,10 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
     conversationState,
     setTransactionReadyCallback,
     setIsAdmin: setIsAdminState,
+    cancelPendingRequest,
+    setIsAdmin: (isAdmin: boolean) => {
+      setConversationState((prev: ConversationState) => ({ ...prev, isAdmin }));
+    },
     addMessage: (message: ChatMessage) => {
       const newMessages = [...messages, message];
       setMessages((prev: ChatMessage[]) => [...prev, message]);
