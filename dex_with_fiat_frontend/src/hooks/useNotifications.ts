@@ -6,6 +6,7 @@ export type NotificationType =
   | 'payout_pending'
   | 'payout_success'
   | 'payout_fail'
+  | 'payout_cancelled'
   | 'risk_warning';
 
 export interface AppNotification {

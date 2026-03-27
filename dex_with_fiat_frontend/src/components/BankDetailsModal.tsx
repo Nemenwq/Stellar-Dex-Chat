@@ -925,6 +925,37 @@ export default function BankDetailsModal({
               </div>
             )}
 
+            {/* Cancel Payout Button within 2 mins */}
+            {transferReference &&
+              !statusEvents.some((e) => e.status === 'cancelled') && (
+                <div className="mb-6">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(
+                          `/api/transfer-status/${transferReference}`,
+                          { method: 'POST' },
+                        );
+                        const json = await res.json();
+                        if (json.success) {
+                          pushStatusEvent('cancelled', 'Transfer cancelled');
+                          addNotification(
+                            'payout_cancelled',
+                            'Payout was cancelled successfully.',
+                          );
+                        }
+                      } catch (err) {
+                        console.error('Cancel error:', err);
+                      }
+                    }}
+                    className="w-full flex items-center justify-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 py-3 rounded-lg font-medium transition-colors border border-red-500/20"
+                  >
+                    <X className="w-4 h-4" /> Cancel Payout
+                  </button>
+                </div>
+              )}
+
             <button
               type="button"
               onClick={handleClose}
