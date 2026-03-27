@@ -111,8 +111,11 @@ export default function BankDetailsModal({
   const [payoutError, setPayoutError] = useState('');
   const [payoutNote, setPayoutNote] = useState('');
 
-  // Step 4 - success
+  // Step 4 — success & status tracking
   const [transferReference, setTransferReference] = useState('');
+  const [transferStatus, setTransferStatus] = useState<
+    'pending' | 'success' | 'failed' | 'reversed'
+  >('pending');
 
   // Transfer timeline
   const [statusEvents, setStatusEvents] = useState<StatusEvent[]>([]);
@@ -175,6 +178,35 @@ export default function BankDetailsModal({
     }, 1000);
     return () => clearInterval(interval);
   }, [lockedQuote, step]);
+
+  // Poll for transfer status when on the success step
+  useEffect(() => {
+    if (
+      step !== 4 ||
+      !transferReference ||
+      transferStatus === 'success' ||
+      transferStatus === 'failed' ||
+      transferStatus === 'reversed'
+    ) {
+      return;
+    }
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/transfer-status/${transferReference}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data?.status) {
+            setTransferStatus(json.data.status);
+          }
+        }
+      } catch (err) {
+        console.error('Error polling transfer status:', err);
+      }
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
+  }, [step, transferReference, transferStatus]);
 
   const filteredBanks = banks.filter((b) =>
     b.name.toLowerCase().includes(bankSearch.toLowerCase()),
@@ -331,14 +363,7 @@ export default function BankDetailsModal({
     setPayoutError('');
     setPayoutNote('');
     setTransferReference('');
-    setShowSavedBeneficiaries(false);
-    setSelectedSavedBeneficiary(null);
-    setEditingBeneficiaryId(null);
-    setEditingName('');
-    setShowSavePrompt(false);
-    setSaveCustomName('');
-    setStatusEvents([]);
-    setIsPollingStatus(false);
+    setTransferStatus('pending');
     onClose();
   };
 
@@ -415,13 +440,12 @@ export default function BankDetailsModal({
             {([1, 2, 3] as const).map((s) => (
               <React.Fragment key={s}>
                 <div
-                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
-                    step === s
+                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${step === s
                       ? 'bg-blue-600 text-white'
                       : step > s
                         ? 'bg-green-500 text-white'
                         : 'bg-gray-700 text-gray-400'
-                  }`}
+                    }`}
                 >
                   {s}
                 </div>
@@ -565,11 +589,10 @@ export default function BankDetailsModal({
                         key={bank.id}
                         type="button"
                         onClick={() => setSelectedBank(bank)}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                          selectedBank?.id === bank.id
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${selectedBank?.id === bank.id
                             ? 'bg-blue-600 text-white'
                             : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                        }`}
+                          }`}
                       >
                         {bank.name}
                       </button>
@@ -890,13 +913,27 @@ export default function BankDetailsModal({
         {/* ── Step 4: Success ── */}
         {step === 4 && (
           <div className="text-center py-4">
-            <CheckCircle className="w-14 h-14 text-green-400 mx-auto mb-4" />
-            <p className="theme-text-primary font-semibold text-lg mb-2">
-              Payout Initiated!
+            {transferStatus === 'success' ? (
+              <CheckCircle className="w-14 h-14 text-green-400 mx-auto mb-4" />
+            ) : transferStatus === 'failed' || transferStatus === 'reversed' ? (
+              <AlertCircle className="w-14 h-14 text-red-400 mx-auto mb-4" />
+            ) : (
+              <Loader2 className="w-14 h-14 text-blue-400 mx-auto mb-4 animate-spin" />
+            )}
+
+            <p className="text-white font-semibold text-lg mb-2 capitalize">
+              {transferStatus === 'pending'
+                ? 'Processing Payout...'
+                : transferStatus === 'success'
+                  ? 'Payout Successful!'
+                  : 'Payout Failed'}
             </p>
-            <p className="theme-text-secondary text-sm mb-6">
-              Your bank transfer is processing. This usually takes a few
-              minutes.
+            <p className="text-gray-400 text-sm mb-6">
+              {transferStatus === 'pending'
+                ? 'Your bank transfer is processing. This usually takes a few minutes.'
+                : transferStatus === 'success'
+                  ? 'The funds have been successfully sent to your bank account.'
+                  : 'There was an issue processing your bank transfer. Please contact support.'}
             </p>
             {payoutNote && (
               <p className="theme-text-secondary text-xs mb-6">

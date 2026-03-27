@@ -121,7 +121,7 @@
   ],
   "ledger": {
     "protocol_version": 25,
-    "sequence_number": 6,
+    "sequence_number": 20000,
     "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
@@ -321,7 +321,7 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "DepositCooldown"
+                            "symbol": "CooldownLedgers"
                           }
                         ]
                       },
@@ -346,21 +346,6 @@
                         "vec": [
                           {
                             "symbol": "LastAdminActionLedger"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "u32": 0
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "LastDepositLedger"
-                          },
-                          {
-                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                           }
                         ]
                       },

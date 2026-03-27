@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { telemetry } from '@/lib/telemetry';
+import { transferStore } from '@/lib/transferStore';
 import { env } from '@/lib/env';
 
 const PAYSTACK_SECRET_KEY = env.PAYSTACK_SECRET_KEY;
@@ -107,8 +108,13 @@ export async function POST(request: NextRequest) {
           recipient: event.data.recipient,
           status: event.data.status,
         });
-        // Here you would typically update your database
-        // and potentially call the smart contract to confirm the transaction
+        // Update the in-memory store with the success status
+        transferStore.set(event.data.reference, {
+          reference: event.data.reference,
+          status: 'success',
+          amount: event.data.amount,
+          updatedAt: new Date().toISOString(),
+        });
         break;
 
       case 'transfer.failed':
@@ -126,7 +132,14 @@ export async function POST(request: NextRequest) {
           status: event.data.status,
           failure_reason: event.data.failure_reason,
         });
-        // Handle failed transfer - potentially trigger refund
+        // Update the in-memory store with the failure status
+        transferStore.set(event.data.reference, {
+          reference: event.data.reference,
+          status: 'failed',
+          amount: event.data.amount,
+          failureReason: event.data.failure_reason,
+          updatedAt: new Date().toISOString(),
+        });
         break;
 
       case 'transfer.reversed':
@@ -142,7 +155,13 @@ export async function POST(request: NextRequest) {
           recipient: event.data.recipient,
           status: event.data.status,
         });
-        // Handle reversed transfer
+        // Update the in-memory store with the reversed status
+        transferStore.set(event.data.reference, {
+          reference: event.data.reference,
+          status: 'reversed',
+          amount: event.data.amount,
+          updatedAt: new Date().toISOString(),
+        });
         break;
 
       default:
