@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { FixedSizeList } from 'react-window';
 import { ChatMessage } from '@/types';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
@@ -110,12 +111,13 @@ export default function ChatMessages({
   onActionClick,
   isLoading = false,
 }: ChatMessagesProps) {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<FixedSizeList>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { isDarkMode } = useTheme();
 
   const [dismissedCards, setDismissedCards] = useState<string[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [containerHeight, setContainerHeight] = useState(600);
 
   // Load dismissed cards from localStorage
   useEffect(() => {
@@ -136,23 +138,36 @@ export default function ChatMessages({
     localStorage.setItem('dexfiat_dismissed_help_cards', JSON.stringify(updated));
   };
 
-  const scrollToBottom = () => {
-    if (containerRef.current) {
-      containerRef.current.scrollTo({
-        top: containerRef.current.scrollHeight,
-        behavior: 'smooth',
-      });
-    }
-  };
-
+  // Scroll to bottom when new messages arrive
   useEffect(() => {
-    if (isLoading || messages.length > 0) {
+    if (messages.length > 0 && listRef.current) {
+      // Scroll to the last message with a small delay to ensure rendering
       const timer = setTimeout(() => {
-        scrollToBottom();
-      }, 100);
+        listRef.current?.scrollToItem(messages.length - 1, 'end');
+      }, 50);
       return () => clearTimeout(timer);
     }
   }, [messages, isLoading]);
+
+  // Update container height on resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (containerRef.current) {
+        // Account for padding and other elements
+        const rect = containerRef.current.getBoundingClientRect();
+        setContainerHeight(rect.height);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    // Set initial height after mount
+    const timer = setTimeout(handleResize, 0);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(timer);
+    };
+  }, []);
 
   const helpCards = [
     {
@@ -194,19 +209,24 @@ export default function ChatMessages({
   return (
     <div
       ref={containerRef}
-      className={`flex-1 overflow-y-auto p-6 transition-colors duration-300 ${
+      className={`flex flex-col flex-1 overflow-hidden transition-colors duration-300 ${
         isDarkMode ? 'bg-gray-900' : 'bg-gray-50'
       }`}
       style={{
         height: '100%',
         minHeight: '0',
-        maxHeight: '100%',
       }}
     >
       {messages.length === 0 ? (
-        <div className="max-w-4xl mx-auto h-full flex flex-col items-center justify-center py-12">
-          {/* Welcome Header */}
-          <div className="text-center mb-12">
+        <div
+          className="overflow-y-auto flex-1 p-6 flex flex-col items-center justify-center"
+          style={{
+            height: '100%',
+          }}
+        >
+          <div className="max-w-4xl w-full h-full flex flex-col items-center justify-center">
+            {/* Welcome Header */}
+            <div className="text-center mb-12">
             <div
               className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-4 ${
                 isDarkMode ? 'bg-blue-500/10 text-blue-400' : 'bg-blue-50 text-blue-600'
@@ -252,19 +272,51 @@ export default function ChatMessages({
               <p>Type a message below to start your conversion journey.</p>
             </div>
           )}
+          </div>
         </div>
       ) : (
-        <div className="space-y-6 pb-6 max-w-4xl mx-auto">
-          {messages.map((message) => (
-            <Message
-              key={message.id}
-              message={message}
-              onActionClick={onActionClick}
-            />
-          ))}
+        <div className="flex flex-col h-full">
+          {/* Virtualized message list */}
+          <div className="flex-1 overflow-hidden">
+            <div
+              className="max-w-4xl mx-auto h-full"
+              style={{
+                paddingLeft: '1.5rem',
+                paddingRight: '1.5rem',
+              }}
+              role="feed"
+              aria-label="Chat messages"
+            >
+              <FixedSizeList
+                ref={listRef}
+                height={Math.max(containerHeight - 40, 200)}
+                itemCount={messages.length}
+                itemSize={150}
+                width="100%"
+                overscanCount={5}
+              >
+                {({ index, style }) => {
+                  const message = messages[index];
+                  return (
+                    <div
+                      key={message.id}
+                      style={style}
+                      className="py-3"
+                      role="article"
+                      aria-label={`Message ${index + 1} from ${message.role === 'user' ? 'user' : 'assistant'}`}
+                    >
+                      <Message
+                        message={message}
+                        onActionClick={onActionClick}
+                      />
+                    </div>
+                  );
+                }}
+              </FixedSizeList>
+            </div>
+          </div>
         </div>
       )}
-      <div ref={messagesEndRef} />
     </div>
   );
 }
