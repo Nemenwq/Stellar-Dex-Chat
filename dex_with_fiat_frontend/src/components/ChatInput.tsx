@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Send, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from '@/contexts/TranslationContext';
 
 interface ChatInputProps {
   onSendMessage: (message: string) => void;
@@ -21,8 +22,10 @@ export default function ChatInput({
   onOpenHistory,
   onOpenBridgeModal,
   isLoading,
-  placeholder = 'Type your message...',
+  placeholder,
 }: ChatInputProps) {
+  const { t } = useTranslation();
+  const activePlaceholder = placeholder || t('chat.placeholder');
   const [message, setMessage] = useState('');
   const [showCommands, setShowCommands] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -31,10 +34,10 @@ export default function ChatInput({
   const [paletteIndex, setPaletteIndex] = useState(0);
 
   const commands = [
-    { cmd: '/deposit', desc: 'Add funds to your Stellar account' },
-    { cmd: '/rates', desc: 'Check current market conversion rates' },
-    { cmd: '/portfolio', desc: 'View your asset balance and value' },
-    { cmd: '/help', desc: 'Get assistance with platform features' },
+    { cmd: '/deposit', desc: t('common.deposit_desc' as any) || 'Add funds to your Stellar account' },
+    { cmd: '/rates', desc: t('common.rates_desc' as any) || 'Check current market conversion rates' },
+    { cmd: '/portfolio', desc: t('common.portfolio_desc' as any) || 'View your asset balance and value' },
+    { cmd: '/help', desc: t('common.help_desc' as any) || 'Get assistance with platform features' },
   ];
 
   const handleInputChange = (val: string) => {
@@ -89,7 +92,7 @@ export default function ChatInput({
   const paletteCommands = [
     {
       id: 'new_chat',
-      label: 'New Chat',
+      label: t('chat.new_chat'),
       keywords: 'new chat clear',
       run: () => onNewChat?.(),
     },
@@ -214,7 +217,7 @@ export default function ChatInput({
           >
             <div className="p-2 border-b bg-gray-50/50">
               <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-2">
-                Commands
+                {t('chat.commands')}
               </span>
             </div>
             {commands.map((c, i) => (
@@ -243,7 +246,7 @@ export default function ChatInput({
             value={message}
             onChange={(e) => handleInputChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={placeholder}
+            placeholder={activePlaceholder}
             disabled={isLoading}
             className="theme-input w-full resize-none border rounded-lg px-4 py-3 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             rows={1}
@@ -276,9 +279,9 @@ export default function ChatInput({
       {/* Quick suggestions */}
       <div className="flex flex-wrap gap-2 mt-4">
         {[
-          'Convert 100 USDC to USD',
-          'Check conversion rates',
-          'View transaction history',
+          t('chat.suggestions.convert'),
+          t('chat.suggestions.rates'),
+          t('chat.suggestions.portfolio'),
         ].map((suggestion, index) => (
           <button
             key={index}

@@ -188,7 +188,22 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         timestamp: new Date(),
       };
 
-      setMessages((prev: ChatMessage[]) => [...prev, userMessage]);
+      const pendingAssistantId = (Date.now() + 1).toString();
+      const pendingAssistantMessage: ChatMessage = {
+        id: pendingAssistantId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        metadata: {
+          status: 'pending',
+        },
+      };
+
+      setMessages((prev: ChatMessage[]) => [
+        ...prev,
+        userMessage,
+        pendingAssistantMessage,
+      ]);
       setIsLoading(true);
       const requestController = new AbortController();
       activeRequestControllerRef.current = requestController;
@@ -317,34 +332,39 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
             analysis.extractedData.amountIn ||
             analysis.extractedData.fiatAmount);
 
-        const assistantMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: enhancedResponse,
-          timestamp: new Date(),
-          metadata: {
-            guardrail: analysis.guardrail,
-            transactionData: shouldShowTransactionData
-              ? (analysis.extractedData as TransactionData)
-              : undefined,
-            suggestedActions: generateSuggestedActions(analysis, {
-              isWalletConnected: connection.isConnected,
-              messageCount: newMessageCount,
-              hasTransactionData: !!pendingTransactionData,
-              shouldAutoTrigger: !!shouldAutoTrigger,
-              isAdmin: conversationState.isAdmin,
-              lowConfidence: needsClarification,
-            }),
-            confirmationRequired:
-              analysis.intent === 'fiat_conversion' || shouldTriggerTransaction,
-            autoTriggerTransaction: shouldTriggerTransaction,
-            conversationCount: newMessageCount,
-            lowConfidence: needsClarification,
-            clarificationQuestion: clarificationQuestion || undefined,
-          },
-        };
-
-        setMessages((prev: ChatMessage[]) => [...prev, assistantMessage]);
+        setMessages((prev: ChatMessage[]) =>
+          prev.map((m) =>
+            m.id === pendingAssistantId
+              ? {
+                  ...m,
+                  content: enhancedResponse,
+                  metadata: {
+                    ...m.metadata,
+                    status: 'sent',
+                    guardrail: analysis.guardrail,
+                    transactionData: shouldShowTransactionData
+                      ? (analysis.extractedData as TransactionData)
+                      : undefined,
+                    suggestedActions: generateSuggestedActions(analysis, {
+                      isWalletConnected: connection.isConnected,
+                      messageCount: newMessageCount,
+                      hasTransactionData: !!pendingTransactionData,
+                      shouldAutoTrigger: !!shouldAutoTrigger,
+                      isAdmin: conversationState.isAdmin,
+                      lowConfidence: needsClarification,
+                    }),
+                    confirmationRequired:
+                      analysis.intent === 'fiat_conversion' ||
+                      shouldTriggerTransaction,
+                    autoTriggerTransaction: shouldTriggerTransaction,
+                    conversationCount: newMessageCount,
+                    lowConfidence: needsClarification,
+                    clarificationQuestion: clarificationQuestion || undefined,
+                  },
+                }
+              : m,
+          ),
+        );
 
         if (
           shouldTriggerTransaction &&
@@ -360,14 +380,21 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           return;
         }
         console.error('Chat error:', error);
-        const errorMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content:
-            'Sorry, I encountered an error processing your request. Please try again.',
-          timestamp: new Date(),
-        };
-        setMessages((prev: ChatMessage[]) => [...prev, errorMessage]);
+        setMessages((prev: ChatMessage[]) =>
+          prev.map((m) =>
+            m.id === pendingAssistantId
+              ? {
+                  ...m,
+                  content:
+                    'Sorry, I encountered an error processing your request. Please try again.',
+                  metadata: {
+                    ...m.metadata,
+                    status: 'failed',
+                  },
+                }
+              : m,
+          ),
+        );
       } finally {
         if (activeRequestControllerRef.current === requestController) {
           activeRequestControllerRef.current = null;

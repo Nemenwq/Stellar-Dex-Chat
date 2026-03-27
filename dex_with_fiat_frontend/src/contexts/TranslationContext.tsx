@@ -1,0 +1,61 @@
+'use client';
+
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import en from '../locales/en.json';
+
+type TranslationKeys = typeof en;
+type NestedKeyOf<T> = T extends object
+  ? { [K in keyof T]: T[K] extends object ? `${K & string}.${NestedKeyOf<T[K]>}` : K }[keyof T]
+  : never;
+
+export type TKey = NestedKeyOf<TranslationKeys>;
+
+interface TranslationContextType {
+  t: (key: TKey, params?: Record<string, string | number>) => string;
+  locale: string;
+  setLocale: (locale: string) => void;
+}
+
+const translations: Record<string, any> = { en };
+
+const TranslationContext = createContext<TranslationContextType | undefined>(undefined);
+
+export function TranslationProvider({ children }: { children: React.ReactNode }) {
+  const [locale, setLocale] = useState('en');
+
+  const t = useCallback((key: string, params?: Record<string, string | number>) => {
+    const keys = key.split('.');
+    let value = translations[locale];
+    
+    for (const k of keys) {
+      value = value?.[k];
+    }
+
+    if (typeof value !== 'string') return key;
+
+    if (params) {
+      return Object.entries(params).reduce(
+        (acc, [k, v]) => acc.replace(`{${k}}`, String(v)),
+        value
+      );
+    }
+
+    return value;
+  }, [locale]);
+
+  const value = useMemo(() => ({ t: t as any, locale, setLocale }), [t, locale]);
+
+  return (
+    <TranslationContext.Provider value={value}>
+      {children}
+    </TranslationContext.Provider>
+  );
+}
+
+export function useTranslation() {
+  const context = useContext(TranslationContext);
+  if (!context) {
+    throw new Error('useTranslation must be used within a TranslationProvider');
+  }
+  return context;
+}
