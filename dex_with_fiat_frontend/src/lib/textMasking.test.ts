@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  SensitiveTermsManager,
-  SensitiveTermConfig,
+    SensitiveTermConfig,
+    SensitiveTermsManager,
 } from '@/lib/sensitiveTerms';
 import {
-  maskText,
-  generateMask,
-  getMaskingStats,
-  MaskingStyle,
+    generateMask,
+    getMaskingStats,
+    MaskingStyle,
+    maskText,
 } from '@/lib/textMasking';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 describe('Sensitive Terms Manager', () => {
   let manager: SensitiveTermsManager;

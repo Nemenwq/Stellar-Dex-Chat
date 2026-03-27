@@ -2,9 +2,9 @@
  * Hook for applying text masking based on user preferences
  */
 
-import { useMemo } from 'react';
-import { maskText, MaskingStyle } from '@/lib/textMasking';
 import { SensitiveTermsManager } from '@/lib/sensitiveTerms';
+import { MaskingStyle, maskText } from '@/lib/textMasking';
+import { useMemo } from 'react';
 
 export interface UseMaskingOptions {
   enabled: boolean;

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
 import { PerformanceBench } from '@/lib/performanceBench';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 /**
  * Performance benchmarks for virtualized chat messages

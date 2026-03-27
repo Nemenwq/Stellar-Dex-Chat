@@ -1,17 +1,17 @@
 'use client';
 
+import { useTheme } from '@/contexts/ThemeContext';
+import { ChatMessage } from '@/types';
+import {
+    ArrowDownCircle,
+    ChevronRight,
+    CreditCard,
+    Sparkles,
+    Wallet,
+    X,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { FixedSizeList } from 'react-window';
-import { ChatMessage } from '@/types';
-import { useTheme } from '@/contexts/ThemeContext';
-import {
-  Wallet,
-  ArrowDownCircle,
-  CreditCard,
-  X,
-  Sparkles,
-  ChevronRight,
-} from 'lucide-react';
 import Message from './Message';
 
 interface ChatMessagesProps {

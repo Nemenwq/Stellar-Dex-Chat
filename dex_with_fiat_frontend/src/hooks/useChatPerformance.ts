@@ -2,9 +2,9 @@
  * Hook for measuring chat performance
  */
 
-import { useEffect, useRef } from 'react';
-import { ChatMessage } from '@/types';
 import { PerformanceBench } from '@/lib/performanceBench';
+import { ChatMessage } from '@/types';
+import { useEffect, useRef } from 'react';
 
 export interface ChatPerformanceMetrics {
   messageCount: number;

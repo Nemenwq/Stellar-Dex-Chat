@@ -1,7 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { MaskingStyle } from '@/lib/textMasking';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 
 const STORAGE_KEY = 'fiat-currency';
 const REMINDERS_ENABLED_KEY = 'reminders-enabled';

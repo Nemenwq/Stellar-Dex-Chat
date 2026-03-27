@@ -1,40 +1,40 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
-import {
-  Wallet,
-  LogOut,
-  Moon,
-  Sun,
-  Menu,
-  X,
-  Plus,
-  Star,
-  Settings,
-  ChevronDown,
-  User,
-  AlertCircle,
-} from 'lucide-react';
-import {
-  useStellarWallet,
-  EXPECTED_NETWORK,
-} from '@/contexts/StellarWalletContext';
-import { useTheme } from '@/contexts/ThemeContext';
-import useChat from '@/hooks/useChat';
-import ChatMessages from './ChatMessages';
-import ChatInput from './ChatInput';
-import ChatHistorySidebar from './ChatHistorySidebar';
-import StellarFiatModal from './StellarFiatModal';
-import BankDetailsModal from './BankDetailsModal';
-import UserSettings from './UserSettings';
-import NotificationsCenter from './NotificationsCenter';
-import { TransactionData } from '@/types';
 import SkeletonChat from '@/components/ui/skeleton/SkeletonChat';
 import SkeletonSidebar from '@/components/ui/skeleton/SkeletonSidebar';
+import {
+    EXPECTED_NETWORK,
+    useStellarWallet,
+} from '@/contexts/StellarWalletContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import { useUserPreferences } from '@/contexts/UserPreferencesContext';
-import { getAdmin, stroopsToDisplay } from '@/lib/stellarContract';
-import { getQueuedReadRequestsCount } from '@/lib/networkQueue';
 import useBridgeStats from '@/hooks/useBridgeStats';
+import useChat from '@/hooks/useChat';
+import { getQueuedReadRequestsCount } from '@/lib/networkQueue';
+import { getAdmin, stroopsToDisplay } from '@/lib/stellarContract';
+import { TransactionData } from '@/types';
+import {
+    AlertCircle,
+    ChevronDown,
+    LogOut,
+    Menu,
+    Moon,
+    Plus,
+    Settings,
+    Star,
+    Sun,
+    User,
+    Wallet,
+    X,
+} from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import BankDetailsModal from './BankDetailsModal';
+import ChatHistorySidebar from './ChatHistorySidebar';
+import ChatInput from './ChatInput';
+import ChatMessages from './ChatMessages';
+import NotificationsCenter from './NotificationsCenter';
+import StellarFiatModal from './StellarFiatModal';
+import UserSettings from './UserSettings';
 
 export default function StellarChatInterface() {
   const {

@@ -1,11 +1,11 @@
 'use client';
 
-import { ChatMessage } from '@/types';
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useUserPreferences } from '@/contexts/UserPreferencesContext';
 import { useMasking } from '@/hooks/useMasking';
-import { Bot, User, AlertTriangle, Link, Clock, Coins, RotateCcw } from 'lucide-react';
+import { ChatMessage } from '@/types';
+import { AlertTriangle, Bot, Clock, Coins, Link, RotateCcw, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 interface MessageProps {
