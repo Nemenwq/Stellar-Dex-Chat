@@ -121,6 +121,10 @@ pub enum DataKey {
     WindowStart,
     WindowWithdrawn,
     CooldownLedgers,
+    // Withdrawal cooldown after large deposit
+    WithdrawCooldownLedgers,
+    WithdrawCooldownThreshold,
+    LastLargeDeposit(Address),
     UserDeposited(Address),
     NextActionID,
     QueuedAdminAction(u64),
@@ -274,6 +278,27 @@ impl FiatBridge {
             .instance()
             .set(&user_key, &(user_total + amount));
 
+        // Track large deposits for withdrawal cooldown
+        let withdraw_threshold: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawCooldownThreshold)
+            .unwrap_or(0);
+        if withdraw_threshold > 0 && amount >= withdraw_threshold {
+            let large_key = DataKey::LastLargeDeposit(from.clone());
+            env.storage()
+                .temporary()
+                .set(&large_key, &env.ledger().sequence());
+            let cooldown_ledgers: u32 = env
+                .storage()
+                .instance()
+                .get(&DataKey::WithdrawCooldownLedgers)
+                .unwrap_or(0);
+            // Keep record alive at least as long as the cooldown period
+            let ttl = cooldown_ledgers.max(17_280); // min 24h
+            env.storage().temporary().extend_ttl(&large_key, ttl, ttl);
+        }
+
         env.events()
             .publish((Symbol::new(&env, "deposit"), from), amount);
         env.events()
@@ -363,6 +388,26 @@ impl FiatBridge {
         if amount <= 0 {
             return Err(Error::ZeroAmount);
         }
+
+        // Enforce withdrawal cooldown after large deposit
+        let withdraw_cooldown: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawCooldownLedgers)
+            .unwrap_or(0);
+        if withdraw_cooldown > 0 {
+            let large_key = DataKey::LastLargeDeposit(to.clone());
+            if let Some(last_large) = env
+                .storage()
+                .temporary()
+                .get::<DataKey, u32>(&large_key)
+            {
+                if env.ledger().sequence() < last_large.saturating_add(withdraw_cooldown) {
+                    return Err(Error::CooldownActive);
+                }
+            }
+        }
+
         let lock_period: u32 = env
             .storage()
             .instance()
@@ -535,6 +580,30 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::CooldownLedgers, &ledgers);
+        Ok(())
+    }
+
+    /// Configure the withdrawal cooldown applied after a large deposit.
+    ///
+    /// - `ledgers`   – number of ledgers to wait before withdrawing.  0 disables the guard.
+    /// - `threshold` – minimum deposit amount (inclusive) that triggers the cooldown.  0 disables.
+    pub fn set_withdrawal_cooldown(
+        env: Env,
+        ledgers: u32,
+        threshold: i128,
+    ) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawCooldownLedgers, &ledgers);
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawCooldownThreshold, &threshold);
         Ok(())
     }
 
@@ -758,6 +827,18 @@ impl FiatBridge {
         env.storage()
             .instance()
             .get(&DataKey::CooldownLedgers)
+            .unwrap_or(0)
+    }
+    pub fn get_withdrawal_cooldown(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::WithdrawCooldownLedgers)
+            .unwrap_or(0)
+    }
+    pub fn get_withdrawal_threshold(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::WithdrawCooldownThreshold)
             .unwrap_or(0)
     }
     pub fn get_withdrawal_request(env: Env, id: u64) -> Option<WithdrawRequest> {
