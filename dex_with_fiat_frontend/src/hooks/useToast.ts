@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
-import { toastStore } from '@/lib/toastStore';
+import { AppToast, toastStore } from '@/lib/toastStore';
 
-const EMPTY_ARRAY = [];
+const EMPTY_ARRAY: AppToast[] = [];
 
 export function useToast() {
   const toasts = useSyncExternalStore(
