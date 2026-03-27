@@ -4,7 +4,6 @@ import {
   getVisibleMessages,
   hasMoreMessages,
   getNextMessageCount,
-  DEFAULT_PAGE_SIZE,
 } from './chatPaginationUtils';
 
 describe('chatPaginationUtils', () => {
