@@ -286,7 +286,9 @@ export default function ChatHistorySidebar({
                 </div>
                 {(entry.amount || entry.fiatAmount) && (
                   <p className="theme-text-muted text-[11px] mt-2">
-                    {entry.amount ? `${entry.amount} ${entry.asset || 'XLM'}` : ''}
+                    {entry.amount
+                      ? `${entry.amount} ${entry.asset || 'XLM'}`
+                      : ''}
                     {entry.amount && entry.fiatAmount ? ' · ' : ''}
                     {entry.fiatAmount
                       ? `${entry.fiatAmount} ${entry.fiatCurrency || 'NGN'}`
@@ -295,7 +297,8 @@ export default function ChatHistorySidebar({
                 )}
                 {entry.note && (
                   <p className="theme-text-primary text-xs mt-2">
-                    Note: <span className="theme-text-secondary">{entry.note}</span>
+                    Note:{' '}
+                    <span className="theme-text-secondary">{entry.note}</span>
                   </p>
                 )}
               </div>

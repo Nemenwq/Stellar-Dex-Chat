@@ -104,7 +104,10 @@ export default function TransferTimeline({
           const isLast = idx === events.length - 1;
 
           return (
-            <li key={`${event.status}-${idx}`} className="flex items-start gap-3">
+            <li
+              key={`${event.status}-${idx}`}
+              className="flex items-start gap-3"
+            >
               {/* Status icon badge */}
               <span
                 className={`relative z-10 flex-shrink-0 w-9 h-9 rounded-full border flex items-center justify-center ${meta.color}`}

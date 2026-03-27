@@ -65,7 +65,9 @@ export default function UserSettings({ isOpen, onClose }: UserSettingsProps) {
         aria-label="User settings"
         tabIndex={-1}
         className={`fixed inset-y-0 right-0 z-50 w-80 flex flex-col shadow-2xl focus:outline-none transition-colors duration-300 ${
-          isDarkMode ? 'bg-gray-900 border-l border-gray-700' : 'bg-white border-l border-gray-200'
+          isDarkMode
+            ? 'bg-gray-900 border-l border-gray-700'
+            : 'bg-white border-l border-gray-200'
         }`}
       >
         {/* Header */}
@@ -114,7 +116,11 @@ export default function UserSettings({ isOpen, onClose }: UserSettingsProps) {
               currency.
             </p>
 
-            <ul role="listbox" aria-label="Select default fiat currency" className="space-y-1">
+            <ul
+              role="listbox"
+              aria-label="Select default fiat currency"
+              className="space-y-1"
+            >
               {SUPPORTED_FIAT_CURRENCIES.map(({ code, label, symbol }) => {
                 const isSelected = fiatCurrency === code;
                 return (
@@ -164,7 +170,9 @@ export default function UserSettings({ isOpen, onClose }: UserSettingsProps) {
             </ul>
           </section>
           {/* Reminders section */}
-          <section className={`pt-6 border-t ${isDarkMode ? 'border-gray-800' : 'border-gray-100'}`}>
+          <section
+            className={`pt-6 border-t ${isDarkMode ? 'border-gray-800' : 'border-gray-100'}`}
+          >
             <h3
               className={`text-xs font-semibold uppercase tracking-wider mb-3 ${
                 isDarkMode ? 'text-gray-400' : 'text-gray-500'
@@ -177,8 +185,8 @@ export default function UserSettings({ isOpen, onClose }: UserSettingsProps) {
                 isDarkMode ? 'text-gray-500' : 'text-gray-400'
               }`}
             >
-              Get notified when it&apos;s time to check your XLM balance and consider
-              converting to fiat.
+              Get notified when it&apos;s time to check your XLM balance and
+              consider converting to fiat.
             </p>
 
             <div className="space-y-4">
