@@ -13,7 +13,6 @@ import {
 } from 'lucide-react';
 import Message from './Message';
 import { useChatPagination } from '@/hooks/useChatPagination';
-import { Loader2 } from 'lucide-react';
 import Skeleton from '@/components/ui/skeleton/Skeleton';
 
 interface ChatMessagesProps {
