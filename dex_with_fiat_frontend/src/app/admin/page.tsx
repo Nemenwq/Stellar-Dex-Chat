@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { ReconciliationRecord } from '@/types';
 import { aggregateDailyVolume, DailyMetric } from '@/lib/analytics';
+import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import {
   AreaChart,
   Area,
@@ -17,6 +18,7 @@ import Link from 'next/link';
 export default function AdminDashboard() {
   const [metrics, setMetrics] = useState<DailyMetric[]>([]);
   const [loading, setLoading] = useState(true);
+  const enableAdminReconciliation = useFeatureFlag('enableAdminReconciliation');
 
   useEffect(() => {
     fetchMetrics();
@@ -62,12 +64,14 @@ export default function AdminDashboard() {
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
             Admin Dashboard
           </h1>
-          <Link
-            href="/admin/reconciliation"
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-          >
-            Reconciliation Tools
-          </Link>
+          {enableAdminReconciliation && (
+            <Link
+              href="/admin/reconciliation"
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            >
+              Reconciliation Tools
+            </Link>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
