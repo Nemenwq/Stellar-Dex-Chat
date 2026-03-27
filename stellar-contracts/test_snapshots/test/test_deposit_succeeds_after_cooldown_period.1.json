@@ -58,7 +58,7 @@
               "function_name": "set_cooldown",
               "args": [
                 {
-                  "u32": 7
+                  "u32": 10
                 }
               ]
             }
@@ -129,7 +129,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
-                  "i128": "50"
+                  "i128": "100"
                 },
                 {
                   "address": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN"
@@ -154,7 +154,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                     },
                     {
-                      "i128": "50"
+                      "i128": "100"
                     }
                   ]
                 }
@@ -164,11 +164,12 @@
           ]
         }
       ]
-    ]
+    ],
+    []
   ],
   "ledger": {
     "protocol_version": 25,
-    "sequence_number": 7,
+    "sequence_number": 10,
     "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
@@ -236,7 +237,7 @@
               },
               "durability": "temporary",
               "val": {
-                "u32": 7
+                "u32": 10
               }
             }
           },
@@ -303,6 +304,14 @@
                     "val": {
                       "bytes": ""
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "refunded"
+                    },
+                    "val": {
+                      "bool": false
+                    }
                   }
                 ]
               }
@@ -337,7 +346,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "50"
+                      "i128": "100"
                     }
                   },
                   {
@@ -361,7 +370,7 @@
                       "symbol": "ledger"
                     },
                     "val": {
-                      "u32": 7
+                      "u32": 10
                     }
                   },
                   {
@@ -371,6 +380,14 @@
                     "val": {
                       "bytes": ""
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "refunded"
+                    },
+                    "val": {
+                      "bool": false
+                    }
                   }
                 ]
               }
@@ -378,7 +395,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4102
+        "live_until": 4105
       },
       {
         "entry": {
@@ -405,7 +422,7 @@
                       "symbol": "limit"
                     },
                     "val": {
-                      "i128": "500"
+                      "i128": "1000"
                     }
                   },
                   {
@@ -413,7 +430,7 @@
                       "symbol": "total_deposited"
                     },
                     "val": {
-                      "i128": "150"
+                      "i128": "200"
                     }
                   }
                 ]
@@ -460,7 +477,43 @@
                         ]
                       },
                       "val": {
-                        "u32": 7
+                        "u32": 10
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "InactivityThreshold"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 1555200
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "LastAdminActionLedger"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "NextActionID"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "0"
                       }
                     },
                     {
@@ -473,6 +526,18 @@
                       },
                       "val": {
                         "u64": "2"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "SchemaVersion"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 1
                       }
                     },
                     {
@@ -499,7 +564,7 @@
                         ]
                       },
                       "val": {
-                        "i128": "150"
+                        "i128": "200"
                       }
                     }
                   ]
@@ -509,7 +574,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 535680
       },
       {
         "entry": {
@@ -569,7 +634,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 6312006
+        "live_until": 6312009
       },
       {
         "entry": {
@@ -616,7 +681,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "150"
+                      "i128": "200"
                     }
                   },
                   {
@@ -668,7 +733,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "850"
+                      "i128": "800"
                     }
                   },
                   {
@@ -810,62 +875,9 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 535680
       }
     ]
   },
-  "events": [
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "transfer"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
-              },
-              {
-                "string": "aaa:GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJXFF"
-              }
-            ],
-            "data": {
-              "i128": "50"
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "deposit"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-              }
-            ],
-            "data": {
-              "i128": "50"
-            }
-          }
-        }
-      },
-      "failed_call": false
-    }
-  ]
+  "events": []
 }
