@@ -35,6 +35,7 @@ import ChatMessages from './ChatMessages';
 import NotificationsCenter from './NotificationsCenter';
 import StellarFiatModal from './StellarFiatModal';
 import UserSettings from './UserSettings';
+import WalletConnectionTimeline from './WalletConnectionTimeline';
 
 export default function StellarChatInterface() {
   const {
@@ -78,7 +79,6 @@ export default function StellarChatInterface() {
     messages,
     isLoading,
     sendMessage,
-    retryMessage,
     cancelPendingRequest,
     clearChat,
     loadChatSession,
@@ -624,7 +624,6 @@ export default function StellarChatInterface() {
             <ChatMessages
               messages={messages}
               onActionClick={handleActionClick}
-              onRetry={retryMessage}
               isLoading={isLoading}
             />
           )}

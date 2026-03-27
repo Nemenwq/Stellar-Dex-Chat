@@ -428,7 +428,6 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
     },
     [
       aiAssistant,
-      conversationState,
       connection,
       isLoading,
       messages,
@@ -501,7 +500,6 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
     messages,
     isLoading,
     sendMessage,
-    retryMessage,
     clearChat,
     loadChatSession,
     currentSessionId,
@@ -509,9 +507,6 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
     setTransactionReadyCallback,
     setIsAdmin: setIsAdminState,
     cancelPendingRequest,
-    setIsAdmin: (isAdmin: boolean) => {
-      setConversationState((prev: ConversationState) => ({ ...prev, isAdmin }));
-    },
     addMessage: (message: ChatMessage) => {
       const newMessages = [...messages, message];
       setMessages((prev: ChatMessage[]) => [...prev, message]);
