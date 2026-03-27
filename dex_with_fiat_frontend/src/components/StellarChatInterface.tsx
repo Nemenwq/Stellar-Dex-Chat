@@ -78,6 +78,7 @@ export default function StellarChatInterface() {
     messages,
     isLoading,
     sendMessage,
+    retryMessage,
     clearChat,
     loadChatSession,
     setTransactionReadyCallback,
@@ -622,6 +623,7 @@ export default function StellarChatInterface() {
             <ChatMessages
               messages={messages}
               onActionClick={handleActionClick}
+              onRetry={retryMessage}
               isLoading={isLoading}
             />
           )}

@@ -316,19 +316,65 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         }
       } catch (error) {
         console.error('Chat error:', error);
-        const errorMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content:
-            'Sorry, I encountered an error processing your request. Please try again.',
-          timestamp: new Date(),
-        };
-        setMessages((prev: ChatMessage[]) => [...prev, errorMessage]);
+        
+        // Mark the user message with error information
+        setMessages((prev: ChatMessage[]) => {
+          const lastMessageIndex = prev.length - 1;
+          if (lastMessageIndex >= 0 && prev[lastMessageIndex].role === 'user') {
+            const updatedMessages = [...prev];
+            const userMsg = updatedMessages[lastMessageIndex];
+            updatedMessages[lastMessageIndex] = {
+              ...userMsg,
+              error: {
+                message: error instanceof Error ? error.message : 'Failed to send message',
+                timestamp: new Date(),
+                retryAttempts: (userMsg.error?.retryAttempts ?? 0) + 1,
+              },
+              originalPayload: {
+                content: userMsg.content,
+                conversationContext: {
+                  isWalletConnected: connection.isConnected,
+                  walletAddress: connection.address,
+                  previousMessages: messages
+                    .slice(-3)
+                    .map((m: ChatMessage) => ({ role: m.role, content: m.content })),
+                  messageCount: conversationState.messageCount,
+                  hasTransactionData: !!conversationState.pendingTransactionData,
+                },
+              },
+            };
+            return updatedMessages;
+          }
+          return prev;
+        });
       } finally {
         setIsLoading(false);
       }
     },
     [aiAssistant, conversationState, connection, messages, onTransactionReady],
+  );
+
+  const retryMessage = useCallback(
+    async (messageId: string) => {
+      const messageToRetry = messages.find((m) => m.id === messageId);
+      if (!messageToRetry || !messageToRetry.originalPayload) {
+        console.error('Message not found or no original payload available');
+        return;
+      }
+
+      // Clear the error state
+      setMessages((prev: ChatMessage[]) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, error: undefined }
+            : m,
+        ),
+      );
+
+      // Resend the message
+      await sendMessage(messageToRetry.originalPayload.content);
+    },
+    [messages, sendMessage],
   );
 
   const clearChat = useCallback(() => {
@@ -396,6 +442,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
     messages,
     isLoading,
     sendMessage,
+    retryMessage,
     clearChat,
     loadChatSession,
     currentSessionId,

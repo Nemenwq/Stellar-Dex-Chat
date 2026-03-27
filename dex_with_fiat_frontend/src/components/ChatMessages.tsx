@@ -21,6 +21,7 @@ interface ChatMessagesProps {
     actionType: string,
     data?: Record<string, unknown>,
   ) => void;
+  onRetry?: (messageId: string) => void;
   isLoading?: boolean;
 }
 
@@ -109,6 +110,7 @@ function HelpCard({
 export default function ChatMessages({
   messages,
   onActionClick,
+  onRetry,
   isLoading = false,
 }: ChatMessagesProps) {
   const listRef = useRef<FixedSizeList>(null);
@@ -308,6 +310,7 @@ export default function ChatMessages({
                       <Message
                         message={message}
                         onActionClick={onActionClick}
+                        onRetry={onRetry}
                       />
                     </div>
                   );
