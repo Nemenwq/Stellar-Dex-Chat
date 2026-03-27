@@ -1,17 +1,16 @@
 'use client';
 
-import { useTheme } from '@/contexts/ThemeContext';
-import { ChatMessage } from '@/types';
-import {
-    ArrowDownCircle,
-    ChevronRight,
-    CreditCard,
-    Sparkles,
-    Wallet,
-    X,
-} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { FixedSizeList } from 'react-window';
+import { ChatMessage } from '@/types';
+import { useTheme } from '@/contexts/ThemeContext';
+import {
+  Wallet,
+  ArrowDownCircle,
+  CreditCard,
+  X,
+  Sparkles,
+  ChevronRight,
+} from 'lucide-react';
 import Message from './Message';
 import { useChatPagination } from '@/hooks/useChatPagination';
 import { Loader2 } from 'lucide-react';
@@ -23,7 +22,6 @@ interface ChatMessagesProps {
     actionType: string,
     data?: Record<string, unknown>,
   ) => void;
-  onRetry?: (messageId: string) => void;
   isLoading?: boolean;
 }
 
@@ -114,10 +112,9 @@ function HelpCard({
 export default function ChatMessages({
   messages: allMessages,
   onActionClick,
-  onRetry,
   isLoading = false,
 }: ChatMessagesProps) {
-  const listRef = useRef<FixedSizeList>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const loaderRef = useRef<HTMLDivElement>(null);
   const { isDarkMode } = useTheme();
@@ -127,7 +124,6 @@ export default function ChatMessages({
 
   const [dismissedCards, setDismissedCards] = useState<string[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [containerHeight, setContainerHeight] = useState(600);
   const [prevScrollHeight, setPrevScrollHeight] = useState(0);
   const [shouldPreserveScroll, setShouldPreserveScroll] = useState(false);
 
@@ -153,14 +149,16 @@ export default function ChatMessages({
     );
   };
 
-  // Scroll to bottom when new messages arrive
+  const scrollToBottom = () => {
+    if (containerRef.current) {
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  };
+
   useEffect(() => {
-    if (messages.length > 0 && listRef.current) {
-      // Scroll to the last message with a small delay to ensure rendering
-      const timer = setTimeout(() => {
-        listRef.current?.scrollToItem(messages.length - 1, 'end');
-      }, 50);
-      return () => clearTimeout(timer);
     if (isLoading || allMessages.length > 0) {
       // Only auto-scroll to bottom if we are NOT loading more previous messages
       if (!isLoadingMore && !shouldPreserveScroll) {
@@ -213,26 +211,6 @@ export default function ChatMessages({
     return () => observer.disconnect();
   }, [hasMore, isLoadingMore, loadMore]);
 
-  // Update container height on resize
-  useEffect(() => {
-    const handleResize = () => {
-      if (containerRef.current) {
-        // Account for padding and other elements
-        const rect = containerRef.current.getBoundingClientRect();
-        setContainerHeight(rect.height);
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-    // Set initial height after mount
-    const timer = setTimeout(handleResize, 0);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      clearTimeout(timer);
-    };
-  }, []);
-
   const helpCards = [
     {
       id: 'wallet',
@@ -273,24 +251,15 @@ export default function ChatMessages({
   return (
     <div
       ref={containerRef}
-      className={`flex flex-col flex-1 overflow-hidden transition-colors duration-300 ${
+      className={`flex-1 overflow-y-auto p-6 transition-colors duration-300 ${
         isDarkMode ? 'bg-gray-900' : 'bg-gray-50'
       }`}
       style={{
         height: '100%',
         minHeight: '0',
+        maxHeight: '100%',
       }}
     >
-      {messages.length === 0 ? (
-        <div
-          className="overflow-y-auto flex-1 p-6 flex flex-col items-center justify-center"
-          style={{
-            height: '100%',
-          }}
-        >
-          <div className="max-w-4xl w-full h-full flex flex-col items-center justify-center">
-            {/* Welcome Header */}
-            <div className="text-center mb-12">
       {visibleMessages.length === 0 ? (
         <div className="max-w-4xl mx-auto h-full flex flex-col items-center justify-center py-12">
           {/* Welcome Header */}
@@ -344,50 +313,8 @@ export default function ChatMessages({
               <p>Type a message below to start your conversion journey.</p>
             </div>
           )}
-          </div>
         </div>
       ) : (
-        <div className="flex flex-col h-full">
-          {/* Virtualized message list */}
-          <div className="flex-1 overflow-hidden">
-            <div
-              className="max-w-4xl mx-auto h-full"
-              style={{
-                paddingLeft: '1.5rem',
-                paddingRight: '1.5rem',
-              }}
-              role="feed"
-              aria-label="Chat messages"
-            >
-              <FixedSizeList
-                ref={listRef}
-                height={Math.max(containerHeight - 40, 200)}
-                itemCount={messages.length}
-                itemSize={150}
-                width="100%"
-                overscanCount={5}
-              >
-                {({ index, style }) => {
-                  const message = messages[index];
-                  return (
-                    <div
-                      key={message.id}
-                      style={style}
-                      className="py-3"
-                      role="article"
-                      aria-label={`Message ${index + 1} from ${message.role === 'user' ? 'user' : 'assistant'}`}
-                    >
-                      <Message
-                        message={message}
-                        onActionClick={onActionClick}
-                        onRetry={onRetry}
-                      />
-                    </div>
-                  );
-                }}
-              </FixedSizeList>
-            </div>
-          </div>
         <div className="space-y-6 pb-6 max-w-4xl mx-auto">
           {/* Loading indicator for pagination */}
           {hasMore && (
@@ -415,6 +342,7 @@ export default function ChatMessages({
           ))}
         </div>
       )}
+      <div ref={messagesEndRef} />
     </div>
   );
 }
