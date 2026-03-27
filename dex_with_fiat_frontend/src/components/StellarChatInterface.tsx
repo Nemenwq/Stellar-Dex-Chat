@@ -30,21 +30,6 @@ import useChat from '@/hooks/useChat';
 import { getQueuedReadRequestsCount } from '@/lib/networkQueue';
 import { getAdmin, stroopsToDisplay } from '@/lib/stellarContract';
 import { TransactionData } from '@/types';
-import {
-    AlertCircle,
-    ChevronDown,
-    LogOut,
-    Menu,
-    Moon,
-    Plus,
-    Settings,
-    Star,
-    Sun,
-    User,
-    Wallet,
-    X,
-} from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
 import BankDetailsModal from './BankDetailsModal';
 import ChatHistorySidebar from './ChatHistorySidebar';
 import ChatInput from './ChatInput';
@@ -52,22 +37,14 @@ import ChatMessages from './ChatMessages';
 import NotificationsCenter from './NotificationsCenter';
 import StellarFiatModal from './StellarFiatModal';
 import UserSettings from './UserSettings';
-import NotificationsCenter from './NotificationsCenter';
-import { TransactionData } from '@/types';
-import SkeletonChat from '@/components/ui/skeleton/SkeletonChat';
-import SkeletonSidebar from '@/components/ui/skeleton/SkeletonSidebar';
-import { useUserPreferences } from '@/contexts/UserPreferencesContext';
-import { getAdmin, stroopsToDisplay } from '@/lib/stellarContract';
-import {
-  getQueuedReadRequestsCount,
-  subscribeToQueue,
-  processQueue,
-} from '@/lib/networkQueue';
-import useBridgeStats from '@/hooks/useBridgeStats';
 import WalletConnectionTimeline from './WalletConnectionTimeline';
 import { useTranslation } from '@/contexts/TranslationContext';
 import ReceiptDrawer from './ReceiptDrawer';
 import { useTxHistory } from '@/hooks/useTxHistory';
+import {
+  subscribeToQueue,
+  processQueue,
+} from '@/lib/networkQueue';
 
 export default function StellarChatInterface() {
   const { t } = useTranslation();

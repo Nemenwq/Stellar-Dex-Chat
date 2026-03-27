@@ -5,8 +5,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useUserPreferences } from '@/contexts/UserPreferencesContext';
 import { useMasking } from '@/hooks/useMasking';
 import { ChatMessage } from '@/types';
-import { AlertTriangle, Bot, Clock, Coins, Link, RotateCcw, User } from 'lucide-react';
-import { Bot, User, AlertTriangle, Link, Clock, Coins, Loader2, RefreshCcw, XCircle } from 'lucide-react';
+import { AlertTriangle, Bot, Clock, Coins, Link, RotateCcw, User, Loader2, RefreshCcw, XCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useTranslation } from '@/contexts/TranslationContext';
 
@@ -33,7 +32,6 @@ export default function Message({ message, onActionClick, onRetry }: MessageProp
     style: maskingStyle,
   });
   const { t } = useTranslation();
-  const isUser = message.role === 'user';
   const isPending = message.metadata?.status === 'pending';
   const isFailed = message.metadata?.status === 'failed';
 

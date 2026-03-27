@@ -295,6 +295,8 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
               newMessageCount >= 3 &&
               analysis.intent === 'fiat_conversion'));
 
+        const shouldTriggerTransaction = shouldAutoTrigger && hasMinimalTransactionData;
+
         // If ready for transaction, attempt transition
         if (shouldAutoTrigger && hasMinimalTransactionData) {
           machine.updateContext({ pendingTransactionData });
