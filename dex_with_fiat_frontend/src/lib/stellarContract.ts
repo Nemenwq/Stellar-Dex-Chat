@@ -51,7 +51,10 @@ async function buildAndSimulate(
 }
 
 /** Submit a signed XDR and wait for confirmation. */
-async function submitAndWait(signedXdr: string): Promise<string> {
+async function submitAndWait(
+  signedXdr: string,
+  maxRetries: number = 20,
+): Promise<string> {
   const tx = TransactionBuilder.fromXDR(signedXdr, NETWORK_PASSPHRASE);
   const sendResult = await server.sendTransaction(tx);
   if (sendResult.status === 'ERROR') {
@@ -62,8 +65,15 @@ async function submitAndWait(signedXdr: string): Promise<string> {
 
   // Poll until finalized
   let getResult = await server.getTransaction(sendResult.hash);
+  let retries = 0;
   while (getResult.status === rpc.Api.GetTransactionStatus.NOT_FOUND) {
+    if (retries >= maxRetries) {
+      throw new Error(
+        `Transaction confirmation timed out after ${maxRetries} attempts`,
+      );
+    }
     await new Promise((r) => setTimeout(r, 1500));
+    retries += 1;
     getResult = await server.getTransaction(sendResult.hash);
   }
   if (getResult.status === rpc.Api.GetTransactionStatus.FAILED) {
