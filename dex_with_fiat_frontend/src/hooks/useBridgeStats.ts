@@ -47,8 +47,15 @@ export default function useBridgeStats(): BridgeStats {
     await refetchStats();
   }, [refetchStats]);
 
+  // Initial fetch and 30-second polling
   useEffect(() => {
     void refetchStats();
+
+    const interval = setInterval(() => {
+      void refetchStats();
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
   }, [refetchStats]);
 
   return {
