@@ -1134,10 +1134,10 @@ fn test_deposit_cooldown_is_per_address_only() {
 
     bridge.set_cooldown(&10);
     bridge.deposit(&user_a, &50, &token_addr, &Bytes::new(&env));
-    
+
     // user_b not blocked
     bridge.deposit(&user_b, &50, &token_addr, &Bytes::new(&env));
-    
+
     // user_a still blocked
     let result = bridge.try_deposit(&user_a, &50, &token_addr, &Bytes::new(&env));
     assert_eq!(result, Err(Ok(Error::CooldownActive)));
