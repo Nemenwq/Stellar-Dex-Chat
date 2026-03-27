@@ -1,17 +1,21 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
-import {
-  ChatMessage,
-  AIAnalysisResult,
-  GuardrailCategory,
-  TransactionData,
-} from '@/types';
-import { AIAssistant } from '@/lib/aiAssistant';
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
-import { useChatHistory } from './useChatHistory';
+import { AIAssistant } from '@/lib/aiAssistant';
 import { perf } from '@/lib/perf';
+import {
+    AIAnalysisResult,
+    ChatMessage,
+    GuardrailCategory,
+    TransactionData,
+} from '@/types';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChatEvent, ChatState, createChatStateMachine } from './chatStateMachine';
+import { useChatHistory } from './useChatHistory';
 
+/**
+ * Exported state type for backward compatibility
+ */
 interface ConversationState {
   messageCount: number;
   hasUserCancelled: boolean;
@@ -32,20 +36,12 @@ const useChat = () => {
     currentSession,
   } = useChatHistory();
 
-  // Conversation flow state
-  const [conversationState, setConversationState] = useState<ConversationState>(
-    {
-      messageCount: 0,
-      hasUserCancelled: false,
-      pendingTransactionData: null,
-      shouldTriggerTransaction: false,
-      isAdmin: false,
-      awaitingClarification: false,
-      clarificationQuestion: null,
-    },
-  );
+  // State machine for chat lifecycle
+  const machineRef = useRef<ReturnType<typeof createChatStateMachine>>(createChatStateMachine());
+  const [, setStateUpdateTrigger] = useState(0);
 
-  // Modal trigger callback - this will be passed to the chat interface
+  // Additional state for admin and transaction callback
+  const [isAdmin, setIsAdminState] = useState(false);
   const [onTransactionReady, setOnTransactionReady] = useState<
     ((data: TransactionData) => void) | null
   >(null);
@@ -107,49 +103,57 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isInitialized, setIsInitialized] = useState(false);
   const aiAssistant = useMemo(() => new AIAssistant(), []);
 
+  // Subscribe to state machine changes
   useEffect(() => {
-    if (!isInitialized) {
+    const unsubscribe = machineRef.current.subscribe(() => {
+      setStateUpdateTrigger((prev) => prev + 1);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Initialize chat session
+  useEffect(() => {
+    const machine = machineRef.current;
+    const machineState = machine.getState();
+
+    if (machineState.state === ChatState.UNINITIALIZED) {
       if (currentSession && currentSession.messages.length > 0) {
         setMessages(currentSession.messages);
+        machine.transition(ChatEvent.INITIALIZE_SESSION);
       } else if (!currentSessionId) {
         setMessages([]);
         createNewSession([]);
+        machine.transition(ChatEvent.INITIALIZE_SESSION);
       }
-      setIsInitialized(true);
     }
-  }, [
-    currentSession,
-    currentSessionId,
-    createNewSession,
-    initialMessage,
-    isInitialized,
-  ]);
+  }, [currentSession, currentSessionId, createNewSession]);
 
+  // Persist messages to session
   useEffect(() => {
-    if (isInitialized && currentSessionId && messages.length > 0) {
+    if (machineRef.current.getState().state !== ChatState.UNINITIALIZED && currentSessionId && messages.length > 0) {
       updateCurrentSession(messages);
     }
-  }, [messages, currentSessionId, updateCurrentSession, isInitialized]);
+  }, [messages, currentSessionId, updateCurrentSession]);
 
   const sendMessage = useCallback(
     async (content: string) => {
+      const machine = machineRef.current;
+      const machineState = machine.getState();
+
+      // Only proceed if in valid state
+      if (!machine.canTransition(ChatEvent.SEND_MESSAGE)) {
+        console.warn('Cannot send message in current state:', machineState.state);
+        return;
+      }
+
+      // Detect cancellation
       const isCancellation = /cancel|stop|no thanks|nevermind|abort/i.test(
         content,
       );
-      if (isCancellation) {
-        setConversationState((prev: ConversationState) => ({
-          ...prev,
-          hasUserCancelled: true,
-          pendingTransactionData: null,
-          shouldTriggerTransaction: false,
-          awaitingClarification: false,
-          clarificationQuestion: null,
-        }));
-      }
 
+      // Add user message
       const userMessage: ChatMessage = {
         id: Date.now().toString(),
         role: 'user',
@@ -160,6 +164,9 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
       setMessages((prev: ChatMessage[]) => [...prev, userMessage]);
       setIsLoading(true);
 
+      // Transition to SENDING_MESSAGE
+      machine.transition(ChatEvent.SEND_MESSAGE);
+
       try {
         const conversationContext = {
           isWalletConnected: connection.isConnected,
@@ -167,8 +174,8 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           previousMessages: messages
             .slice(-3)
             .map((m: ChatMessage) => ({ role: m.role, content: m.content })),
-          messageCount: conversationState.messageCount,
-          hasTransactionData: !!conversationState.pendingTransactionData,
+          messageCount: machineState.context.messageCount,
+          hasTransactionData: !!machineState.context.pendingTransactionData,
         };
 
         perf.mark('AI: Response');
@@ -178,41 +185,67 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         );
         perf.measure('AI: Response');
 
-        const newMessageCount = conversationState.messageCount + 1;
-        let shouldTriggerTransaction = false;
-        let pendingTransactionData = conversationState.pendingTransactionData;
+        // Update context with new message count
+        const newMessageCount = machineState.context.messageCount + 1;
+        machine.updateContext({ messageCount: newMessageCount });
 
+        // Handle cancellation
+        if (isCancellation) {
+          machine.transition(ChatEvent.CANCEL_FLOW);
+        }
+
+        // Extract and accumulate transaction data
+        let pendingTransactionData: TransactionData | null = machineState.context.pendingTransactionData;
         if (analysis.intent === 'fiat_conversion' && analysis.extractedData) {
           pendingTransactionData = {
+            type: 'fiat_conversion',
             ...pendingTransactionData,
             ...analysis.extractedData,
           } as TransactionData;
         }
 
+        // Check if we have minimal transaction data
         const hasMinimalTransactionData =
-          pendingTransactionData &&
-          (pendingTransactionData.tokenIn ||
-            pendingTransactionData.amountIn ||
-            pendingTransactionData.fiatAmount);
+          !!(pendingTransactionData &&
+            (pendingTransactionData.tokenIn ||
+              pendingTransactionData.amountIn ||
+              pendingTransactionData.fiatAmount));
+
+        // Determine if clarification is needed
         const needsClarification =
           analysis.intent === 'fiat_conversion' &&
           analysis.confidence < AIAssistant.LOW_CONFIDENCE_THRESHOLD;
+
         const clarificationQuestion = needsClarification
           ? aiAssistant.getClarificationQuestion(analysis)
           : null;
 
+        // Update machine context with analysis results
+        machine.updateContext({
+          pendingTransactionData,
+          needsClarification,
+          clarificationQuestion,
+        });
+
+        // Transition through analysis
+        machine.transition(ChatEvent.ANALYSIS_COMPLETE);
+
+        // Determine if we should auto-trigger transaction
         const shouldAutoTrigger =
           !needsClarification &&
-          !conversationState.hasUserCancelled &&
+          !machineState.context.hasUserCancelled &&
           (newMessageCount >= 5 ||
             (hasMinimalTransactionData &&
               newMessageCount >= 3 &&
               analysis.intent === 'fiat_conversion'));
 
+        // If ready for transaction, attempt transition
         if (shouldAutoTrigger && hasMinimalTransactionData) {
-          shouldTriggerTransaction = true;
+          machine.updateContext({ pendingTransactionData });
+          machine.transition(ChatEvent.TRIGGER_TRANSACTION);
         }
 
+        // Build response message
         let enhancedResponse = analysis.suggestedResponse;
 
         if (needsClarification && clarificationQuestion) {
@@ -223,7 +256,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           !needsClarification &&
           newMessageCount >= 3 &&
           hasMinimalTransactionData &&
-          !conversationState.hasUserCancelled
+          !machineState.context.hasUserCancelled
         ) {
           enhancedResponse += `
 
@@ -232,7 +265,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           !needsClarification &&
           newMessageCount >= 4 &&
           !hasMinimalTransactionData &&
-          !conversationState.hasUserCancelled
+          !machineState.context.hasUserCancelled
         ) {
           enhancedResponse += `
 
@@ -259,16 +292,6 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
             "**Conversion Cancelled**\\n\\nNo problem! I've cancelled the transaction process. Feel free to start fresh whenever you're ready to convert crypto to fiat. I'm here to help whenever you need assistance.\\n\\nIs there anything else I can help you with today?";
         }
 
-        setConversationState((prev: ConversationState) => ({
-          ...prev,
-          messageCount: newMessageCount,
-          hasUserCancelled: isCancellation ? true : prev.hasUserCancelled,
-          pendingTransactionData,
-          shouldTriggerTransaction,
-          awaitingClarification: needsClarification,
-          clarificationQuestion,
-        }));
-
         const shouldShowTransactionData =
           analysis.intent === 'fiat_conversion' &&
           analysis.extractedData &&
@@ -291,12 +314,12 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
               messageCount: newMessageCount,
               hasTransactionData: !!pendingTransactionData,
               shouldAutoTrigger: !!shouldAutoTrigger,
-              isAdmin: conversationState.isAdmin,
+              isAdmin,
               lowConfidence: needsClarification,
             }),
             confirmationRequired:
-              analysis.intent === 'fiat_conversion' || shouldTriggerTransaction,
-            autoTriggerTransaction: shouldTriggerTransaction,
+              analysis.intent === 'fiat_conversion' || shouldAutoTrigger,
+            autoTriggerTransaction: shouldAutoTrigger,
             conversationCount: newMessageCount,
             lowConfidence: needsClarification,
             clarificationQuestion: clarificationQuestion || undefined,
@@ -305,8 +328,9 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
 
         setMessages((prev: ChatMessage[]) => [...prev, assistantMessage]);
 
+        // Trigger transaction callback if needed
         if (
-          shouldTriggerTransaction &&
+          shouldAutoTrigger &&
           pendingTransactionData &&
           onTransactionReady
         ) {
@@ -316,7 +340,11 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         }
       } catch (error) {
         console.error('Chat error:', error);
-        
+        machine.updateContext({
+          errorMessage: error instanceof Error ? error.message : 'Failed to send message',
+        });
+        machine.transition(ChatEvent.ENCOUNTER_ERROR);
+
         // Mark the user message with error information
         setMessages((prev: ChatMessage[]) => {
           const lastMessageIndex = prev.length - 1;
@@ -338,8 +366,8 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
                   previousMessages: messages
                     .slice(-3)
                     .map((m: ChatMessage) => ({ role: m.role, content: m.content })),
-                  messageCount: conversationState.messageCount,
-                  hasTransactionData: !!conversationState.pendingTransactionData,
+                  messageCount: machineState.context.messageCount,
+                  hasTransactionData: !!machineState.context.pendingTransactionData,
                 },
               },
             };
@@ -351,7 +379,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         setIsLoading(false);
       }
     },
-    [aiAssistant, conversationState, connection, messages, onTransactionReady],
+    [aiAssistant, connection, messages, onTransactionReady, isAdmin],
   );
 
   const retryMessage = useCallback(
@@ -371,6 +399,12 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         ),
       );
 
+      // Transition from ERROR to SENDING_MESSAGE if in error state
+      const machineState = machineRef.current.getState();
+      if (machineState.state === ChatState.ERROR) {
+        machineRef.current.transition(ChatEvent.RETRY_FROM_ERROR);
+      }
+
       // Resend the message
       await sendMessage(messageToRetry.originalPayload.content);
     },
@@ -379,15 +413,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
 
   const clearChat = useCallback(() => {
     setMessages([]);
-    setConversationState((prev: ConversationState) => ({
-      messageCount: 0,
-      hasUserCancelled: false,
-      pendingTransactionData: null,
-      shouldTriggerTransaction: false,
-      isAdmin: prev.isAdmin,
-      awaitingClarification: false,
-      clarificationQuestion: null,
-    }));
+    machineRef.current.transition(ChatEvent.CLEAR_CHAT);
     createNewSession([]);
   }, [createNewSession]);
 
@@ -398,15 +424,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         setMessages(
           sessionMessages.length > 0 ? sessionMessages : [initialMessage],
         );
-        setConversationState((prev: ConversationState) => ({
-          messageCount: 0,
-          hasUserCancelled: false,
-          pendingTransactionData: null,
-          shouldTriggerTransaction: false,
-          isAdmin: prev.isAdmin,
-          awaitingClarification: false,
-          clarificationQuestion: null,
-        }));
+        machineRef.current.transition(ChatEvent.LOAD_SESSION);
       }
     },
     [loadSession, initialMessage],
@@ -419,8 +437,10 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
     [],
   );
 
+  // Update suggested actions when wallet connection changes
   useEffect(() => {
-    if (isInitialized) {
+    const machine = machineRef.current;
+    if (machine.getState().state !== ChatState.UNINITIALIZED) {
       setMessages((prevMessages: ChatMessage[]) => {
         if (prevMessages.length > 0 && prevMessages[0]?.id === '1') {
           const updatedMessages = [...prevMessages];
@@ -436,7 +456,21 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         return prevMessages;
       });
     }
-  }, [connection.isConnected, getInitialSuggestedActions, isInitialized]);
+  }, [connection.isConnected, getInitialSuggestedActions]);
+
+  // Derive conversationState from machine for backward compatibility
+  const conversationState = useMemo((): ConversationState => {
+    const machineState = machineRef.current.getState();
+    return {
+      messageCount: machineState.context.messageCount,
+      hasUserCancelled: machineState.context.hasUserCancelled,
+      pendingTransactionData: machineState.context.pendingTransactionData,
+      shouldTriggerTransaction: machineState.state === ChatState.TRANSACTION_TRIGGERED,
+      isAdmin,
+      awaitingClarification: machineState.state === ChatState.AWAITING_CLARIFICATION,
+      clarificationQuestion: machineState.context.clarificationQuestion,
+    };
+  }, [isAdmin]);
 
   return {
     messages,
@@ -448,9 +482,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
     currentSessionId,
     conversationState,
     setTransactionReadyCallback,
-    setIsAdmin: (isAdmin: boolean) => {
-      setConversationState((prev: ConversationState) => ({ ...prev, isAdmin }));
-    },
+    setIsAdmin: setIsAdminState,
     addMessage: (message: ChatMessage) => {
       const newMessages = [...messages, message];
       setMessages((prev: ChatMessage[]) => [...prev, message]);
