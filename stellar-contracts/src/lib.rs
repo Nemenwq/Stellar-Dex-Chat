@@ -11,6 +11,7 @@ pub const MIN_TTL: u32 = 518_400; // ~30 days
 pub const MAX_TTL: u32 = 535_680; // ~31 days
 const MAX_REFERENCE_LEN: u32 = 64;
 const WINDOW_LEDGERS: u32 = 17_280; // ~24 hours
+const WITHDRAWAL_EXPIRY_WINDOW_LEDGERS: u32 = 17_280; // ~24 hours
 const MIN_TIMELOCK_DELAY: u32 = 34_560; // 48 hours
 const DEFAULT_INACTIVITY_THRESHOLD: u32 = 1_555_200; // ~3 months
 
@@ -40,6 +41,8 @@ pub enum Error {
     NoEmergencyRecoveryAddress = 19,
     InactivityThresholdNotReached = 20,
     InvalidRecipient = 21,
+    WithdrawalExpired = 22,
+    RequestNotExpired = 23,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -50,6 +53,7 @@ pub struct WithdrawRequest {
     pub token: Address,
     pub amount: i128,
     pub unlock_ledger: u32,
+    pub expires_ledger: u32,
 }
 
 #[contracttype]
@@ -234,10 +238,12 @@ impl FiatBridge {
         if amount <= 0 { return Err(Error::ZeroAmount); }
         let lock_period: u32 = env.storage().instance().get(&DataKey::LockPeriod).unwrap_or(0);
         let request_id: u64 = env.storage().instance().get(&DataKey::NextRequestID).unwrap_or(0);
+        let unlock_ledger = env.ledger().sequence() + lock_period;
         
         let request = WithdrawRequest {
             to, token, amount,
-            unlock_ledger: env.ledger().sequence() + lock_period,
+            unlock_ledger,
+            expires_ledger: unlock_ledger + WITHDRAWAL_EXPIRY_WINDOW_LEDGERS,
         };
         env.storage().persistent().set(&DataKey::WithdrawQueue(request_id), &request);
         env.storage().instance().set(&DataKey::NextRequestID, &(request_id + 1));
@@ -251,6 +257,9 @@ impl FiatBridge {
 
         if env.ledger().sequence() < request.unlock_ledger {
             return Err(Error::WithdrawalLocked);
+        }
+        if env.ledger().sequence() > request.expires_ledger {
+            return Err(Error::WithdrawalExpired);
         }
 
         let token_client = token::Client::new(&env, &request.token);
@@ -285,6 +294,26 @@ impl FiatBridge {
             return Err(Error::RequestNotFound);
         }
         env.storage().persistent().remove(&DataKey::WithdrawQueue(request_id));
+        Ok(())
+    }
+
+    pub fn reclaim_withdrawal(env: Env, request_id: u64) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+
+        let request: WithdrawRequest = env
+            .storage()
+            .persistent()
+            .get(&DataKey::WithdrawQueue(request_id))
+            .ok_or(Error::RequestNotFound)?;
+
+        request.to.require_auth();
+
+        if env.ledger().sequence() <= request.expires_ledger {
+            return Err(Error::RequestNotExpired);
+        }
+
+        env.storage().persistent().remove(&DataKey::WithdrawQueue(request_id));
+        env.events().publish((Symbol::new(&env, "withdraw_reclaimed"), request.to), request_id);
         Ok(())
     }
 
@@ -408,6 +437,10 @@ impl FiatBridge {
     pub fn get_cooldown(env: Env) -> u32 { env.storage().instance().get(&DataKey::CooldownLedgers).unwrap_or(0) }
     pub fn get_withdrawal_request(env: Env, id: u64) -> Option<WithdrawRequest> { env.storage().persistent().get(&DataKey::WithdrawQueue(id)) }
     pub fn get_last_deposit_ledger(env: Env, user: Address) -> Option<u32> { env.storage().temporary().get(&DataKey::LastDeposit(user)) }
+    pub fn get_withdrawal_expiry_window(env: Env) -> u32 {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        WITHDRAWAL_EXPIRY_WINDOW_LEDGERS
+    }
 }
 
 #[cfg(any(test, feature = "testutils"))]

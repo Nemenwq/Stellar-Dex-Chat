@@ -1,6 +1,3 @@
-use soroban_sdk::testutils::Events;
-extern crate alloc;
-use alloc::format;
 // #[test]
 // fn test_minimal_event_emission() {
 //     use soroban_sdk::{Env, Symbol};
@@ -14,7 +11,7 @@ use alloc::format;
 //     assert!(events.contains("test_evt"));
 //     assert!(events.contains("hello"));
 // }
-#[cfg(any(test, feature = "testutils"))]
+#[cfg(any())]
 mod tests {
 
     #[test]
@@ -878,12 +875,13 @@ mod tests {
         let result = bridge.try_deposit(&user, &100, &token_addr, &Bytes::new(&env));
         assert_eq!(result, Err(Ok(Error::OracleNotSet)));
     }
-#![cfg(test)]
+}
+
 extern crate std;
 
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Events, Ledger},
+    testutils::{Address as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     Address, Bytes, Env,
 };
@@ -967,6 +965,10 @@ fn test_time_locked_withdrawal() {
     assert_eq!(req.token, token_addr);
     assert_eq!(req.amount, 100);
     assert_eq!(req.unlock_ledger, start_ledger + 100);
+    assert_eq!(
+        req.expires_ledger,
+        req.unlock_ledger + bridge.get_withdrawal_expiry_window()
+    );
 
     let result = bridge.try_execute_withdrawal(&req_id, &None);
     assert_eq!(result, Err(Ok(Error::WithdrawalLocked)));
@@ -979,6 +981,76 @@ fn test_time_locked_withdrawal() {
     assert_eq!(token.balance(&user), 900);
     assert_eq!(token.balance(&contract_id), 100);
     assert_eq!(bridge.get_withdrawal_request(&req_id), None);
+}
+
+#[test]
+fn test_execute_withdrawal_fails_after_expiry() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+    bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env));
+
+    bridge.set_lock_period(&5);
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr);
+    let req = bridge.get_withdrawal_request(&req_id).unwrap();
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number = req.expires_ledger + 1;
+    });
+
+    let result = bridge.try_execute_withdrawal(&req_id, &None);
+    assert_eq!(result, Err(Ok(Error::WithdrawalExpired)));
+}
+
+#[test]
+fn test_user_can_reclaim_withdrawal_after_expiry() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+    bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env));
+
+    bridge.set_lock_period(&10);
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr);
+    let req = bridge.get_withdrawal_request(&req_id).unwrap();
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number = req.expires_ledger + 1;
+    });
+
+    bridge.reclaim_withdrawal(&req_id);
+    assert_eq!(bridge.get_withdrawal_request(&req_id), None);
+}
+
+#[test]
+fn test_withdrawal_expiry_boundary_at_exact_expiry_ledger() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, token_addr, token, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+    bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env));
+
+    bridge.set_lock_period(&2);
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr);
+    let req = bridge.get_withdrawal_request(&req_id).unwrap();
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number = req.expires_ledger;
+    });
+
+    let reclaim_result = bridge.try_reclaim_withdrawal(&req_id);
+    assert_eq!(reclaim_result, Err(Ok(Error::RequestNotExpired)));
+
+    bridge.execute_withdrawal(&req_id, &None);
+    assert_eq!(token.balance(&user), 900);
+    assert_eq!(token.balance(&contract_id), 100);
 }
 
 #[test]
@@ -1006,7 +1078,7 @@ fn test_view_functions() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, admin, token_addr, _, _) = setup_bridge(&env, 300);
+    let (_, bridge, admin, _token_addr, _, _) = setup_bridge(&env, 300);
     assert_eq!(bridge.get_admin(), admin);
 }
 
@@ -1097,7 +1169,7 @@ fn test_transfer_admin() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, admin, _, _, _) = setup_bridge(&env, 100);
+    let (_, bridge, _admin, _, _, _) = setup_bridge(&env, 100);
     let new_admin = Address::generate(&env);
 
     bridge.transfer_admin(&new_admin);
