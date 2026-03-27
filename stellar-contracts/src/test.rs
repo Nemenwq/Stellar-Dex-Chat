@@ -405,3 +405,97 @@ fn test_invariant_violation_insufficent_balance() {
     let result = bridge.try_deposit(&user, &10, &token_addr, &Bytes::new(&env));
     assert_eq!(result, Err(Ok(Error::InsufficientFunds)));
 }
+
+// ── withdrawal cooldown tests ─────────────────────────────────────────────
+
+#[test]
+fn test_withdrawal_cooldown_not_triggered_below_threshold() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    // Set cooldown: 100 ledgers, threshold 500
+    bridge.set_withdrawal_cooldown(&100, &500);
+    assert_eq!(bridge.get_withdrawal_cooldown(), 100);
+    assert_eq!(bridge.get_withdrawal_threshold(), 500);
+
+    // Deposit below threshold — should NOT set LastLargeDeposit
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env));
+
+    // Withdrawal should succeed immediately (no cooldown recorded)
+    let req_id = bridge.request_withdrawal(&user, &50, &token_addr);
+    bridge.execute_withdrawal(&req_id, &None);
+    drop(admin);
+}
+
+#[test]
+fn test_withdrawal_cooldown_blocks_after_large_deposit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    // 100-ledger cooldown, threshold 500
+    bridge.set_withdrawal_cooldown(&100, &500);
+
+    // Deposit at or above threshold
+    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env));
+
+    // Immediate withdrawal request should be blocked
+    let result = bridge.try_request_withdrawal(&user, &100, &token_addr);
+    assert_eq!(result, Err(Ok(Error::CooldownActive)));
+}
+
+#[test]
+fn test_withdrawal_cooldown_expires() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, token, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.set_withdrawal_cooldown(&100, &500);
+    let deposit_ledger = env.ledger().sequence();
+
+    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env));
+
+    // Still blocked before cooldown expires
+    let result = bridge.try_request_withdrawal(&user, &100, &token_addr);
+    assert_eq!(result, Err(Ok(Error::CooldownActive)));
+
+    // Advance past cooldown
+    env.ledger().with_mut(|li| {
+        li.sequence_number = deposit_ledger + 100;
+    });
+
+    // Now the request should succeed
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr);
+    bridge.execute_withdrawal(&req_id, &None);
+    assert_eq!(token.balance(&user), 4_600); // 5000 - 500 deposited + 100 withdrawn
+}
+
+#[test]
+fn test_withdrawal_cooldown_disabled_when_zeroed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    // Enable then immediately disable
+    bridge.set_withdrawal_cooldown(&100, &500);
+    bridge.set_withdrawal_cooldown(&0, &0);
+
+    bridge.deposit(&user, &1_000, &token_addr, &Bytes::new(&env));
+
+    // No cooldown active — withdrawal should go through immediately
+    let req_id = bridge.request_withdrawal(&user, &200, &token_addr);
+    bridge.execute_withdrawal(&req_id, &None);
+}
