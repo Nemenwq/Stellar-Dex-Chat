@@ -5,7 +5,7 @@ import en from '../locales/en.json';
 
 type TranslationKeys = typeof en;
 type NestedKeyOf<T> = T extends object
-  ? { [K in keyof T]: T[K] extends object ? `${K & string}.${NestedKeyOf<T[K]>}` : K }[keyof T]
+  ? { [K in keyof T & string]: T[K] extends object ? `${K}.${NestedKeyOf<T[K]>}` : K }[keyof T & string]
   : never;
 
 export type TKey = NestedKeyOf<TranslationKeys>;
@@ -25,7 +25,7 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
 
   const t = useCallback((key: string, params?: Record<string, string | number>) => {
     const keys = key.split('.');
-    let value = translations[locale];
+    let value: unknown = translations[locale];
     
     for (const k of keys) {
       value = (value as Record<string, unknown>)?.[k];
