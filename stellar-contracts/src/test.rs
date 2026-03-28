@@ -819,7 +819,7 @@ fn test_operator_heartbeat() {
 
     // Heartbeat
     let curr = env.ledger().sequence();
-    bridge.heartbeat(&operator);
+    bridge.heartbeat(&operator, &0);
     assert_eq!(bridge.get_operator_heartbeat(&operator), Some(curr));
 
     // Deactivate operator
@@ -827,7 +827,7 @@ fn test_operator_heartbeat() {
     assert!(!bridge.is_operator(&operator));
 
     // Heartbeat should fail now
-    let res = bridge.try_heartbeat(&operator);
+    let res = bridge.try_heartbeat(&operator, &1);
     assert_eq!(res, Err(Ok(Error::NotOperator)));
 }
 
@@ -1663,7 +1663,7 @@ fn test_nonce_overflow_protection() {
     
     // Simulate high nonce value (near u64::MAX would take too long to test)
     // Instead, test that the system handles large nonces correctly
-    let large_nonce = 1_000_000u64;
+    let _large_nonce = 1_000_000u64;
     
     // Manually set a high nonce by executing many operations
     // For testing purposes, we'll just verify the logic works with reasonable values
