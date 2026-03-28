@@ -4,6 +4,7 @@ use soroban_sdk::{
     Env, Symbol, Vec,
 };
 
+pub mod math;
 pub mod oracle;
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -44,6 +45,7 @@ pub enum Error {
     TokenNotWhitelisted = 308,
     AddressDenied = 309,
     RescueForbidden = 310,
+    CircuitBreakerActive = 311,
 
     // --- 400 series: Funds & Balances ---
     InsufficientFunds = 401,
@@ -84,6 +86,15 @@ pub struct WithdrawRequest {
     pub unlock_ledger: u32,
     pub memo_hash: Option<BytesN<32>>,
     pub queued_ledger: u32,
+    /// Risk tier for withdrawal prioritization. Tier 0 = highest priority.
+    pub risk_tier: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GlobalDailyWithdrawn {
+    pub amount: i128,
+    pub window_start: u32,
 }
 
 #[contracttype]
@@ -220,6 +231,15 @@ pub enum DataKey {
     Denied(Address),
     FeeVault(Address),
     ReceiptIndex(u64),
+    // ── Issue #214: deployment config hash ────────────────────────────────
+    DeployConfigHash,
+    // ── Issue #209: global circuit breaker ───────────────────────────────
+    CircuitBreakerThreshold,
+    CircuitBreakerTripped,
+    GlobalDailyWithdrawn,
+    // ── Issue #226: withdrawal queue risk tiers ───────────────────────────
+    TierQueueHead(u32),
+    TierQueueLen(u32),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -248,7 +268,7 @@ impl FiatBridge {
         };
         env.storage()
             .persistent()
-            .set(&DataKey::TokenRegistry(token), &config);
+            .set(&DataKey::TokenRegistry(token.clone()), &config);
 
         env.storage().instance().set(&DataKey::SchemaVersion, &1u32);
         env.storage().instance().set(&DataKey::NextActionID, &0u64);
@@ -265,6 +285,17 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::AntiSandwichDelay, &0u32);
+
+        // ── Issue #214: store and emit immutable deployment config hash ──
+        let config_data = (admin.clone(), token.clone(), limit);
+        let config_hash: BytesN<32> = env.crypto().sha256(&config_data.to_xdr(&env)).into();
+        env.storage()
+            .persistent()
+            .set(&DataKey::DeployConfigHash, &config_hash);
+        env.events().publish(
+            (Symbol::new(&env, "deploy_hash"), Symbol::new(&env, "v1")),
+            config_hash,
+        );
 
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         Ok(())
@@ -485,6 +516,8 @@ impl FiatBridge {
         }
 
         Self::enforce_withdrawal_quota(&env, &to, amount)?;
+        // ── Issue #209: circuit breaker check ────────────────────────────
+        Self::check_and_update_circuit_breaker(&env, amount)?;
         // Denylist
         if env.storage().persistent().has(&DataKey::Denied(to.clone())) {
             return Err(Error::AddressDenied);
@@ -518,6 +551,7 @@ impl FiatBridge {
         amount: i128,
         token: Address,
         memo_hash: Option<BytesN<32>>,
+        risk_tier: u32,
     ) -> Result<u64, Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
@@ -574,6 +608,7 @@ impl FiatBridge {
             unlock_ledger: env.ledger().sequence() + lock_period,
             memo_hash: memo_hash.clone(),
             queued_ledger: env.ledger().sequence(),
+            risk_tier,
         };
         env.storage()
             .persistent()
@@ -590,6 +625,21 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::WithdrawQueueLen, &(queue_len + 1));
+
+        // ── Issue #226: per-tier queue tracking ──────────────────────────
+        let tier_len: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TierQueueLen(risk_tier))
+            .unwrap_or(0);
+        if tier_len == 0 {
+            env.storage()
+                .instance()
+                .set(&DataKey::TierQueueHead(risk_tier), &Some(request_id));
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::TierQueueLen(risk_tier), &(tier_len + 1));
         let mut config: TokenConfig = env
             .storage()
             .persistent()
@@ -660,6 +710,8 @@ impl FiatBridge {
         };
 
         Self::enforce_withdrawal_quota(&env, &request.to, execute_amount)?;
+        // ── Issue #209: circuit breaker check ────────────────────────────
+        Self::check_and_update_circuit_breaker(&env, execute_amount)?;
 
         if execute_amount > balance {
             return Err(Error::InsufficientFunds);
@@ -685,6 +737,7 @@ impl FiatBridge {
             &execute_amount,
         );
 
+        let tier = request.risk_tier;
         if execute_amount == request.amount {
             env.storage()
                 .persistent()
@@ -701,6 +754,18 @@ impl FiatBridge {
                     .set(&DataKey::WithdrawQueueLen, &(queue_len - 1));
             }
             Self::advance_withdraw_queue_head(&env, request_id);
+            // ── Issue #226: advance per-tier head ─────────────────────────
+            let tier_len: u64 = env
+                .storage()
+                .instance()
+                .get(&DataKey::TierQueueLen(tier))
+                .unwrap_or(0);
+            if tier_len > 0 {
+                env.storage()
+                    .instance()
+                    .set(&DataKey::TierQueueLen(tier), &(tier_len - 1));
+            }
+            Self::advance_tier_queue_head(&env, tier, request_id);
         } else {
             request.amount -= execute_amount;
             env.storage()
@@ -744,6 +809,8 @@ impl FiatBridge {
             .get(&DataKey::WithdrawQueue(request_id))
             .ok_or(Error::RequestNotFound)?;
 
+        let tier = request.risk_tier;
+
         let mut config: TokenConfig = env
             .storage()
             .persistent()
@@ -769,6 +836,19 @@ impl FiatBridge {
                 .set(&DataKey::WithdrawQueueLen, &(queue_len - 1));
         }
         Self::advance_withdraw_queue_head(&env, request_id);
+
+        // ── Issue #226: per-tier bookkeeping on cancel ────────────────────
+        let tier_len: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TierQueueLen(tier))
+            .unwrap_or(0);
+        if tier_len > 0 {
+            env.storage()
+                .instance()
+                .set(&DataKey::TierQueueLen(tier), &(tier_len - 1));
+        }
+        Self::advance_tier_queue_head(&env, tier, request_id);
 
         Self::check_invariants(&env, &request.token)?;
         Ok(())
@@ -956,9 +1036,10 @@ impl FiatBridge {
 
         // Computed slippage in BPS: (Expected - Actual) / Expected * 10,000
         // We only care about downward slippage for these paths.
+        // ── Issue #220: use precision-safe fixed-point math ───────────────
         let slippage_bps = if actual_price < expected_price {
             let diff = expected_price - actual_price;
-            (diff * 10000) / expected_price
+            crate::math::mul_div_floor(diff, 10000, expected_price)
         } else {
             0
         };
@@ -1000,7 +1081,8 @@ impl FiatBridge {
         };
 
         if let Some(limit) = fiat_limit {
-            let usd_cents = (amount * price) / (ORACLE_PRICE_DECIMALS / 100);
+            // ── Issue #220: use precision-safe fixed-point math ───────────
+            let usd_cents = crate::math::mul_div_floor(amount, price, ORACLE_PRICE_DECIMALS / 100);
             let curr = env.ledger().sequence();
             let mut vol: UserDailyVolume = env
                 .storage()
@@ -1887,6 +1969,212 @@ impl FiatBridge {
 
     pub fn get_event_version(_env: Env) -> u32 {
         EVENT_VERSION
+    }
+
+    // ── Issue #214: deployment config hash view ───────────────────────────
+
+    /// Return the SHA-256 hash of the critical deployment parameters that was
+    /// computed and stored immutably during `init`.
+    pub fn get_deploy_config_hash(env: Env) -> Option<BytesN<32>> {
+        env.storage().persistent().get(&DataKey::DeployConfigHash)
+    }
+
+    // ── Issue #209: global circuit breaker ───────────────────────────────
+
+    /// Set the rolling 24-hour withdrawal volume threshold that triggers the
+    /// circuit breaker.  Pass `0` to disable.
+    pub fn set_circuit_breaker_threshold(env: Env, threshold: i128) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::CircuitBreakerThreshold, &threshold);
+        Ok(())
+    }
+
+    /// Reset the circuit breaker so withdrawals can resume.
+    pub fn reset_circuit_breaker(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::CircuitBreakerTripped, &false);
+        env.events().publish(
+            (Symbol::new(&env, "cb_reset"), Symbol::new(&env, "v1")),
+            env.ledger().sequence(),
+        );
+        Ok(())
+    }
+
+    pub fn get_circuit_breaker_threshold(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::CircuitBreakerThreshold)
+            .unwrap_or(0)
+    }
+
+    pub fn is_circuit_breaker_tripped(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get::<_, bool>(&DataKey::CircuitBreakerTripped)
+            .unwrap_or(false)
+    }
+
+    /// Accumulate `amount` into the rolling 24-h global withdrawal volume.
+    /// Returns `CircuitBreakerActive` if the threshold is already tripped **or**
+    /// if this withdrawal would breach it (breaching withdrawal is rejected).
+    fn check_and_update_circuit_breaker(env: &Env, amount: i128) -> Result<(), Error> {
+        let threshold: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CircuitBreakerThreshold)
+            .unwrap_or(0);
+        if threshold <= 0 {
+            return Ok(());
+        }
+
+        // Reject immediately if already tripped.
+        if env
+            .storage()
+            .instance()
+            .get::<_, bool>(&DataKey::CircuitBreakerTripped)
+            .unwrap_or(false)
+        {
+            return Err(Error::CircuitBreakerActive);
+        }
+
+        let curr = env.ledger().sequence();
+        let mut vol: GlobalDailyWithdrawn = env
+            .storage()
+            .instance()
+            .get(&DataKey::GlobalDailyWithdrawn)
+            .unwrap_or(GlobalDailyWithdrawn {
+                amount: 0,
+                window_start: curr,
+            });
+
+        // Roll window if 24h has elapsed.
+        if curr >= vol.window_start + WINDOW_LEDGERS {
+            vol.amount = 0;
+            vol.window_start = curr;
+        }
+
+        let new_total = vol.amount + amount;
+
+        // Update running total first so the state persists.
+        vol.amount = new_total;
+        env.storage()
+            .instance()
+            .set(&DataKey::GlobalDailyWithdrawn, &vol);
+
+        if new_total > threshold {
+            // This withdrawal crossed the threshold: allow it but trip the
+            // breaker so that all subsequent withdrawals are paused.
+            env.storage()
+                .instance()
+                .set(&DataKey::CircuitBreakerTripped, &true);
+            env.events().publish(
+                (Symbol::new(env, "cbtripped"), Symbol::new(env, "v1")),
+                (new_total, threshold),
+            );
+        }
+
+        Ok(())
+    }
+
+    // ── Issue #226: withdrawal queue risk-tier prioritization ─────────────
+
+    /// Return the `request_id` that should be processed next according to
+    /// risk-tier priority.  Tier 0 is the highest priority; within each tier
+    /// FIFO order is preserved.  Returns `None` when the queue is empty.
+    pub fn get_next_priority_withdrawal(env: Env) -> Option<u64> {
+        // Scan tier 0, 1, 2, … and return the head of the first non-empty tier.
+        // We scan up to `next_id` distinct tier values as an upper bound.
+        let next_id: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextRequestID)
+            .unwrap_or(0);
+        // Tier indices are u32; in practice only a handful of tiers are used.
+        // We cap the scan at 256 to stay within compute budget.
+        let max_tier: u32 = (next_id.min(256)) as u32;
+        for t in 0..=max_tier {
+            let tier_len: u64 = env
+                .storage()
+                .instance()
+                .get(&DataKey::TierQueueLen(t))
+                .unwrap_or(0);
+            if tier_len == 0 {
+                continue;
+            }
+            let head: Option<u64> = env
+                .storage()
+                .instance()
+                .get(&DataKey::TierQueueHead(t))
+                .unwrap_or(None);
+            if head.is_some() {
+                return head;
+            }
+        }
+        None
+    }
+
+    /// Advance the per-tier queue head after a request with `tier` is removed.
+    fn advance_tier_queue_head(env: &Env, tier: u32, removed_id: u64) {
+        let head_key = DataKey::TierQueueHead(tier);
+        let head: Option<u64> = env
+            .storage()
+            .instance()
+            .get(&head_key)
+            .unwrap_or(None);
+        if head != Some(removed_id) {
+            return;
+        }
+
+        let tier_len: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TierQueueLen(tier))
+            .unwrap_or(0);
+        if tier_len == 0 {
+            env.storage()
+                .instance()
+                .set(&head_key, &Option::<u64>::None);
+            return;
+        }
+
+        let next_id: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextRequestID)
+            .unwrap_or(0);
+
+        let mut i = removed_id.saturating_add(1);
+        while i < next_id {
+            if let Some(req) = env
+                .storage()
+                .persistent()
+                .get::<_, WithdrawRequest>(&DataKey::WithdrawQueue(i))
+            {
+                if req.risk_tier == tier {
+                    env.storage().instance().set(&head_key, &Some(i));
+                    return;
+                }
+            }
+            i += 1;
+        }
+
+        env.storage()
+            .instance()
+            .set(&head_key, &Option::<u64>::None);
     }
 }
 

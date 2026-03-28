@@ -123,6 +123,30 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "DeployConfigHash"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "bytes": "3547ab3863fc276fbbc40fa77211c211bb1fd9969694fc3f0863bbc5acd36cb3"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 4095
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "vec": [
+                  {
                     "symbol": "TokenRegistry"
                   },
                   {

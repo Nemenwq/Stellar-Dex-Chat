@@ -60,7 +60,7 @@ fn test_deposit_and_withdraw() {
     assert_eq!(token.balance(&user), 800);
     assert_eq!(token.balance(&contract_id), 200);
 
-    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None);
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
     bridge.execute_withdrawal(&req_id, &None, &0, &0);
 
     assert_eq!(token.balance(&user), 900);
@@ -81,7 +81,7 @@ fn test_time_locked_withdrawal() {
     assert_eq!(bridge.get_lock_period(), 100);
 
     let start_ledger = env.ledger().sequence();
-    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None);
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
 
     let req = bridge.get_withdrawal_request(&req_id).unwrap();
     assert_eq!(req.to, user);
@@ -121,7 +121,7 @@ fn test_withdraw_queue_metrics_lifecycle() {
 
     // Enqueue first request
     let l0 = env.ledger().sequence();
-    let r1 = bridge.request_withdrawal(&user, &100, &token_addr, &None);
+    let r1 = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
     assert_eq!(bridge.get_wq_depth(), 1);
     assert_eq!(bridge.get_wq_oldest_queued_ledger(), Some(l0));
     assert_eq!(bridge.get_wq_oldest_age_ledgers(), Some(0));
@@ -131,7 +131,7 @@ fn test_withdraw_queue_metrics_lifecycle() {
         li.sequence_number = l0 + 7;
     });
     let l1 = env.ledger().sequence();
-    let _r2 = bridge.request_withdrawal(&user, &50, &token_addr, &None);
+    let _r2 = bridge.request_withdrawal(&user, &50, &token_addr, &None, &0);
     assert_eq!(bridge.get_wq_depth(), 2);
     // Oldest remains first
     assert_eq!(bridge.get_wq_oldest_queued_ledger(), Some(l0));
@@ -156,13 +156,13 @@ fn test_withdraw_queue_metrics_cancel_oldest() {
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     let l0 = env.ledger().sequence();
-    let r1 = bridge.request_withdrawal(&user, &100, &token_addr, &None);
+    let r1 = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
 
     env.ledger().with_mut(|li| {
         li.sequence_number = l0 + 3;
     });
     let l1 = env.ledger().sequence();
-    let r2 = bridge.request_withdrawal(&user, &50, &token_addr, &None);
+    let r2 = bridge.request_withdrawal(&user, &50, &token_addr, &None, &0);
 
     assert_eq!(bridge.get_wq_depth(), 2);
     assert_eq!(bridge.get_wq_oldest_queued_ledger(), Some(l0));
@@ -190,7 +190,7 @@ fn test_cancel_withdrawal() {
     token_sac.mint(&user, &1_000);
     bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
-    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None);
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
     assert!(bridge.get_withdrawal_request(&req_id).is_some());
 
     bridge.cancel_withdrawal(&req_id);
@@ -351,7 +351,7 @@ fn test_insufficient_funds_withdraw() {
     bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     // Requesting more than net deposits (100) should fail due to invariant check
-    let result = bridge.try_request_withdrawal(&user, &200, &token_addr, &None);
+    let result = bridge.try_request_withdrawal(&user, &200, &token_addr, &None, &0);
     assert_eq!(result, Err(Ok(Error::InternalError)));
 }
 
@@ -429,7 +429,7 @@ fn test_total_withdrawn_tracking() {
     assert_eq!(bridge.get_total_withdrawn(), 200);
     assert_eq!(token.balance(&contract_id), 300);
 
-    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None);
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
     bridge.execute_withdrawal(&req_id, &None, &0, &0);
     assert_eq!(bridge.get_total_withdrawn(), 300);
 }
@@ -446,10 +446,10 @@ fn test_total_liabilities_tracking() {
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
     assert_eq!(bridge.get_total_liabilities(), 0);
 
-    let req1 = bridge.request_withdrawal(&user, &100, &token_addr, &None);
+    let req1 = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
     assert_eq!(bridge.get_total_liabilities(), 100);
 
-    let req2 = bridge.request_withdrawal(&user, &50, &token_addr, &None);
+    let req2 = bridge.request_withdrawal(&user, &50, &token_addr, &None, &0);
     assert_eq!(bridge.get_total_liabilities(), 150);
 
     bridge.execute_withdrawal(&req1, &None, &0, &0);
@@ -501,7 +501,7 @@ fn test_withdrawal_cooldown_not_triggered_below_threshold() {
     bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     // Withdrawal should succeed immediately (no cooldown recorded)
-    let req_id = bridge.request_withdrawal(&user, &50, &token_addr, &None);
+    let req_id = bridge.request_withdrawal(&user, &50, &token_addr, &None, &0);
     bridge.execute_withdrawal(&req_id, &None, &0, &0);
     drop(admin);
 }
@@ -522,7 +522,7 @@ fn test_withdrawal_cooldown_blocks_after_large_deposit() {
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     // Immediate withdrawal request should be blocked
-    let result = bridge.try_request_withdrawal(&user, &100, &token_addr, &None);
+    let result = bridge.try_request_withdrawal(&user, &100, &token_addr, &None, &0);
     assert_eq!(result, Err(Ok(Error::CooldownActive)));
 }
 
@@ -541,7 +541,7 @@ fn test_withdrawal_cooldown_expires() {
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     // Still blocked before cooldown expires
-    let result = bridge.try_request_withdrawal(&user, &100, &token_addr, &None);
+    let result = bridge.try_request_withdrawal(&user, &100, &token_addr, &None, &0);
     assert_eq!(result, Err(Ok(Error::CooldownActive)));
 
     // Advance past cooldown
@@ -550,7 +550,7 @@ fn test_withdrawal_cooldown_expires() {
     });
 
     // Now the request should succeed
-    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None);
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
     bridge.execute_withdrawal(&req_id, &None, &0, &0);
     assert_eq!(token.balance(&user), 4_600); // 5000 - 500 deposited + 100 withdrawn
 }
@@ -571,7 +571,7 @@ fn test_withdrawal_cooldown_disabled_when_zeroed() {
     bridge.deposit(&user, &1_000, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     // No cooldown active — withdrawal should go through immediately
-    let req_id = bridge.request_withdrawal(&user, &200, &token_addr, &None);
+    let req_id = bridge.request_withdrawal(&user, &200, &token_addr, &None, &0);
     bridge.execute_withdrawal(&req_id, &None, &0, &0);
 }
 
@@ -976,7 +976,7 @@ fn test_deny_address_blocks_request_withdrawal() {
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
     bridge.deny_address(&user);
 
-    let result = bridge.try_request_withdrawal(&user, &100, &token_addr, &None);
+    let result = bridge.try_request_withdrawal(&user, &100, &token_addr, &None, &0);
     assert_eq!(result, Err(Ok(Error::AddressDenied)));
 }
 
@@ -1699,4 +1699,303 @@ fn test_concurrent_operators_independent_nonces() {
     assert_eq!(bridge.get_operator_nonce(&op1), 3);
     assert_eq!(bridge.get_operator_nonce(&op2), 2);
     assert_eq!(bridge.get_operator_nonce(&op3), 1);
+// ── Issue #214: deployment config hash tests ─────────────────────────────
+
+#[test]
+fn test_deploy_config_hash_stored_on_init() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, token_addr, _, _) = setup_bridge(&env, 500);
+
+    // Hash should be present immediately after init
+    let hash = bridge.get_deploy_config_hash();
+    assert!(hash.is_some());
+
+    // Re-derive the expected hash from (admin, token, limit)
+    let config_data = (admin.clone(), token_addr.clone(), 500i128);
+    let expected: BytesN<32> = env.crypto().sha256(&config_data.to_xdr(&env)).into();
+    assert_eq!(hash.unwrap(), expected);
+}
+
+#[test]
+fn test_deploy_config_hash_is_immutable() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 500);
+    let hash_before = bridge.get_deploy_config_hash();
+
+    // Even after changing admin the stored hash must not change
+    let new_admin = Address::generate(&env);
+    bridge.transfer_admin(&new_admin);
+    bridge.accept_admin();
+
+    let hash_after = bridge.get_deploy_config_hash();
+    assert_eq!(hash_before, hash_after);
+}
+
+#[test]
+fn test_deploy_config_hash_differs_for_different_params() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge1, _, _, _, _) = setup_bridge(&env, 500);
+    let (_, bridge2, _, _, _, _) = setup_bridge(&env, 1000);
+
+    // Different limits → different hashes
+    assert_ne!(bridge1.get_deploy_config_hash(), bridge2.get_deploy_config_hash());
+}
+
+// ── Issue #220: fixed-point math unit tests ───────────────────────────────
+
+#[test]
+fn test_math_mul_div_floor_basic() {
+    // 7 * 3 / 2 = 10 (floor of 10.5)
+    assert_eq!(crate::math::mul_div_floor(7, 3, 2), 10);
+}
+
+#[test]
+fn test_math_mul_div_floor_exact() {
+    // 10 * 3 / 5 = 6 exactly
+    assert_eq!(crate::math::mul_div_floor(10, 3, 5), 6);
+}
+
+#[test]
+fn test_math_mul_div_floor_large_values() {
+    // Typical fee calc: amount=1_000_000, price=9_500_000, denom=100_000
+    // = 9_500_000_000_000 / 100_000 = 95_000_000
+    let usd_cents = crate::math::mul_div_floor(1_000_000, 9_500_000, 100_000);
+    assert_eq!(usd_cents, 95_000_000);
+}
+
+#[test]
+fn test_math_mul_div_floor_zero_numerator() {
+    assert_eq!(crate::math::mul_div_floor(0, 9_500_000, 100_000), 0);
+}
+
+#[test]
+fn test_math_scale_floor() {
+    // Scale 1000 by 3/4 = 750
+    assert_eq!(crate::math::scale_floor(1000, 3, 4), 750);
+}
+
+// ── Issue #209: circuit breaker tests ────────────────────────────────────
+
+#[test]
+fn test_circuit_breaker_not_triggered_below_threshold() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &1000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.set_circuit_breaker_threshold(&500);
+
+    // 300 < 500 threshold — should succeed
+    bridge.withdraw(&user, &300, &token_addr);
+    assert!(!bridge.is_circuit_breaker_tripped());
+}
+
+#[test]
+fn test_circuit_breaker_trips_on_threshold_breach() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.set_circuit_breaker_threshold(&500);
+
+    // This withdrawal pushes total (0 + 600) > 500 — it succeeds but trips the breaker
+    bridge.withdraw(&user, &600, &token_addr);
+    assert!(bridge.is_circuit_breaker_tripped());
+}
+
+#[test]
+fn test_circuit_breaker_blocks_subsequent_withdrawals() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.set_circuit_breaker_threshold(&300);
+
+    // The crossing withdrawal succeeds but trips the breaker
+    bridge.withdraw(&user, &400, &token_addr);
+    assert!(bridge.is_circuit_breaker_tripped());
+
+    // Subsequent withdrawal must fail
+    let result = bridge.try_withdraw(&user, &100, &token_addr);
+    assert_eq!(result, Err(Ok(Error::CircuitBreakerActive)));
+}
+
+#[test]
+fn test_circuit_breaker_reset_restores_withdrawals() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.set_circuit_breaker_threshold(&300);
+
+    // Trip it (crossing withdrawal goes through, then breaker fires)
+    bridge.withdraw(&user, &400, &token_addr);
+    assert!(bridge.is_circuit_breaker_tripped());
+
+    // Admin resets
+    bridge.reset_circuit_breaker();
+    assert!(!bridge.is_circuit_breaker_tripped());
+
+    // Advance window so global daily volume resets
+    let start = env.ledger().sequence();
+    env.ledger().with_mut(|li| li.sequence_number = start + 17_280);
+
+    // Withdrawal below threshold succeeds again
+    bridge.withdraw(&user, &100, &token_addr);
+}
+
+#[test]
+fn test_circuit_breaker_disabled_when_threshold_zero() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    // Threshold 0 = disabled
+    bridge.set_circuit_breaker_threshold(&0);
+
+    bridge.withdraw(&user, &2000, &token_addr);
+    assert!(!bridge.is_circuit_breaker_tripped());
+}
+
+#[test]
+fn test_circuit_breaker_also_blocks_execute_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.set_circuit_breaker_threshold(&300);
+
+    // This request exceeds threshold — it goes through but trips the breaker
+    let r1 = bridge.request_withdrawal(&user, &400, &token_addr, &None, &0);
+    bridge.execute_withdrawal(&r1, &None, &0, &0);
+    assert!(bridge.is_circuit_breaker_tripped());
+
+    // A second queued request is now blocked
+    let r2 = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
+    let result = bridge.try_execute_withdrawal(&r2, &None, &0, &0);
+    assert_eq!(result, Err(Ok(Error::CircuitBreakerActive)));
+}
+
+// ── Issue #226: withdrawal queue risk tier tests ──────────────────────────
+
+#[test]
+fn test_tier_queue_head_set_on_first_enqueue() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    let r0 = bridge.request_withdrawal(&user, &50, &token_addr, &None, &0);
+    let _r1 = bridge.request_withdrawal(&user, &50, &token_addr, &None, &1);
+
+    // Tier 0 has higher priority; get_next_priority_withdrawal should return r0
+    let next = bridge.get_next_priority_withdrawal();
+    assert_eq!(next, Some(r0));
+}
+
+#[test]
+fn test_tier_prioritization_higher_tier_waits() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+    bridge.deposit(&user, &1000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    // Enqueue tier 2 first, then tier 0
+    let r2 = bridge.request_withdrawal(&user, &50, &token_addr, &None, &2);
+    let r0 = bridge.request_withdrawal(&user, &50, &token_addr, &None, &0);
+
+    // Tier 0 should be returned even though tier 2 was queued first
+    let next = bridge.get_next_priority_withdrawal();
+    assert_eq!(next, Some(r0));
+
+    // Execute tier 0 — now tier 2 should surface
+    bridge.execute_withdrawal(&r0, &None, &0, &0);
+    let next_after = bridge.get_next_priority_withdrawal();
+    assert_eq!(next_after, Some(r2));
+}
+
+#[test]
+fn test_tier_fifo_within_same_tier() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+    bridge.deposit(&user, &1000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    // Two requests in the same tier — FIFO order expected
+    let r_first = bridge.request_withdrawal(&user, &50, &token_addr, &None, &1);
+    let r_second = bridge.request_withdrawal(&user, &50, &token_addr, &None, &1);
+
+    let next = bridge.get_next_priority_withdrawal();
+    assert_eq!(next, Some(r_first));
+
+    // After executing first, second should surface
+    bridge.execute_withdrawal(&r_first, &None, &0, &0);
+    let next_after = bridge.get_next_priority_withdrawal();
+    assert_eq!(next_after, Some(r_second));
+}
+
+#[test]
+fn test_tier_head_advances_after_cancel() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+    bridge.deposit(&user, &1000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    let r_a = bridge.request_withdrawal(&user, &50, &token_addr, &None, &0);
+    let r_b = bridge.request_withdrawal(&user, &50, &token_addr, &None, &0);
+
+    // Cancel the head of tier 0 — r_b should become new head
+    bridge.cancel_withdrawal(&r_a);
+    let next = bridge.get_next_priority_withdrawal();
+    assert_eq!(next, Some(r_b));
+}
+
+#[test]
+fn test_get_next_priority_returns_none_when_empty() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+    assert_eq!(bridge.get_next_priority_withdrawal(), None);
 }
