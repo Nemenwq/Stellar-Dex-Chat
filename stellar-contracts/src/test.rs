@@ -390,7 +390,7 @@ fn test_invariant_violation_insufficent_balance() {
     token_sac.mint(&user, &1_000);
 
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0);
-    
+
     // Manually burn some tokens from the contract to break invariant
     // We need to use the token admin for this (token_sac admin is token_admin)
     // setup_bridge returns token_admin's address? No, it generates it internally.
@@ -517,7 +517,7 @@ fn test_slippage_violation_reverts() {
     env.mock_all_auths();
 
     let (_, bridge, _, token_addr, token, token_sac) = setup_bridge(&env, 10_000);
-    
+
     let oracle_id = env.register(MockOracle, ());
     bridge.set_oracle(&oracle_id);
 
@@ -529,10 +529,286 @@ fn test_slippage_violation_reverts() {
     let expected_price = 10_000_000;
     let max_slippage = 100;
 
-    let result = bridge.try_deposit(&user, &1000, &token_addr, &Bytes::new(&env), &expected_price, &max_slippage);
+    let result = bridge.try_deposit(
+        &user,
+        &1000,
+        &token_addr,
+        &Bytes::new(&env),
+        &expected_price,
+        &max_slippage,
+    );
     assert_eq!(result, Err(Ok(Error::SlippageExceeded)));
 
     // Now allow it with 600 bps threshold
-    bridge.deposit(&user, &1000, &token_addr, &Bytes::new(&env), &expected_price, &600);
+    bridge.deposit(
+        &user,
+        &1000,
+        &token_addr,
+        &Bytes::new(&env),
+        &expected_price,
+        &600,
+    );
     assert_eq!(token.balance(&user), 4000);
+}
+
+// ── denylist tests ────────────────────────────────────────────────────────
+
+#[test]
+fn test_deny_address_blocks_deposit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deny_address(&user);
+    assert!(bridge.is_denied(&user));
+
+    let result = bridge.try_deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0);
+    assert_eq!(result, Err(Ok(Error::AddressDenied)));
+}
+
+#[test]
+fn test_deny_address_blocks_withdraw() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    // Deposit first, then deny
+    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0);
+    bridge.deny_address(&user);
+
+    let result = bridge.try_withdraw(&user, &100, &token_addr);
+    assert_eq!(result, Err(Ok(Error::AddressDenied)));
+}
+
+#[test]
+fn test_deny_address_blocks_request_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0);
+    bridge.deny_address(&user);
+
+    let result = bridge.try_request_withdrawal(&user, &100, &token_addr);
+    assert_eq!(result, Err(Ok(Error::AddressDenied)));
+}
+
+#[test]
+fn test_remove_denied_address_restores_access() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deny_address(&user);
+    assert!(bridge.is_denied(&user));
+
+    bridge.remove_denied_address(&user);
+    assert!(!bridge.is_denied(&user));
+
+    // Deposit should succeed after removal
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0);
+    assert_eq!(bridge.get_user_deposited(&user), 100);
+}
+
+#[test]
+fn test_denylist_does_not_affect_other_users() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let denied_user = Address::generate(&env);
+    let normal_user = Address::generate(&env);
+    token_sac.mint(&denied_user, &5_000);
+    token_sac.mint(&normal_user, &5_000);
+
+    bridge.deny_address(&denied_user);
+
+    // Normal user should not be affected
+    bridge.deposit(&normal_user, &200, &token_addr, &Bytes::new(&env), &0, &0);
+    assert_eq!(bridge.get_user_deposited(&normal_user), 200);
+}
+
+// ── fee vault tests ───────────────────────────────────────────────────────
+
+#[test]
+fn test_accrue_and_view_fees() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, _) = setup_bridge(&env, 10_000);
+
+    assert_eq!(bridge.get_accrued_fees(&token_addr), 0);
+
+    bridge.accrue_fee(&token_addr, &100);
+    assert_eq!(bridge.get_accrued_fees(&token_addr), 100);
+
+    bridge.accrue_fee(&token_addr, &50);
+    assert_eq!(bridge.get_accrued_fees(&token_addr), 150);
+}
+
+#[test]
+fn test_accrue_fee_zero_amount_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, _) = setup_bridge(&env, 10_000);
+
+    let result = bridge.try_accrue_fee(&token_addr, &0);
+    assert_eq!(result, Err(Ok(Error::ZeroAmount)));
+}
+
+#[test]
+fn test_withdraw_fees_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, token_addr, token, token_sac) = setup_bridge(&env, 10_000);
+    let recipient = Address::generate(&env);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    // Deposit so contract has balance
+    bridge.deposit(&user, &1_000, &token_addr, &Bytes::new(&env), &0, &0);
+
+    // Accrue fees
+    bridge.accrue_fee(&token_addr, &200);
+    assert_eq!(bridge.get_accrued_fees(&token_addr), 200);
+
+    // Withdraw fees
+    bridge.withdraw_fees(&recipient, &token_addr, &100);
+    assert_eq!(bridge.get_accrued_fees(&token_addr), 100);
+    assert_eq!(token.balance(&recipient), 100);
+    assert_eq!(token.balance(&contract_id), 900);
+}
+
+#[test]
+fn test_withdraw_fees_exceeds_accrued() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, _) = setup_bridge(&env, 10_000);
+
+    bridge.accrue_fee(&token_addr, &50);
+
+    let result = bridge.try_withdraw_fees(&Address::generate(&env), &token_addr, &100);
+    assert_eq!(result, Err(Ok(Error::NoFeesToWithdraw)));
+}
+
+#[test]
+fn test_fee_vault_isolation_from_principal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, token_addr, token, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    let fee_recipient = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    // User deposits 1000
+    bridge.deposit(&user, &1_000, &token_addr, &Bytes::new(&env), &0, &0);
+    assert_eq!(bridge.get_total_deposited(), 1_000);
+
+    // Accrue 200 in fees — this is separate accounting
+    bridge.accrue_fee(&token_addr, &200);
+    assert_eq!(bridge.get_accrued_fees(&token_addr), 200);
+
+    // Withdraw fees does NOT affect total_deposited or total_withdrawn
+    bridge.withdraw_fees(&fee_recipient, &token_addr, &200);
+    assert_eq!(bridge.get_total_deposited(), 1_000);
+    assert_eq!(bridge.get_total_withdrawn(), 0);
+    assert_eq!(bridge.get_accrued_fees(&token_addr), 0);
+    assert_eq!(token.balance(&fee_recipient), 200);
+    assert_eq!(token.balance(&contract_id), 800);
+}
+
+// ── emergency token rescue tests ──────────────────────────────────────────
+
+#[test]
+fn test_rescue_non_protocol_token() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, _token_addr, _, _) = setup_bridge(&env, 10_000);
+    let rescue_admin = Address::generate(&env);
+
+    // Create a separate "stray" token not part of the protocol
+    let stray_admin = Address::generate(&env);
+    let (stray_addr, stray_token, stray_sac) = create_token(&env, &stray_admin);
+
+    // Simulate accidentally sending stray tokens to the contract
+    stray_sac.mint(&contract_id, &500);
+    assert_eq!(stray_token.balance(&contract_id), 500);
+
+    // Rescue them
+    bridge.rescue_token(&stray_addr, &rescue_admin, &300);
+    assert_eq!(stray_token.balance(&rescue_admin), 300);
+    assert_eq!(stray_token.balance(&contract_id), 200);
+}
+
+#[test]
+fn test_rescue_primary_token_forbidden() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &1000, &token_addr, &Bytes::new(&env), &0, &0);
+
+    let result = bridge.try_rescue_token(&token_addr, &Address::generate(&env), &100);
+    assert_eq!(result, Err(Ok(Error::RescueForbidden)));
+}
+
+#[test]
+fn test_rescue_whitelisted_token_forbidden() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, _) = setup_bridge(&env, 10_000);
+
+    // The token_addr is in the TokenRegistry (whitelisted), so rescue should fail
+    let result = bridge.try_rescue_token(&token_addr, &Address::generate(&env), &100);
+    assert_eq!(result, Err(Ok(Error::RescueForbidden)));
+}
+
+#[test]
+fn test_rescue_zero_amount_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+    let stray_admin = Address::generate(&env);
+    let (stray_addr, _, _) = create_token(&env, &stray_admin);
+
+    let result = bridge.try_rescue_token(&stray_addr, &Address::generate(&env), &0);
+    assert_eq!(result, Err(Ok(Error::ZeroAmount)));
+}
+
+#[test]
+fn test_rescue_insufficient_balance() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+    let stray_admin = Address::generate(&env);
+    let (stray_addr, _, stray_sac) = create_token(&env, &stray_admin);
+
+    // Only 100 of stray token on contract
+    stray_sac.mint(&contract_id, &100);
+
+    let result = bridge.try_rescue_token(&stray_addr, &Address::generate(&env), &200);
+    assert_eq!(result, Err(Ok(Error::InsufficientFunds)));
 }
