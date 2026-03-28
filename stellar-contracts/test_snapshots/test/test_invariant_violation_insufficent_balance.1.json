@@ -74,7 +74,8 @@
                 },
                 {
                   "u32": 0
-                }
+                },
+                "void"
               ]
             }
           },
@@ -235,6 +236,12 @@
                     "val": {
                       "u32": 0
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "memo_hash"
+                    },
+                    "val": "void"
                   },
                   {
                     "key": {
@@ -760,6 +767,9 @@
                 "symbol": "deposit"
               },
               {
+                "symbol": "v1"
+              },
+              {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
               }
             ],
@@ -781,7 +791,11 @@
             "topics": [
               {
                 "symbol": "rcpt_issd"
+              },
+              {
+                "symbol": "v1"
               }
+              "void"
             ],
             "data": {
               "bytes": "93dbef426447771c0165b2a0e3c325c60f83cbeb95c0941f3826ac97fd36c367"

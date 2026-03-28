@@ -13,6 +13,8 @@ const MAX_REFERENCE_LEN: u32 = 64;
 const WINDOW_LEDGERS: u32 = 17_280; // ~24 hours
 const MIN_TIMELOCK_DELAY: u32 = 34_560; // 48 hours
 const DEFAULT_INACTIVITY_THRESHOLD: u32 = 1_555_200; // ~3 months
+pub const EVENT_VERSION: u32 = 1;
+pub const ESCROW_STORAGE_VERSION: u32 = 1;
 
 // ── Error codes ───────────────────────────────────────────────────────────
 #[contracterror]
@@ -29,6 +31,7 @@ pub enum Error {
     NotAllowed = 202,
     NoPendingAdmin = 203,
     InvalidRecipient = 204,
+    NotOperator = 205,
 
     // --- 300 series: Constraints & Limits ---
     ZeroAmount = 301,
@@ -39,9 +42,12 @@ pub enum Error {
     CooldownActive = 306,
     AntiSandwichDelayActive = 307,
     TokenNotWhitelisted = 308,
+    AddressDenied = 309,
+    RescueForbidden = 310,
 
     // --- 400 series: Funds & Balances ---
     InsufficientFunds = 401,
+    NoFeesToWithdraw = 402,
 
     // --- 500 series: Withdrawal Queue ---
     RequestNotFound = 501,
@@ -57,6 +63,11 @@ pub enum Error {
     OracleNotSet = 701,
     OraclePriceInvalid = 702,
     SlippageExceeded = 703,
+
+    // --- 800 series: Quota & Migration ---
+    WithdrawalQuotaExceeded = 801,
+    MigrationAlreadyComplete = 802,
+    BatchOperationFailed = 803,
     NotOperator = 704,
 }
 
@@ -68,6 +79,8 @@ pub struct WithdrawRequest {
     pub token: Address,
     pub amount: i128,
     pub unlock_ledger: u32,
+    pub memo_hash: Option<BytesN<32>>,
+    pub queued_ledger: u32,
 }
 
 #[contracttype]
@@ -88,6 +101,7 @@ pub struct Receipt {
     pub ledger: u32,
     pub reference: Bytes,
     pub refunded: bool,
+    pub memo_hash: Option<BytesN<32>>,
 }
 
 #[contracttype]
@@ -104,6 +118,39 @@ pub struct QueuedAdminAction {
 pub struct UserDailyVolume {
     pub usd_cents: i128,
     pub window_start: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserDailyWithdrawal {
+    pub amount: i128,
+    pub window_start: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowRecord {
+    pub version: u32,
+    pub depositor: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub ledger: u32,
+    pub migrated: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchAdminOp {
+    pub op_type: Symbol,
+    pub payload: Bytes,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchResult {
+    pub total_ops: u32,
+    pub success_count: u32,
+    pub failed_index: Option<u32>,
 }
 
 #[contracttype]
@@ -136,6 +183,8 @@ pub enum DataKey {
     Receipt(BytesN<32>),
     LockPeriod,
     NextRequestID,
+    WithdrawQueueLen,
+    WithdrawQueueHead,
     WithdrawQueue(u64),
     DailyWithdrawLimit,
     WindowStart,
@@ -156,9 +205,16 @@ pub enum DataKey {
     FiatLimit,
     UserDailyVolume(Address),
     AntiSandwichDelay,
+    WithdrawalQuota,
+    UserDailyWithdrawal(Address),
+    EscrowStorageVersion,
+    EscrowRecord(u64),
+    EscrowMigrationCursor,
     PendingRenounceLedger,
     Operator(Address),
     OperatorHeartbeat(Address),
+    Denied(Address),
+    FeeVault(Address),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -191,6 +247,10 @@ impl FiatBridge {
 
         env.storage().instance().set(&DataKey::SchemaVersion, &1u32);
         env.storage().instance().set(&DataKey::NextActionID, &0u64);
+        env.storage().instance().set(&DataKey::WithdrawQueueLen, &0u64);
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawQueueHead, &Option::<u64>::None);
         env.storage()
             .instance()
             .set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
@@ -213,7 +273,8 @@ impl FiatBridge {
         reference: Bytes,
         expected_price: i128,
         max_slippage: u32,
-    ) -> Result<BytesN<32>, Error> {
+        memo_hash: Option<BytesN<32>>,
+    ) -> Result<u64, Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         from.require_auth();
 
@@ -265,6 +326,15 @@ impl FiatBridge {
             return Err(Error::NotAllowed);
         }
 
+        // Denylist
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::Denied(from.clone()))
+        {
+            return Err(Error::AddressDenied);
+        }
+
         // Registry & Limit
         let mut config: TokenConfig = env
             .storage()
@@ -313,6 +383,7 @@ impl FiatBridge {
             ledger: env.ledger().sequence(),
             reference,
             refunded: false,
+            memo_hash: memo_hash.clone(),
         };
         env.storage()
             .persistent()
@@ -356,7 +427,7 @@ impl FiatBridge {
         env.events()
             .publish((Symbol::new(&env, "deposit"), from), amount);
         env.events()
-            .publish((Symbol::new(&env, "rcpt_issd"),), receipt_id.clone());
+            .publish((Symbol::new(&env, "rcpt_issd"), memo_hash), receipt_id);
 
         Self::check_invariants(&env, &token)?;
 
@@ -402,6 +473,13 @@ impl FiatBridge {
         if amount <= 0 {
             return Err(Error::ZeroAmount);
         }
+
+        Self::enforce_withdrawal_quota(&env, &to, amount)?;
+        // Denylist
+        if env.storage().persistent().has(&DataKey::Denied(to.clone())) {
+            return Err(Error::AddressDenied);
+        }
+
         let client = token::Client::new(&env, &token);
         if amount > client.balance(&env.current_contract_address()) {
             return Err(Error::InsufficientFunds);
@@ -429,6 +507,7 @@ impl FiatBridge {
         to: Address,
         amount: i128,
         token: Address,
+        memo_hash: Option<BytesN<32>>,
     ) -> Result<u64, Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
@@ -442,6 +521,11 @@ impl FiatBridge {
             return Err(Error::ZeroAmount);
         }
 
+        // Denylist
+        if env.storage().persistent().has(&DataKey::Denied(to.clone())) {
+            return Err(Error::AddressDenied);
+        }
+
         // Enforce withdrawal cooldown after large deposit
         let withdraw_cooldown: u32 = env
             .storage()
@@ -450,11 +534,7 @@ impl FiatBridge {
             .unwrap_or(0);
         if withdraw_cooldown > 0 {
             let large_key = DataKey::LastLargeDeposit(to.clone());
-            if let Some(last_large) = env
-                .storage()
-                .temporary()
-                .get::<DataKey, u32>(&large_key)
-            {
+            if let Some(last_large) = env.storage().temporary().get::<DataKey, u32>(&large_key) {
                 if env.ledger().sequence() < last_large.saturating_add(withdraw_cooldown) {
                     return Err(Error::CooldownActive);
                 }
@@ -471,11 +551,19 @@ impl FiatBridge {
             .get(&DataKey::NextRequestID)
             .unwrap_or(0);
 
+        let queue_len: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawQueueLen)
+            .unwrap_or(0);
+
         let request = WithdrawRequest {
-            to,
+            to: to.clone(),
             token: token.clone(),
             amount,
             unlock_ledger: env.ledger().sequence() + lock_period,
+            memo_hash: memo_hash.clone(),
+            queued_ledger: env.ledger().sequence(),
         };
         env.storage()
             .persistent()
@@ -483,6 +571,15 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::NextRequestID, &(request_id + 1));
+
+        if queue_len == 0 {
+            env.storage()
+                .instance()
+                .set(&DataKey::WithdrawQueueHead, &Some(request_id));
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawQueueLen, &(queue_len + 1));
         let mut config: TokenConfig = env
             .storage()
             .persistent()
@@ -494,6 +591,12 @@ impl FiatBridge {
             .set(&DataKey::TokenRegistry(token.clone()), &config);
 
         Self::check_invariants(&env, &token)?;
+        
+        env.events().publish(
+            (Symbol::new(&env, "req_withdr"), to),
+            (request_id, memo_hash),
+        );
+
         Ok(request_id)
     }
 
@@ -546,6 +649,8 @@ impl FiatBridge {
             None => request.amount,
         };
 
+        Self::enforce_withdrawal_quota(&env, &request.to, execute_amount)?;
+
         if execute_amount > balance {
             return Err(Error::InsufficientFunds);
         }
@@ -574,6 +679,18 @@ impl FiatBridge {
             env.storage()
                 .persistent()
                 .remove(&DataKey::WithdrawQueue(request_id));
+
+            let queue_len: u64 = env
+                .storage()
+                .instance()
+                .get(&DataKey::WithdrawQueueLen)
+                .unwrap_or(0);
+            if queue_len > 0 {
+                env.storage()
+                    .instance()
+                    .set(&DataKey::WithdrawQueueLen, &(queue_len - 1));
+            }
+            Self::advance_withdraw_queue_head(&env, request_id);
         } else {
             request.amount -= execute_amount;
             env.storage()
@@ -631,8 +748,64 @@ impl FiatBridge {
             .persistent()
             .remove(&DataKey::WithdrawQueue(request_id));
 
+        let queue_len: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawQueueLen)
+            .unwrap_or(0);
+        if queue_len > 0 {
+            env.storage()
+                .instance()
+                .set(&DataKey::WithdrawQueueLen, &(queue_len - 1));
+        }
+        Self::advance_withdraw_queue_head(&env, request_id);
+
         Self::check_invariants(&env, &request.token)?;
         Ok(())
+    }
+
+    fn advance_withdraw_queue_head(env: &Env, removed_id: u64) {
+        let head: Option<u64> = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawQueueHead)
+            .unwrap_or(None);
+        if head != Some(removed_id) {
+            return;
+        }
+
+        let queue_len: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawQueueLen)
+            .unwrap_or(0);
+        if queue_len == 0 {
+            env.storage()
+                .instance()
+                .set(&DataKey::WithdrawQueueHead, &Option::<u64>::None);
+            return;
+        }
+
+        let next_id: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextRequestID)
+            .unwrap_or(0);
+
+        let mut i = removed_id.saturating_add(1);
+        while i < next_id {
+            if env.storage().persistent().has(&DataKey::WithdrawQueue(i)) {
+                env.storage()
+                    .instance()
+                    .set(&DataKey::WithdrawQueueHead, &Some(i));
+                return;
+            }
+            i += 1;
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawQueueHead, &Option::<u64>::None);
     }
 
     pub fn set_limit(env: Env, token: Address, limit: i128) -> Result<(), Error> {
@@ -671,11 +844,7 @@ impl FiatBridge {
     ///
     /// - `ledgers`   – number of ledgers to wait before withdrawing.  0 disables the guard.
     /// - `threshold` – minimum deposit amount (inclusive) that triggers the cooldown.  0 disables.
-    pub fn set_withdrawal_cooldown(
-        env: Env,
-        ledgers: u32,
-        threshold: i128,
-    ) -> Result<(), Error> {
+    pub fn set_withdrawal_cooldown(env: Env, ledgers: u32, threshold: i128) -> Result<(), Error> {
         let admin: Address = env
             .storage()
             .instance()
@@ -784,8 +953,10 @@ impl FiatBridge {
             0
         };
 
-        env.events()
-            .publish((Symbol::new(env, "slippage"),), slippage_bps as u32);
+        env.events().publish(
+            (Symbol::new(env, "slippage"), Symbol::new(env, "v1")),
+            slippage_bps as u32,
+        );
 
         if slippage_bps > max_slippage_bps as i128 {
             return Err(Error::SlippageExceeded);
@@ -908,6 +1079,8 @@ impl FiatBridge {
 
     // ── Operator Role & Heartbeat ───────────────────────────────────────
     pub fn set_operator(env: Env, operator: Address, active: bool) -> Result<(), Error> {
+    // ── Denylist ──────────────────────────────────────────────────────────
+    pub fn deny_address(env: Env, address: Address) -> Result<(), Error> {
         let admin: Address = env
             .storage()
             .instance()
@@ -957,6 +1130,34 @@ impl FiatBridge {
 
     // ── Ownership Renounce ────────────────────────────────────────────────
     pub fn queue_renounce_admin(env: Env) -> Result<(), Error> {
+            .persistent()
+            .set(&DataKey::Denied(address.clone()), &true);
+        env.events()
+            .publish((Symbol::new(&env, "deny_add"),), address);
+        Ok(())
+    }
+
+    pub fn remove_denied_address(env: Env, address: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Denied(address.clone()));
+        env.events()
+            .publish((Symbol::new(&env, "deny_rem"),), address);
+        Ok(())
+    }
+
+    pub fn is_denied(env: Env, address: Address) -> bool {
+        env.storage().persistent().has(&DataKey::Denied(address))
+    }
+
+    // ── Fee Vault ─────────────────────────────────────────────────────────
+    pub fn accrue_fee(env: Env, token: Address, amount: i128) -> Result<(), Error> {
         let admin: Address = env
             .storage()
             .instance()
@@ -971,6 +1172,28 @@ impl FiatBridge {
     }
 
     pub fn cancel_renounce_admin(env: Env) -> Result<(), Error> {
+
+        if amount <= 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        let key = DataKey::FeeVault(token.clone());
+        let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        env.storage().persistent().set(&key, &(current + amount));
+
+        env.events()
+            .publish((Symbol::new(&env, "fee_accrue"), token), amount);
+        Ok(())
+    }
+
+    pub fn get_accrued_fees(env: Env, token: Address) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::FeeVault(token))
+            .unwrap_or(0)
+    }
+
+    pub fn withdraw_fees(env: Env, to: Address, token: Address, amount: i128) -> Result<(), Error> {
         let admin: Address = env
             .storage()
             .instance()
@@ -984,6 +1207,28 @@ impl FiatBridge {
     }
 
     pub fn execute_renounce_admin(env: Env) -> Result<(), Error> {
+
+        if amount <= 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        let key = DataKey::FeeVault(token.clone());
+        let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        if amount > current {
+            return Err(Error::NoFeesToWithdraw);
+        }
+
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(&env.current_contract_address(), &to, &amount);
+
+        env.storage().persistent().set(&key, &(current - amount));
+        env.events()
+            .publish((Symbol::new(&env, "fee_wdrw"), to), amount);
+        Ok(())
+    }
+
+    // ── Emergency Token Rescue ────────────────────────────────────────────
+    pub fn rescue_token(env: Env, token: Address, to: Address, amount: i128) -> Result<(), Error> {
         let admin: Address = env
             .storage()
             .instance()
@@ -1005,6 +1250,39 @@ impl FiatBridge {
             .remove(&DataKey::PendingRenounceLedger);
         env.storage().instance().remove(&DataKey::Admin);
         env.storage().instance().remove(&DataKey::PendingAdmin);
+        if amount <= 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        // Forbid rescue of the primary protocol asset
+        let primary_token: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .ok_or(Error::NotInitialized)?;
+        if token == primary_token {
+            return Err(Error::RescueForbidden);
+        }
+
+        // Also forbid rescue of any whitelisted token in the registry
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::TokenRegistry(token.clone()))
+        {
+            return Err(Error::RescueForbidden);
+        }
+
+        let token_client = token::Client::new(&env, &token);
+        let balance = token_client.balance(&env.current_contract_address());
+        if amount > balance {
+            return Err(Error::InsufficientFunds);
+        }
+
+        token_client.transfer(&env.current_contract_address(), &to, &amount);
+
+        env.events()
+            .publish((Symbol::new(&env, "rescue"), token, to), amount);
         Ok(())
     }
 
@@ -1027,7 +1305,8 @@ impl FiatBridge {
             .instance()
             .get::<_, Address>(&DataKey::Token)
             .ok_or(Error::NotInitialized)?;
-        Ok(env.storage()
+        Ok(env
+            .storage()
             .persistent()
             .get::<_, TokenConfig>(&DataKey::TokenRegistry(tok))
             .ok_or(Error::InternalError)?
@@ -1047,7 +1326,8 @@ impl FiatBridge {
             .instance()
             .get::<_, Address>(&DataKey::Token)
             .ok_or(Error::NotInitialized)?;
-        Ok(env.storage()
+        Ok(env
+            .storage()
             .persistent()
             .get::<_, TokenConfig>(&DataKey::TokenRegistry(tok))
             .ok_or(Error::InternalError)?
@@ -1080,6 +1360,34 @@ impl FiatBridge {
     pub fn get_withdrawal_request(env: Env, id: u64) -> Option<WithdrawRequest> {
         env.storage().persistent().get(&DataKey::WithdrawQueue(id))
     }
+
+    pub fn get_wq_depth(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::WithdrawQueueLen)
+            .unwrap_or(0)
+    }
+
+    pub fn get_wq_oldest_queued_ledger(env: Env) -> Option<u32> {
+        let head: Option<u64> = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawQueueHead)
+            .unwrap_or(None);
+        match head {
+            Some(id) => env
+                .storage()
+                .persistent()
+                .get::<_, WithdrawRequest>(&DataKey::WithdrawQueue(id))
+                .map(|r| r.queued_ledger),
+            None => None,
+        }
+    }
+
+    pub fn get_wq_oldest_age_ledgers(env: Env) -> Option<u32> {
+        Self::get_wq_oldest_queued_ledger(env.clone())
+            .map(|q| env.ledger().sequence().saturating_sub(q))
+    }
     pub fn get_last_deposit_ledger(env: Env, user: Address) -> Option<u32> {
         env.storage().temporary().get(&DataKey::LastDeposit(user))
     }
@@ -1102,7 +1410,8 @@ impl FiatBridge {
             .instance()
             .get::<_, Address>(&DataKey::Token)
             .ok_or(Error::NotInitialized)?;
-        Ok(env.storage()
+        Ok(env
+            .storage()
             .persistent()
             .get::<_, TokenConfig>(&DataKey::TokenRegistry(tok))
             .ok_or(Error::InternalError)?
@@ -1115,7 +1424,8 @@ impl FiatBridge {
             .instance()
             .get::<_, Address>(&DataKey::Token)
             .ok_or(Error::NotInitialized)?;
-        Ok(env.storage()
+        Ok(env
+            .storage()
             .persistent()
             .get::<_, TokenConfig>(&DataKey::TokenRegistry(tok))
             .ok_or(Error::InternalError)?
@@ -1170,6 +1480,330 @@ impl FiatBridge {
                 .get(&DataKey::AntiSandwichDelay)
                 .unwrap_or(0),
         })
+    }
+
+    // ── Withdrawal Quota ──────────────────────────────────────────────────
+    pub fn set_withdrawal_quota(env: Env, quota: i128) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawalQuota, &quota);
+        env.events().publish(
+            (Symbol::new(&env, "quota_set"), Symbol::new(&env, "v1")),
+            quota,
+        );
+        Ok(())
+    }
+
+    pub fn get_withdrawal_quota(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::WithdrawalQuota)
+            .unwrap_or(0)
+    }
+
+    pub fn get_user_daily_withdrawal(env: Env, user: Address) -> i128 {
+        let curr = env.ledger().sequence();
+        let record: UserDailyWithdrawal = env
+            .storage()
+            .instance()
+            .get(&DataKey::UserDailyWithdrawal(user))
+            .unwrap_or(UserDailyWithdrawal {
+                amount: 0,
+                window_start: curr,
+            });
+        if curr >= record.window_start + WINDOW_LEDGERS {
+            0
+        } else {
+            record.amount
+        }
+    }
+
+    fn enforce_withdrawal_quota(env: &Env, user: &Address, amount: i128) -> Result<(), Error> {
+        let quota: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawalQuota)
+            .unwrap_or(0);
+        if quota <= 0 {
+            return Ok(());
+        }
+
+        let curr = env.ledger().sequence();
+        let mut record: UserDailyWithdrawal = env
+            .storage()
+            .instance()
+            .get(&DataKey::UserDailyWithdrawal(user.clone()))
+            .unwrap_or(UserDailyWithdrawal {
+                amount: 0,
+                window_start: curr,
+            });
+
+        if curr >= record.window_start + WINDOW_LEDGERS {
+            record.amount = 0;
+            record.window_start = curr;
+        }
+
+        if record.amount + amount > quota {
+            return Err(Error::WithdrawalQuotaExceeded);
+        }
+
+        record.amount += amount;
+        env.storage()
+            .instance()
+            .set(&DataKey::UserDailyWithdrawal(user.clone()), &record);
+
+        Ok(())
+    }
+
+    // ── Escrow Migration ──────────────────────────────────────────────────
+    pub fn get_escrow_storage_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::EscrowStorageVersion)
+            .unwrap_or(0)
+    }
+
+    pub fn migrate_escrow(
+        env: Env,
+        batch_size: u32,
+    ) -> Result<u32, Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let current_version: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::EscrowStorageVersion)
+            .unwrap_or(0);
+
+        if current_version >= ESCROW_STORAGE_VERSION {
+            return Err(Error::MigrationAlreadyComplete);
+        }
+
+        let cursor: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::EscrowMigrationCursor)
+            .unwrap_or(0);
+
+        let receipt_counter: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ReceiptCounter)
+            .unwrap_or(0);
+
+        let mut migrated_count: u32 = 0;
+        let mut current_id = cursor;
+
+        while current_id < receipt_counter && migrated_count < batch_size {
+            if let Some(receipt) = env
+                .storage()
+                .persistent()
+                .get::<_, Receipt>(&DataKey::Receipt(current_id))
+            {
+                let escrow = EscrowRecord {
+                    version: ESCROW_STORAGE_VERSION,
+                    depositor: receipt.depositor,
+                    token: env
+                        .storage()
+                        .instance()
+                        .get(&DataKey::Token)
+                        .unwrap_or_else(|| Address::from_string(&soroban_sdk::String::from_str(&env, ""))),
+                    amount: receipt.amount,
+                    ledger: receipt.ledger,
+                    migrated: true,
+                };
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::EscrowRecord(current_id), &escrow);
+                migrated_count += 1;
+            }
+            current_id += 1;
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::EscrowMigrationCursor, &current_id);
+
+        if current_id >= receipt_counter {
+            env.storage()
+                .instance()
+                .set(&DataKey::EscrowStorageVersion, &ESCROW_STORAGE_VERSION);
+        }
+
+        env.events().publish(
+            (Symbol::new(&env, "migration"), Symbol::new(&env, "v1")),
+            (current_id, migrated_count),
+        );
+
+        Ok(migrated_count)
+    }
+
+    pub fn get_escrow_record(env: Env, id: u64) -> Option<EscrowRecord> {
+        env.storage().persistent().get(&DataKey::EscrowRecord(id))
+    }
+
+    pub fn get_migration_cursor(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::EscrowMigrationCursor)
+            .unwrap_or(0)
+    }
+
+    // ── Batched Admin Operations ──────────────────────────────────────────
+    pub fn execute_batch_admin(
+        env: Env,
+        operations: Vec<BatchAdminOp>,
+    ) -> Result<BatchResult, Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let total_ops = operations.len() as u32;
+        let mut success_count: u32 = 0;
+
+        let snapshot_cooldown: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CooldownLedgers)
+            .unwrap_or(0);
+        let snapshot_lock_period: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LockPeriod)
+            .unwrap_or(0);
+        let snapshot_quota: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawalQuota)
+            .unwrap_or(0);
+        let snapshot_anti_sandwich: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::AntiSandwichDelay)
+            .unwrap_or(0);
+
+        for (idx, op) in operations.iter().enumerate() {
+            let result = Self::execute_single_admin_op(&env, &op);
+            if result.is_err() {
+                env.storage()
+                    .instance()
+                    .set(&DataKey::CooldownLedgers, &snapshot_cooldown);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::LockPeriod, &snapshot_lock_period);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::WithdrawalQuota, &snapshot_quota);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::AntiSandwichDelay, &snapshot_anti_sandwich);
+
+                env.events().publish(
+                    (Symbol::new(&env, "batch_fail"), Symbol::new(&env, "v1")),
+                    (idx as u32, total_ops),
+                );
+
+                return Err(Error::BatchOperationFailed);
+            }
+            success_count += 1;
+        }
+
+        let batch_result = BatchResult {
+            total_ops,
+            success_count,
+            failed_index: None,
+        };
+
+        env.events().publish(
+            (Symbol::new(&env, "batch_ok"), Symbol::new(&env, "v1")),
+            (success_count, total_ops),
+        );
+
+        Ok(batch_result)
+    }
+
+    fn execute_single_admin_op(env: &Env, op: &BatchAdminOp) -> Result<(), Error> {
+        let op_name = &op.op_type;
+
+        if *op_name == Symbol::new(env, "set_cooldown") {
+            if op.payload.len() < 4 {
+                return Err(Error::InternalError);
+            }
+            let ledgers = Self::bytes_to_u32(env, &op.payload)?;
+            env.storage()
+                .instance()
+                .set(&DataKey::CooldownLedgers, &ledgers);
+            Ok(())
+        } else if *op_name == Symbol::new(env, "set_lock") {
+            if op.payload.len() < 4 {
+                return Err(Error::InternalError);
+            }
+            let ledgers = Self::bytes_to_u32(env, &op.payload)?;
+            env.storage()
+                .instance()
+                .set(&DataKey::LockPeriod, &ledgers);
+            Ok(())
+        } else if *op_name == Symbol::new(env, "set_quota") {
+            if op.payload.len() < 16 {
+                return Err(Error::InternalError);
+            }
+            let quota = Self::bytes_to_i128(env, &op.payload)?;
+            env.storage()
+                .instance()
+                .set(&DataKey::WithdrawalQuota, &quota);
+            Ok(())
+        } else if *op_name == Symbol::new(env, "set_sandwich") {
+            if op.payload.len() < 4 {
+                return Err(Error::InternalError);
+            }
+            let ledgers = Self::bytes_to_u32(env, &op.payload)?;
+            env.storage()
+                .instance()
+                .set(&DataKey::AntiSandwichDelay, &ledgers);
+            Ok(())
+        } else {
+            Err(Error::InternalError)
+        }
+    }
+
+    fn bytes_to_u32(_env: &Env, bytes: &Bytes) -> Result<u32, Error> {
+        if bytes.len() < 4 {
+            return Err(Error::InternalError);
+        }
+        let mut arr = [0u8; 4];
+        for i in 0..4 {
+            arr[i] = bytes.get(i as u32).ok_or(Error::InternalError)?;
+        }
+        Ok(u32::from_be_bytes(arr))
+    }
+
+    fn bytes_to_i128(_env: &Env, bytes: &Bytes) -> Result<i128, Error> {
+        if bytes.len() < 16 {
+            return Err(Error::InternalError);
+        }
+        let mut arr = [0u8; 16];
+        for i in 0..16 {
+            arr[i] = bytes.get(i as u32).ok_or(Error::InternalError)?;
+        }
+        Ok(i128::from_be_bytes(arr))
+    }
+
+    pub fn get_event_version(_env: Env) -> u32 {
+        EVENT_VERSION
     }
 }
 
