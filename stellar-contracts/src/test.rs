@@ -470,10 +470,6 @@ fn test_invariant_violation_insufficent_balance() {
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0);
 
     // Manually burn some tokens from the contract to break invariant
-    // We need to use the token admin for this (token_sac admin is token_admin)
-    // setup_bridge returns token_admin's address? No, it generates it internally.
-    // Let's just transfer tokens out of the contract without calling the bridge's withdraw.
-    // We'll mock auth for the contract itself.
     env.as_contract(&contract_id, || {
         token.transfer(&contract_id, &user, &100);
     });
@@ -577,7 +573,9 @@ fn test_withdrawal_cooldown_disabled_when_zeroed() {
     let req_id = bridge.request_withdrawal(&user, &200, &token_addr, &None);
     bridge.execute_withdrawal(&req_id, &None, &0, &0);
 }
+
 // ── slippage tests ────────────────────────────────────────────────────────
+
 #[contract]
 pub struct MockOracle;
 
@@ -603,7 +601,6 @@ fn test_slippage_violation_reverts() {
     token_sac.mint(&user, &5_000);
 
     // Expected price is 1.0 USD (10,000_000), actual is 0.95 (500 bps drop)
-    // Threshold is 100 bps (1%)
     let expected_price = 10_000_000;
     let max_slippage = 100;
 
@@ -629,6 +626,94 @@ fn test_slippage_violation_reverts() {
     assert_eq!(token.balance(&user), 4000);
 }
 
+// ── renounce admin tests ──────────────────────────────────────────────────
+
+#[test]
+fn test_queue_and_execute_renounce_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, admin, _, _, _) = setup_bridge(&env, 500);
+
+    // Ensure admin is set
+    assert_eq!(bridge.get_admin(), admin);
+
+    // Queue renounce
+    bridge.queue_renounce_admin();
+
+    // Check pending ledger
+    let target = env.ledger().sequence() + MIN_TIMELOCK_DELAY;
+    assert_eq!(bridge.get_pending_renounce_ledger(), Some(target));
+
+    // Try executing immediately, should fail with ActionNotReady
+    let res = bridge.try_execute_renounce_admin();
+    assert_eq!(res, Err(Ok(Error::ActionNotReady)));
+
+    // Advance ledger sequence past target
+    env.ledger().with_mut(|li| {
+        li.sequence_number = target + 1;
+    });
+
+    // Execute should succeed now
+    bridge.execute_renounce_admin();
+
+    // Verify admin is renounced
+    let res = bridge.try_get_admin();
+    assert_eq!(res, Err(Ok(Error::NotInitialized)));
+    assert_eq!(bridge.get_pending_renounce_ledger(), None);
+}
+
+#[test]
+fn test_cancel_renounce_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 500);
+
+    // Queue renounce
+    bridge.queue_renounce_admin();
+    assert!(bridge.get_pending_renounce_ledger().is_some());
+
+    // Cancel renounce
+    bridge.cancel_renounce_admin();
+    assert_eq!(bridge.get_pending_renounce_ledger(), None);
+
+    // Advance ledger sequence
+    env.ledger().with_mut(|li| {
+        li.sequence_number += MIN_TIMELOCK_DELAY + 1;
+    });
+
+    // Try executing should fail because it was cancelled
+    let res = bridge.try_execute_renounce_admin();
+    assert_eq!(res, Err(Ok(Error::ActionNotQueued)));
+}
+
+#[test]
+fn test_operator_heartbeat() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+
+    let operator = Address::generate(&env);
+
+    // Initial state
+    assert!(!bridge.is_operator(&operator));
+    assert_eq!(bridge.get_operator_heartbeat(&operator), None);
+
+    // Set operator
+    bridge.set_operator(&operator, &true);
+    assert!(bridge.is_operator(&operator));
+
+    // Heartbeat
+    let curr = env.ledger().sequence();
+    bridge.heartbeat(&operator);
+    assert_eq!(bridge.get_operator_heartbeat(&operator), Some(curr));
+
+    // Deactivate operator
+    bridge.set_operator(&operator, &false);
+    assert!(!bridge.is_operator(&operator));
+
+    // Heartbeat should fail now
+    let res = bridge.try_heartbeat(&operator);
+    assert_eq!(res, Err(Ok(Error::NotOperator)));
 // ── denylist tests ────────────────────────────────────────────────────────
 
 #[test]
