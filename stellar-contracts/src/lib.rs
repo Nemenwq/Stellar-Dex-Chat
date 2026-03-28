@@ -49,6 +49,7 @@ pub struct WithdrawRequest {
     pub token: Address,
     pub amount: i128,
     pub unlock_ledger: u32,
+    pub queued_ledger: u32,
 }
 
 #[contracttype]
@@ -116,6 +117,8 @@ pub enum DataKey {
     Receipt(u64),
     LockPeriod,
     NextRequestID,
+    WithdrawQueueLen,
+    WithdrawQueueHead,
     WithdrawQueue(u64),
     DailyWithdrawLimit,
     WindowStart,
@@ -167,6 +170,10 @@ impl FiatBridge {
 
         env.storage().instance().set(&DataKey::SchemaVersion, &1u32);
         env.storage().instance().set(&DataKey::NextActionID, &0u64);
+        env.storage().instance().set(&DataKey::WithdrawQueueLen, &0u64);
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawQueueHead, &Option::<u64>::None);
         env.storage()
             .instance()
             .set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
@@ -419,11 +426,18 @@ impl FiatBridge {
             .get(&DataKey::NextRequestID)
             .unwrap_or(0);
 
+        let queue_len: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawQueueLen)
+            .unwrap_or(0);
+
         let request = WithdrawRequest {
             to,
             token: token.clone(),
             amount,
             unlock_ledger: env.ledger().sequence() + lock_period,
+            queued_ledger: env.ledger().sequence(),
         };
         env.storage()
             .persistent()
@@ -431,6 +445,15 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::NextRequestID, &(request_id + 1));
+
+        if queue_len == 0 {
+            env.storage()
+                .instance()
+                .set(&DataKey::WithdrawQueueHead, &Some(request_id));
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawQueueLen, &(queue_len + 1));
         let mut config: TokenConfig = env
             .storage()
             .persistent()
@@ -489,6 +512,18 @@ impl FiatBridge {
             env.storage()
                 .persistent()
                 .remove(&DataKey::WithdrawQueue(request_id));
+
+            let queue_len: u64 = env
+                .storage()
+                .instance()
+                .get(&DataKey::WithdrawQueueLen)
+                .unwrap_or(0);
+            if queue_len > 0 {
+                env.storage()
+                    .instance()
+                    .set(&DataKey::WithdrawQueueLen, &(queue_len - 1));
+            }
+            Self::advance_withdraw_queue_head(&env, request_id);
         } else {
             request.amount -= execute_amount;
             env.storage()
@@ -546,9 +581,65 @@ impl FiatBridge {
             .persistent()
             .remove(&DataKey::WithdrawQueue(request_id));
 
+        let queue_len: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawQueueLen)
+            .unwrap_or(0);
+        if queue_len > 0 {
+            env.storage()
+                .instance()
+                .set(&DataKey::WithdrawQueueLen, &(queue_len - 1));
+        }
+        Self::advance_withdraw_queue_head(&env, request_id);
+
         Self::check_invariants(&env, &request.token)?;
 
         Ok(())
+    }
+
+    fn advance_withdraw_queue_head(env: &Env, removed_id: u64) {
+        let head: Option<u64> = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawQueueHead)
+            .unwrap_or(None);
+        if head != Some(removed_id) {
+            return;
+        }
+
+        let queue_len: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawQueueLen)
+            .unwrap_or(0);
+        if queue_len == 0 {
+            env.storage()
+                .instance()
+                .set(&DataKey::WithdrawQueueHead, &Option::<u64>::None);
+            return;
+        }
+
+        let next_id: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextRequestID)
+            .unwrap_or(0);
+
+        let mut i = removed_id.saturating_add(1);
+        while i < next_id {
+            if env.storage().persistent().has(&DataKey::WithdrawQueue(i)) {
+                env.storage()
+                    .instance()
+                    .set(&DataKey::WithdrawQueueHead, &Some(i));
+                return;
+            }
+            i += 1;
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawQueueHead, &Option::<u64>::None);
     }
 
     pub fn set_limit(env: Env, token: Address, limit: i128) -> Result<(), Error> {
@@ -843,6 +934,34 @@ impl FiatBridge {
     }
     pub fn get_withdrawal_request(env: Env, id: u64) -> Option<WithdrawRequest> {
         env.storage().persistent().get(&DataKey::WithdrawQueue(id))
+    }
+
+    pub fn get_wq_depth(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::WithdrawQueueLen)
+            .unwrap_or(0)
+    }
+
+    pub fn get_wq_oldest_queued_ledger(env: Env) -> Option<u32> {
+        let head: Option<u64> = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawQueueHead)
+            .unwrap_or(None);
+        match head {
+            Some(id) => env
+                .storage()
+                .persistent()
+                .get::<_, WithdrawRequest>(&DataKey::WithdrawQueue(id))
+                .map(|r| r.queued_ledger),
+            None => None,
+        }
+    }
+
+    pub fn get_wq_oldest_age_ledgers(env: Env) -> Option<u32> {
+        Self::get_wq_oldest_queued_ledger(env.clone())
+            .map(|q| env.ledger().sequence().saturating_sub(q))
     }
     pub fn get_last_deposit_ledger(env: Env, user: Address) -> Option<u32> {
         env.storage().temporary().get(&DataKey::LastDeposit(user))
