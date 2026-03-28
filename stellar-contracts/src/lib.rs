@@ -55,8 +55,6 @@ pub enum Error {
     // --- 500 series: Withdrawal Queue ---
     RequestNotFound = 501,
     WithdrawalLocked = 502,
-    WithdrawalExpired = 503,
-    RequestNotExpired = 504,
 
     // --- 600 series: Governance & Timelock ---
     ActionNotQueued = 601,
@@ -87,9 +85,9 @@ pub struct WithdrawRequest {
     pub token: Address,
     pub amount: i128,
     pub unlock_ledger: u32,
-    pub expires_ledger: u32,
     pub memo_hash: Option<BytesN<32>>,
     pub queued_ledger: u32,
+    /// Risk tier for withdrawal prioritization. Tier 0 = highest priority.
     pub risk_tier: u32,
 }
 
@@ -275,9 +273,7 @@ impl FiatBridge {
 
         env.storage().instance().set(&DataKey::SchemaVersion, &1u32);
         env.storage().instance().set(&DataKey::NextActionID, &0u64);
-        env.storage()
-            .instance()
-            .set(&DataKey::WithdrawQueueLen, &0u64);
+        env.storage().instance().set(&DataKey::WithdrawQueueLen, &0u64);
         env.storage()
             .instance()
             .set(&DataKey::WithdrawQueueHead, &Option::<u64>::None);
@@ -413,11 +409,7 @@ impl FiatBridge {
         let receipt_id = env.crypto().sha256(&derivation_data.to_xdr(&env));
 
         // Collision check (safety)
-        if env
-            .storage()
-            .persistent()
-            .has(&DataKey::Receipt(receipt_id.clone().into()))
-        {
+        if env.storage().persistent().has(&DataKey::Receipt(receipt_id.clone().into())) {
             return Err(Error::InternalError);
         }
 
@@ -433,7 +425,7 @@ impl FiatBridge {
         env.storage()
             .persistent()
             .set(&DataKey::Receipt(receipt_id.clone().into()), &receipt);
-        // Store sequential index → hash mapping for enumeration (e.g migration)
+        // Store sequential index → hash mapping for enumeration (e.g. migration)
         let receipt_hash: BytesN<32> = receipt_id.clone().into();
         env.storage()
             .persistent()
@@ -610,14 +602,11 @@ impl FiatBridge {
             .get(&DataKey::WithdrawQueueLen)
             .unwrap_or(0);
 
-        let unlock_ledger = env.ledger().sequence() + lock_period;
-
         let request = WithdrawRequest {
             to: to.clone(),
             token: token.clone(),
             amount,
-            unlock_ledger,
-            expires_ledger: unlock_ledger + WITHDRAWAL_EXPIRY_WINDOW_LEDGERS,
+            unlock_ledger: env.ledger().sequence() + lock_period,
             memo_hash: memo_hash.clone(),
             queued_ledger: env.ledger().sequence(),
             risk_tier,
@@ -663,7 +652,7 @@ impl FiatBridge {
             .set(&DataKey::TokenRegistry(token.clone()), &config);
 
         Self::check_invariants(&env, &token)?;
-
+        
         env.events().publish(
             (Symbol::new(&env, "req_withdr"), to),
             (request_id, memo_hash),
@@ -691,6 +680,24 @@ impl FiatBridge {
         }
         if env.ledger().sequence() > request.expires_ledger {
             return Err(Error::WithdrawalExpired);
+        }
+
+        // Anti-sandwich check
+        let delay: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::AntiSandwichDelay)
+            .unwrap_or(0);
+        if delay > 0 {
+            if let Some(last_deposit) = env
+                .storage()
+                .temporary()
+                .get::<_, u32>(&DataKey::LastDeposit(request.to.clone()))
+            {
+                if env.ledger().sequence() < last_deposit.saturating_add(delay) {
+                    return Err(Error::AntiSandwichDelayActive);
+                }
+            }
         }
 
         // Anti-sandwich check
@@ -746,7 +753,6 @@ impl FiatBridge {
             }
             Self::check_slippage(&env, expected_price, actual_price, max_slippage)?;
         }
-
         token_client.transfer(
             &env.current_contract_address(),
             &request.to,
@@ -866,71 +872,6 @@ impl FiatBridge {
                 .set(&DataKey::TierQueueLen(tier), &(tier_len - 1));
         }
         Self::advance_tier_queue_head(&env, tier, request_id);
-
-        Self::check_invariants(&env, &request.token)?;
-        Ok(())
-    }
-
-    pub fn reclaim_withdrawal(env: Env, request_id: u64) -> Result<(), Error> {
-        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
-
-        let request: WithdrawRequest = env
-            .storage()
-            .persistent()
-            .get(&DataKey::WithdrawQueue(request_id))
-            .ok_or(Error::RequestNotFound)?;
-
-        request.to.require_auth();
-
-        if env.ledger().sequence() <= request.expires_ledger {
-            return Err(Error::RequestNotExpired);
-        }
-
-        let tier = request.risk_tier;
-
-        let mut config: TokenConfig = env
-            .storage()
-            .persistent()
-            .get(&DataKey::TokenRegistry(request.token.clone()))
-            .ok_or(Error::TokenNotWhitelisted)?;
-        config.total_liabilities -= request.amount;
-        env.storage()
-            .persistent()
-            .set(&DataKey::TokenRegistry(request.token.clone()), &config);
-
-        env.storage()
-            .persistent()
-            .remove(&DataKey::WithdrawQueue(request_id));
-
-        let queue_len: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::WithdrawQueueLen)
-            .unwrap_or(0);
-        if queue_len > 0 {
-            env.storage()
-                .instance()
-                .set(&DataKey::WithdrawQueueLen, &(queue_len - 1));
-        }
-        Self::advance_withdraw_queue_head(&env, request_id);
-
-        // ── Issue #226: per-tier bookkeeping on reclaim ────────────────────
-        let tier_len: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::TierQueueLen(tier))
-            .unwrap_or(0);
-        if tier_len > 0 {
-            env.storage()
-                .instance()
-                .set(&DataKey::TierQueueLen(tier), &(tier_len - 1));
-        }
-        Self::advance_tier_queue_head(&env, tier, request_id);
-
-        env.events().publish(
-            (Symbol::new(&env, "withdraw_reclaimed"), request.to),
-            request_id,
-        );
 
         Self::check_invariants(&env, &request.token)?;
         Ok(())
@@ -1326,11 +1267,7 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
-    fn validate_and_increment_nonce(
-        env: &Env,
-        operator: &Address,
-        provided_nonce: u64,
-    ) -> Result<(), Error> {
+    fn validate_and_increment_nonce(env: &Env, operator: &Address, provided_nonce: u64) -> Result<(), Error> {
         let current_nonce: u64 = env
             .storage()
             .instance()
@@ -1347,10 +1284,9 @@ impl FiatBridge {
         }
 
         // Increment nonce
-        env.storage().instance().set(
-            &DataKey::OperatorNonce(operator.clone()),
-            &(current_nonce + 1),
-        );
+        env.storage()
+            .instance()
+            .set(&DataKey::OperatorNonce(operator.clone()), &(current_nonce + 1));
 
         env.events().publish(
             (Symbol::new(env, "nonce_inc"), operator.clone()),
@@ -1814,7 +1750,10 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
-    pub fn migrate_escrow(env: Env, batch_size: u32) -> Result<u32, Error> {
+    pub fn migrate_escrow(
+        env: Env,
+        batch_size: u32,
+    ) -> Result<u32, Error> {
         let admin: Address = env
             .storage()
             .instance()
@@ -1866,9 +1805,7 @@ impl FiatBridge {
                             .storage()
                             .instance()
                             .get(&DataKey::Token)
-                            .unwrap_or_else(|| {
-                                Address::from_string(&soroban_sdk::String::from_str(&env, ""))
-                            }),
+                            .unwrap_or_else(|| Address::from_string(&soroban_sdk::String::from_str(&env, ""))),
                         amount: receipt.amount,
                         ledger: receipt.ledger,
                         migrated: true,
@@ -2004,7 +1941,9 @@ impl FiatBridge {
                 return Err(Error::InternalError);
             }
             let ledgers = Self::bytes_to_u32(env, &op.payload)?;
-            env.storage().instance().set(&DataKey::LockPeriod, &ledgers);
+            env.storage()
+                .instance()
+                .set(&DataKey::LockPeriod, &ledgers);
             Ok(())
         } else if *op_name == Symbol::new(env, "set_quota") {
             if op.payload.len() < 16 {
@@ -2214,7 +2153,11 @@ impl FiatBridge {
     /// Advance the per-tier queue head after a request with `tier` is removed.
     fn advance_tier_queue_head(env: &Env, tier: u32, removed_id: u64) {
         let head_key = DataKey::TierQueueHead(tier);
-        let head: Option<u64> = env.storage().instance().get(&head_key).unwrap_or(None);
+        let head: Option<u64> = env
+            .storage()
+            .instance()
+            .get(&head_key)
+            .unwrap_or(None);
         if head != Some(removed_id) {
             return;
         }
