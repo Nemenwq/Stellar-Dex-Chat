@@ -56,6 +56,8 @@ pub enum Error {
     // --- 700 series: External Services ---
     OracleNotSet = 701,
     OraclePriceInvalid = 702,
+    SlippageExceeded = 703,
+    NotOperator = 704,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -154,6 +156,9 @@ pub enum DataKey {
     FiatLimit,
     UserDailyVolume(Address),
     AntiSandwichDelay,
+    PendingRenounceLedger,
+    Operator(Address),
+    OperatorHeartbeat(Address),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -188,6 +193,9 @@ impl FiatBridge {
         env.storage().instance().set(&DataKey::NextActionID, &0u64);
         env.storage()
             .instance()
+            .set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
+        env.storage()
+            .instance()
             .set(&DataKey::InactivityThreshold, &DEFAULT_INACTIVITY_THRESHOLD);
         env.storage()
             .instance()
@@ -203,6 +211,8 @@ impl FiatBridge {
         amount: i128,
         token: Address,
         reference: Bytes,
+        expected_price: i128,
+        max_slippage: u32,
     ) -> Result<BytesN<32>, Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         from.require_auth();
@@ -213,7 +223,6 @@ impl FiatBridge {
         if reference.len() > MAX_REFERENCE_LEN {
             return Err(Error::ReferenceTooLong);
         }
-
         // Last Deposit Record (for Cooldown and Anti-Sandwich)
         let key = DataKey::LastDeposit(from.clone());
         let current_ledger = env.ledger().sequence();
@@ -227,7 +236,6 @@ impl FiatBridge {
             .instance()
             .get(&DataKey::AntiSandwichDelay)
             .unwrap_or(0);
-
         if cooldown > 0 {
             if let Some(last) = env.storage().temporary().get::<DataKey, u32>(&key) {
                 if current_ledger < last.saturating_add(cooldown) {
@@ -267,8 +275,9 @@ impl FiatBridge {
             return Err(Error::ExceedsLimit);
         }
 
-        // Fiat Limit
-        Self::validate_fiat_limit(&env, &from, &token, amount)?;
+        // Fiat Limit & Slippage
+        let actual_price = Self::validate_fiat_limit(&env, &from, &token, amount)?;
+        Self::check_slippage(&env, expected_price, actual_price, max_slippage)?;
 
         // Transfer
         let token_client = token::Client::new(&env, &token);
@@ -410,7 +419,6 @@ impl FiatBridge {
             .set(&DataKey::TokenRegistry(token.clone()), &config);
 
         Self::check_invariants(&env, &token)?;
-
         env.events()
             .publish((Symbol::new(&env, "withdraw"), to), amount);
         Ok(())
@@ -452,7 +460,6 @@ impl FiatBridge {
                 }
             }
         }
-
         let lock_period: u32 = env
             .storage()
             .instance()
@@ -487,7 +494,6 @@ impl FiatBridge {
             .set(&DataKey::TokenRegistry(token.clone()), &config);
 
         Self::check_invariants(&env, &token)?;
-
         Ok(request_id)
     }
 
@@ -495,6 +501,8 @@ impl FiatBridge {
         env: Env,
         request_id: u64,
         partial_amount: Option<i128>,
+        expected_price: i128,
+        max_slippage: u32,
     ) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let mut request: WithdrawRequest = env
@@ -542,6 +550,20 @@ impl FiatBridge {
             return Err(Error::InsufficientFunds);
         }
 
+        // Slippage check
+        if expected_price > 0 {
+            let oracle_addr: Address = env
+                .storage()
+                .instance()
+                .get(&DataKey::Oracle)
+                .ok_or(Error::OracleNotSet)?;
+            let oracle = crate::oracle::OracleClient::new(&env, &oracle_addr);
+            let actual_price = oracle.get_price(&request.token).unwrap_or(0);
+            if actual_price <= 0 {
+                return Err(Error::OraclePriceInvalid);
+            }
+            Self::check_slippage(&env, expected_price, actual_price, max_slippage)?;
+        }
         token_client.transfer(
             &env.current_contract_address(),
             &request.to,
@@ -610,7 +632,6 @@ impl FiatBridge {
             .remove(&DataKey::WithdrawQueue(request_id));
 
         Self::check_invariants(&env, &request.token)?;
-
         Ok(())
     }
 
@@ -744,50 +765,85 @@ impl FiatBridge {
         Ok(())
     }
 
+    fn check_slippage(
+        env: &Env,
+        expected_price: i128,
+        actual_price: i128,
+        max_slippage_bps: u32,
+    ) -> Result<(), Error> {
+        if expected_price <= 0 {
+            return Ok(()); // Skip if no benchmark provided
+        }
+
+        // Computed slippage in BPS: (Expected - Actual) / Expected * 10,000
+        // We only care about downward slippage for these paths.
+        let slippage_bps = if actual_price < expected_price {
+            let diff = expected_price - actual_price;
+            (diff * 10000) / expected_price
+        } else {
+            0
+        };
+
+        env.events()
+            .publish((Symbol::new(env, "slippage"),), slippage_bps as u32);
+
+        if slippage_bps > max_slippage_bps as i128 {
+            return Err(Error::SlippageExceeded);
+        }
+
+        Ok(())
+    }
+
     fn validate_fiat_limit(
         env: &Env,
         depositor: &Address,
         token: &Address,
         amount: i128,
-    ) -> Result<(), Error> {
-        let fiat_limit: i128 = match env.storage().instance().get(&DataKey::FiatLimit) {
-            Some(l) => l,
-            None => return Ok(()),
+    ) -> Result<i128, Error> {
+        let oracle_addr = env.storage().instance().get::<_, Address>(&DataKey::Oracle);
+        let fiat_limit = env.storage().instance().get::<_, i128>(&DataKey::FiatLimit);
+
+        if oracle_addr.is_none() && fiat_limit.is_none() {
+            return Ok(0);
+        }
+
+        let price = if let Some(addr) = oracle_addr {
+            let oracle = crate::oracle::OracleClient::new(env, &addr);
+            let p = oracle.get_price(token).unwrap_or(0);
+            if p <= 0 {
+                return Err(Error::OraclePriceInvalid);
+            }
+            p
+        } else {
+            return Err(Error::OracleNotSet);
         };
-        let oracle_addr: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Oracle)
-            .ok_or(Error::OracleNotSet)?;
-        let oracle = crate::oracle::OracleClient::new(env, &oracle_addr);
-        let price = oracle.get_price(token).unwrap_or(0);
-        if price <= 0 {
-            return Err(Error::OraclePriceInvalid);
+
+        if let Some(limit) = fiat_limit {
+            let usd_cents = (amount * price) / (ORACLE_PRICE_DECIMALS / 100);
+            let curr = env.ledger().sequence();
+            let mut vol: UserDailyVolume = env
+                .storage()
+                .instance()
+                .get(&DataKey::UserDailyVolume(depositor.clone()))
+                .unwrap_or(UserDailyVolume {
+                    usd_cents: 0,
+                    window_start: curr,
+                });
+
+            if curr >= vol.window_start + WINDOW_LEDGERS {
+                vol.usd_cents = 0;
+                vol.window_start = curr;
+            }
+            if vol.usd_cents + usd_cents > limit {
+                return Err(Error::ExceedsFiatLimit);
+            }
+            vol.usd_cents += usd_cents;
+            env.storage()
+                .instance()
+                .set(&DataKey::UserDailyVolume(depositor.clone()), &vol);
         }
 
-        let usd_cents = (amount * price) / (ORACLE_PRICE_DECIMALS / 100);
-        let curr = env.ledger().sequence();
-        let mut vol: UserDailyVolume = env
-            .storage()
-            .instance()
-            .get(&DataKey::UserDailyVolume(depositor.clone()))
-            .unwrap_or(UserDailyVolume {
-                usd_cents: 0,
-                window_start: curr,
-            });
-
-        if curr >= vol.window_start + WINDOW_LEDGERS {
-            vol.usd_cents = 0;
-            vol.window_start = curr;
-        }
-        if vol.usd_cents + usd_cents > fiat_limit {
-            return Err(Error::ExceedsFiatLimit);
-        }
-        vol.usd_cents += usd_cents;
-        env.storage()
-            .instance()
-            .set(&DataKey::UserDailyVolume(depositor.clone()), &vol);
-        Ok(())
+        Ok(price)
     }
 
     // ── Timelock ──────────────────────────────────────────────────────────
@@ -850,6 +906,108 @@ impl FiatBridge {
         Ok(())
     }
 
+    // ── Operator Role & Heartbeat ───────────────────────────────────────
+    pub fn set_operator(env: Env, operator: Address, active: bool) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::Operator(operator), &active);
+        Ok(())
+    }
+
+    pub fn heartbeat(env: Env, operator: Address) -> Result<(), Error> {
+        operator.require_auth();
+        if !env
+            .storage()
+            .instance()
+            .get::<_, bool>(&DataKey::Operator(operator.clone()))
+            .unwrap_or(false)
+        {
+            return Err(Error::NotOperator);
+        }
+
+        let curr = env.ledger().sequence();
+        env.storage()
+            .instance()
+            .set(&DataKey::OperatorHeartbeat(operator.clone()), &curr);
+
+        env.events()
+            .publish((Symbol::new(&env, "heartbeat"), operator), curr);
+
+        Ok(())
+    }
+
+    pub fn is_operator(env: Env, operator: Address) -> bool {
+        env.storage()
+            .instance()
+            .get::<_, bool>(&DataKey::Operator(operator))
+            .unwrap_or(false)
+    }
+
+    pub fn get_operator_heartbeat(env: Env, operator: Address) -> Option<u32> {
+        env.storage()
+            .instance()
+            .get(&DataKey::OperatorHeartbeat(operator))
+    }
+
+    // ── Ownership Renounce ────────────────────────────────────────────────
+    pub fn queue_renounce_admin(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        let target_ledger: u32 = env.ledger().sequence() + MIN_TIMELOCK_DELAY;
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingRenounceLedger, &target_ledger);
+        Ok(())
+    }
+
+    pub fn cancel_renounce_admin(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .remove(&DataKey::PendingRenounceLedger);
+        Ok(())
+    }
+
+    pub fn execute_renounce_admin(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let target_ledger: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingRenounceLedger)
+            .ok_or(Error::ActionNotQueued)?;
+        if env.ledger().sequence() <= target_ledger {
+            return Err(Error::ActionNotReady);
+        }
+
+        env.storage()
+            .instance()
+            .remove(&DataKey::PendingRenounceLedger);
+        env.storage().instance().remove(&DataKey::Admin);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        Ok(())
+    }
+
     // ── View Functions ────────────────────────────────────────────────────
     pub fn get_admin(env: Env) -> Result<Address, Error> {
         env.storage()
@@ -875,12 +1033,14 @@ impl FiatBridge {
             .ok_or(Error::InternalError)?
             .limit)
     }
+
     pub fn get_user_deposited(env: Env, user: Address) -> i128 {
         env.storage()
             .instance()
             .get(&DataKey::UserDeposited(user))
             .unwrap_or(0)
     }
+
     pub fn get_total_deposited(env: Env) -> Result<i128, Error> {
         let tok = env
             .storage()
@@ -923,6 +1083,11 @@ impl FiatBridge {
     pub fn get_last_deposit_ledger(env: Env, user: Address) -> Option<u32> {
         env.storage().temporary().get(&DataKey::LastDeposit(user))
     }
+    pub fn get_pending_renounce_ledger(env: Env) -> Option<u32> {
+        env.storage()
+            .instance()
+            .get(&DataKey::PendingRenounceLedger)
+    }
 
     pub fn get_anti_sandwich_delay(env: Env) -> u32 {
         env.storage()
@@ -943,6 +1108,7 @@ impl FiatBridge {
             .ok_or(Error::InternalError)?
             .total_withdrawn)
     }
+
     pub fn get_total_liabilities(env: Env) -> Result<i128, Error> {
         let tok = env
             .storage()
