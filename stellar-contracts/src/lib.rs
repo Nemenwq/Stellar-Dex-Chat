@@ -38,9 +38,12 @@ pub enum Error {
     CooldownActive = 306,
     AntiSandwichDelayActive = 307,
     TokenNotWhitelisted = 308,
+    AddressDenied = 309,
+    RescueForbidden = 310,
 
     // --- 400 series: Funds & Balances ---
     InsufficientFunds = 401,
+    NoFeesToWithdraw = 402,
 
     // --- 500 series: Withdrawal Queue ---
     RequestNotFound = 501,
@@ -154,6 +157,8 @@ pub enum DataKey {
     FiatLimit,
     UserDailyVolume(Address),
     AntiSandwichDelay,
+    Denied(Address),
+    FeeVault(Address),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -257,6 +262,15 @@ impl FiatBridge {
                 .has(&DataKey::Allowed(from.clone()))
         {
             return Err(Error::NotAllowed);
+        }
+
+        // Denylist
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::Denied(from.clone()))
+        {
+            return Err(Error::AddressDenied);
         }
 
         // Registry & Limit
@@ -379,6 +393,12 @@ impl FiatBridge {
         if amount <= 0 {
             return Err(Error::ZeroAmount);
         }
+
+        // Denylist
+        if env.storage().persistent().has(&DataKey::Denied(to.clone())) {
+            return Err(Error::AddressDenied);
+        }
+
         let client = token::Client::new(&env, &token);
         if amount > client.balance(&env.current_contract_address()) {
             return Err(Error::InsufficientFunds);
@@ -420,6 +440,11 @@ impl FiatBridge {
             return Err(Error::ZeroAmount);
         }
 
+        // Denylist
+        if env.storage().persistent().has(&DataKey::Denied(to.clone())) {
+            return Err(Error::AddressDenied);
+        }
+
         // Enforce withdrawal cooldown after large deposit
         let withdraw_cooldown: u32 = env
             .storage()
@@ -428,11 +453,7 @@ impl FiatBridge {
             .unwrap_or(0);
         if withdraw_cooldown > 0 {
             let large_key = DataKey::LastLargeDeposit(to.clone());
-            if let Some(last_large) = env
-                .storage()
-                .temporary()
-                .get::<DataKey, u32>(&large_key)
-            {
+            if let Some(last_large) = env.storage().temporary().get::<DataKey, u32>(&large_key) {
                 if env.ledger().sequence() < last_large.saturating_add(withdraw_cooldown) {
                     return Err(Error::CooldownActive);
                 }
@@ -653,11 +674,7 @@ impl FiatBridge {
     ///
     /// - `ledgers`   – number of ledgers to wait before withdrawing.  0 disables the guard.
     /// - `threshold` – minimum deposit amount (inclusive) that triggers the cooldown.  0 disables.
-    pub fn set_withdrawal_cooldown(
-        env: Env,
-        ledgers: u32,
-        threshold: i128,
-    ) -> Result<(), Error> {
+    pub fn set_withdrawal_cooldown(env: Env, ledgers: u32, threshold: i128) -> Result<(), Error> {
         let admin: Address = env
             .storage()
             .instance()
@@ -888,6 +905,142 @@ impl FiatBridge {
         Ok(())
     }
 
+    // ── Denylist ──────────────────────────────────────────────────────────
+    pub fn deny_address(env: Env, address: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .persistent()
+            .set(&DataKey::Denied(address.clone()), &true);
+        env.events()
+            .publish((Symbol::new(&env, "deny_add"),), address);
+        Ok(())
+    }
+
+    pub fn remove_denied_address(env: Env, address: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Denied(address.clone()));
+        env.events()
+            .publish((Symbol::new(&env, "deny_rem"),), address);
+        Ok(())
+    }
+
+    pub fn is_denied(env: Env, address: Address) -> bool {
+        env.storage().persistent().has(&DataKey::Denied(address))
+    }
+
+    // ── Fee Vault ─────────────────────────────────────────────────────────
+    pub fn accrue_fee(env: Env, token: Address, amount: i128) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        if amount <= 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        let key = DataKey::FeeVault(token.clone());
+        let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        env.storage().persistent().set(&key, &(current + amount));
+
+        env.events()
+            .publish((Symbol::new(&env, "fee_accrue"), token), amount);
+        Ok(())
+    }
+
+    pub fn get_accrued_fees(env: Env, token: Address) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::FeeVault(token))
+            .unwrap_or(0)
+    }
+
+    pub fn withdraw_fees(env: Env, to: Address, token: Address, amount: i128) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        if amount <= 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        let key = DataKey::FeeVault(token.clone());
+        let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        if amount > current {
+            return Err(Error::NoFeesToWithdraw);
+        }
+
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(&env.current_contract_address(), &to, &amount);
+
+        env.storage().persistent().set(&key, &(current - amount));
+        env.events()
+            .publish((Symbol::new(&env, "fee_wdrw"), to), amount);
+        Ok(())
+    }
+
+    // ── Emergency Token Rescue ────────────────────────────────────────────
+    pub fn rescue_token(env: Env, token: Address, to: Address, amount: i128) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        if amount <= 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        // Forbid rescue of the primary protocol asset
+        let primary_token: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .ok_or(Error::NotInitialized)?;
+        if token == primary_token {
+            return Err(Error::RescueForbidden);
+        }
+
+        // Also forbid rescue of any whitelisted token in the registry
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::TokenRegistry(token.clone()))
+        {
+            return Err(Error::RescueForbidden);
+        }
+
+        let token_client = token::Client::new(&env, &token);
+        let balance = token_client.balance(&env.current_contract_address());
+        if amount > balance {
+            return Err(Error::InsufficientFunds);
+        }
+
+        token_client.transfer(&env.current_contract_address(), &to, &amount);
+
+        env.events()
+            .publish((Symbol::new(&env, "rescue"), token, to), amount);
+        Ok(())
+    }
+
     // ── View Functions ────────────────────────────────────────────────────
     pub fn get_admin(env: Env) -> Result<Address, Error> {
         env.storage()
@@ -907,7 +1060,8 @@ impl FiatBridge {
             .instance()
             .get::<_, Address>(&DataKey::Token)
             .ok_or(Error::NotInitialized)?;
-        Ok(env.storage()
+        Ok(env
+            .storage()
             .persistent()
             .get::<_, TokenConfig>(&DataKey::TokenRegistry(tok))
             .ok_or(Error::InternalError)?
@@ -925,7 +1079,8 @@ impl FiatBridge {
             .instance()
             .get::<_, Address>(&DataKey::Token)
             .ok_or(Error::NotInitialized)?;
-        Ok(env.storage()
+        Ok(env
+            .storage()
             .persistent()
             .get::<_, TokenConfig>(&DataKey::TokenRegistry(tok))
             .ok_or(Error::InternalError)?
@@ -975,7 +1130,8 @@ impl FiatBridge {
             .instance()
             .get::<_, Address>(&DataKey::Token)
             .ok_or(Error::NotInitialized)?;
-        Ok(env.storage()
+        Ok(env
+            .storage()
             .persistent()
             .get::<_, TokenConfig>(&DataKey::TokenRegistry(tok))
             .ok_or(Error::InternalError)?
@@ -987,7 +1143,8 @@ impl FiatBridge {
             .instance()
             .get::<_, Address>(&DataKey::Token)
             .ok_or(Error::NotInitialized)?;
-        Ok(env.storage()
+        Ok(env
+            .storage()
             .persistent()
             .get::<_, TokenConfig>(&DataKey::TokenRegistry(tok))
             .ok_or(Error::InternalError)?
