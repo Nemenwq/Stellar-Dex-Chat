@@ -39,7 +39,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
-                  "i128": "5000"
+                  "i128": "2000"
                 }
               ]
             }
@@ -61,7 +61,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
-                  "i128": "2000"
+                  "i128": "500"
                 },
                 {
                   "address": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN"
@@ -93,7 +93,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                     },
                     {
-                      "i128": "2000"
+                      "i128": "500"
                     }
                   ]
                 }
@@ -104,6 +104,7 @@
         }
       ]
     ],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
@@ -111,10 +112,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "set_circuit_breaker_threshold",
+              "function_name": "set_lock_period",
               "args": [
                 {
-                  "i128": "300"
+                  "u32": 100
                 }
               ]
             }
@@ -130,20 +131,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "request_withdrawal",
+              "function_name": "set_cooldown",
               "args": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                },
-                {
-                  "i128": "400"
-                },
-                {
-                  "address": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN"
-                },
-                "void",
-                {
-                  "u32": 0
+                  "u32": 20
                 }
               ]
             }
@@ -152,8 +143,6 @@
         }
       ]
     ],
-    [],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
@@ -187,7 +176,7 @@
   ],
   "ledger": {
     "protocol_version": 25,
-    "sequence_number": 0,
+    "sequence_number": 4090,
     "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
@@ -300,7 +289,7 @@
                     "symbol": "Receipt"
                   },
                   {
-                    "bytes": "b3a7716bbd6f4f7f4c7103149d940a440de9ad11e474235a94b1325f79ebd70c"
+                    "bytes": "62f81fca2b99ae66237fcbaaebfdf56f917a39ca647e82379c00fcd58ef86313"
                   }
                 ]
               },
@@ -312,7 +301,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "2000"
+                      "i128": "500"
                     }
                   },
                   {
@@ -328,7 +317,7 @@
                       "symbol": "id"
                     },
                     "val": {
-                      "bytes": "b3a7716bbd6f4f7f4c7103149d940a440de9ad11e474235a94b1325f79ebd70c"
+                      "bytes": "62f81fca2b99ae66237fcbaaebfdf56f917a39ca647e82379c00fcd58ef86313"
                     }
                   },
                   {
@@ -367,7 +356,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 518400
+        "live_until": 522610
       },
       {
         "entry": {
@@ -388,7 +377,7 @@
               },
               "durability": "persistent",
               "val": {
-                "bytes": "b3a7716bbd6f4f7f4c7103149d940a440de9ad11e474235a94b1325f79ebd70c"
+                "bytes": "62f81fca2b99ae66237fcbaaebfdf56f917a39ca647e82379c00fcd58ef86313"
               }
             }
           },
@@ -429,7 +418,7 @@
                       "symbol": "total_deposited"
                     },
                     "val": {
-                      "i128": "2000"
+                      "i128": "500"
                     }
                   },
                   {
@@ -445,7 +434,7 @@
                       "symbol": "total_withdrawn"
                     },
                     "val": {
-                      "i128": "400"
+                      "i128": "0"
                     }
                   }
                 ]
@@ -469,7 +458,7 @@
                     "symbol": "WithdrawQueue"
                   },
                   {
-                    "u64": "1"
+                    "u64": "0"
                   }
                 ]
               },
@@ -495,7 +484,7 @@
                       "symbol": "queued_ledger"
                     },
                     "val": {
-                      "u32": 0
+                      "u32": 4090
                     }
                   },
                   {
@@ -527,7 +516,7 @@
                       "symbol": "unlock_ledger"
                     },
                     "val": {
-                      "u32": 0
+                      "u32": 4190
                     }
                   }
                 ]
@@ -536,7 +525,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 8185
       },
       {
         "entry": {
@@ -581,53 +570,12 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "CircuitBreakerThreshold"
+                            "symbol": "CooldownLedgers"
                           }
                         ]
                       },
                       "val": {
-                        "i128": "300"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "CircuitBreakerTripped"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "bool": true
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "GlobalDailyWithdrawn"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "map": [
-                          {
-                            "key": {
-                              "symbol": "amount"
-                            },
-                            "val": {
-                              "i128": "400"
-                            }
-                          },
-                          {
-                            "key": {
-                              "symbol": "window_start"
-                            },
-                            "val": {
-                              "u32": 0
-                            }
-                          }
-                        ]
+                        "u32": 20
                       }
                     },
                     {
@@ -658,6 +606,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "LockPeriod"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 100
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "NextActionID"
                           }
                         ]
@@ -675,7 +635,7 @@
                         ]
                       },
                       "val": {
-                        "u64": "2"
+                        "u64": "1"
                       }
                     },
                     {
@@ -714,7 +674,7 @@
                         ]
                       },
                       "val": {
-                        "u64": "1"
+                        "u64": "0"
                       }
                     },
                     {
@@ -756,7 +716,7 @@
                         ]
                       },
                       "val": {
-                        "i128": "2000"
+                        "i128": "500"
                       }
                     },
                     {
@@ -768,7 +728,7 @@
                         ]
                       },
                       "val": {
-                        "u64": "1"
+                        "u64": "0"
                       }
                     },
                     {
@@ -810,7 +770,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 6311999
+        "live_until": 6316089
       },
       {
         "entry": {
@@ -830,7 +790,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 6311999
+        "live_until": 6316089
       },
       {
         "entry": {
@@ -850,7 +810,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 6311999
+        "live_until": 6316089
       },
       {
         "entry": {
@@ -917,7 +877,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "1600"
+                      "i128": "500"
                     }
                   },
                   {
@@ -969,7 +929,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "3400"
+                      "i128": "1500"
                     }
                   },
                   {
