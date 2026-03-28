@@ -74,7 +74,8 @@
                 },
                 {
                   "u32": 0
-                }
+                },
+                "void"
               ]
             }
           },
@@ -291,7 +292,7 @@
                     "symbol": "Receipt"
                   },
                   {
-                    "u64": "0"
+                    "bytes": "0428779174b4e0a091fab89ed6eb4e3c11d9bd6834639649845d7f09544bae37"
                   }
                 ]
               },
@@ -319,7 +320,7 @@
                       "symbol": "id"
                     },
                     "val": {
-                      "u64": "0"
+                      "bytes": "0428779174b4e0a091fab89ed6eb4e3c11d9bd6834639649845d7f09544bae37"
                     }
                   },
                   {
@@ -329,6 +330,12 @@
                     "val": {
                       "u32": 0
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "memo_hash"
+                    },
+                    "val": "void"
                   },
                   {
                     "key": {
@@ -347,6 +354,33 @@
                     }
                   }
                 ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 4095
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "ReceiptIndex"
+                  },
+                  {
+                    "u64": "0"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "bytes": "0428779174b4e0a091fab89ed6eb4e3c11d9bd6834639649845d7f09544bae37"
               }
             }
           },
@@ -493,6 +527,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "LastAdminActionLedger"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "NextActionID"
                           }
                         ]
@@ -550,6 +596,28 @@
                       },
                       "val": {
                         "i128": "100"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "WithdrawQueueHead"
+                          }
+                        ]
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "WithdrawQueueLen"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "0"
                       }
                     }
                   ]

@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, xdr::ToXdr, Address, Bytes, BytesN,
-    Env, Symbol,
+    Env, Symbol, Vec,
 };
 
 pub mod oracle;
@@ -68,7 +68,6 @@ pub enum Error {
     WithdrawalQuotaExceeded = 801,
     MigrationAlreadyComplete = 802,
     BatchOperationFailed = 803,
-    NotOperator = 704,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -215,6 +214,7 @@ pub enum DataKey {
     OperatorHeartbeat(Address),
     Denied(Address),
     FeeVault(Address),
+    ReceiptIndex(u64),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -274,7 +274,7 @@ impl FiatBridge {
         expected_price: i128,
         max_slippage: u32,
         memo_hash: Option<BytesN<32>>,
-    ) -> Result<u64, Error> {
+    ) -> Result<BytesN<32>, Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         from.require_auth();
 
@@ -388,6 +388,11 @@ impl FiatBridge {
         env.storage()
             .persistent()
             .set(&DataKey::Receipt(receipt_id.clone().into()), &receipt);
+        // Store sequential index → hash mapping for enumeration (e.g. migration)
+        let receipt_hash: BytesN<32> = receipt_id.clone().into();
+        env.storage()
+            .persistent()
+            .set(&DataKey::ReceiptIndex(receipt_counter), &receipt_hash);
         env.storage()
             .instance()
             .set(&DataKey::ReceiptCounter, &(receipt_counter + 1));
@@ -431,7 +436,7 @@ impl FiatBridge {
 
         Self::check_invariants(&env, &token)?;
 
-        Ok(receipt_id.into())
+        Ok(receipt_hash)
     }
 
     fn check_invariants(env: &Env, token_addr: &Address) -> Result<(), Error> {
@@ -1079,8 +1084,6 @@ impl FiatBridge {
 
     // ── Operator Role & Heartbeat ───────────────────────────────────────
     pub fn set_operator(env: Env, operator: Address, active: bool) -> Result<(), Error> {
-    // ── Denylist ──────────────────────────────────────────────────────────
-    pub fn deny_address(env: Env, address: Address) -> Result<(), Error> {
         let admin: Address = env
             .storage()
             .instance()
@@ -1090,6 +1093,22 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::Operator(operator), &active);
+        Ok(())
+    }
+
+    // ── Denylist ──────────────────────────────────────────────────────────
+    pub fn deny_address(env: Env, address: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .persistent()
+            .set(&DataKey::Denied(address.clone()), &true);
+        env.events()
+            .publish((Symbol::new(&env, "deny_add"),), address);
         Ok(())
     }
 
@@ -1130,10 +1149,16 @@ impl FiatBridge {
 
     // ── Ownership Renounce ────────────────────────────────────────────────
     pub fn queue_renounce_admin(env: Env) -> Result<(), Error> {
-            .persistent()
-            .set(&DataKey::Denied(address.clone()), &true);
-        env.events()
-            .publish((Symbol::new(&env, "deny_add"),), address);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        let target_ledger: u32 = env.ledger().sequence() + MIN_TIMELOCK_DELAY;
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingRenounceLedger, &target_ledger);
         Ok(())
     }
 
@@ -1164,14 +1189,6 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
-        let target_ledger: u32 = env.ledger().sequence() + MIN_TIMELOCK_DELAY;
-        env.storage()
-            .instance()
-            .set(&DataKey::PendingRenounceLedger, &target_ledger);
-        Ok(())
-    }
-
-    pub fn cancel_renounce_admin(env: Env) -> Result<(), Error> {
 
         if amount <= 0 {
             return Err(Error::ZeroAmount);
@@ -1183,6 +1200,19 @@ impl FiatBridge {
 
         env.events()
             .publish((Symbol::new(&env, "fee_accrue"), token), amount);
+        Ok(())
+    }
+
+    pub fn cancel_renounce_admin(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .remove(&DataKey::PendingRenounceLedger);
         Ok(())
     }
 
@@ -1200,13 +1230,6 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
-        env.storage()
-            .instance()
-            .remove(&DataKey::PendingRenounceLedger);
-        Ok(())
-    }
-
-    pub fn execute_renounce_admin(env: Env) -> Result<(), Error> {
 
         if amount <= 0 {
             return Err(Error::ZeroAmount);
@@ -1227,6 +1250,29 @@ impl FiatBridge {
         Ok(())
     }
 
+    pub fn execute_renounce_admin(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        let target_ledger: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingRenounceLedger)
+            .ok_or(Error::ActionNotQueued)?;
+        if env.ledger().sequence() <= target_ledger {
+            return Err(Error::ActionNotReady);
+        }
+        env.storage()
+            .instance()
+            .remove(&DataKey::PendingRenounceLedger);
+        env.storage().instance().remove(&DataKey::Admin);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        Ok(())
+    }
+
     // ── Emergency Token Rescue ────────────────────────────────────────────
     pub fn rescue_token(env: Env, token: Address, to: Address, amount: i128) -> Result<(), Error> {
         let admin: Address = env
@@ -1236,20 +1282,6 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
 
-        let target_ledger: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::PendingRenounceLedger)
-            .ok_or(Error::ActionNotQueued)?;
-        if env.ledger().sequence() <= target_ledger {
-            return Err(Error::ActionNotReady);
-        }
-
-        env.storage()
-            .instance()
-            .remove(&DataKey::PendingRenounceLedger);
-        env.storage().instance().remove(&DataKey::Admin);
-        env.storage().instance().remove(&DataKey::PendingAdmin);
         if amount <= 0 {
             return Err(Error::ZeroAmount);
         }
@@ -1606,27 +1638,34 @@ impl FiatBridge {
         let mut current_id = cursor;
 
         while current_id < receipt_counter && migrated_count < batch_size {
-            if let Some(receipt) = env
+            // Look up the hash stored at this sequential index position
+            if let Some(receipt_hash) = env
                 .storage()
                 .persistent()
-                .get::<_, Receipt>(&DataKey::Receipt(current_id))
+                .get::<_, BytesN<32>>(&DataKey::ReceiptIndex(current_id))
             {
-                let escrow = EscrowRecord {
-                    version: ESCROW_STORAGE_VERSION,
-                    depositor: receipt.depositor,
-                    token: env
-                        .storage()
-                        .instance()
-                        .get(&DataKey::Token)
-                        .unwrap_or_else(|| Address::from_string(&soroban_sdk::String::from_str(&env, ""))),
-                    amount: receipt.amount,
-                    ledger: receipt.ledger,
-                    migrated: true,
-                };
-                env.storage()
+                if let Some(receipt) = env
+                    .storage()
                     .persistent()
-                    .set(&DataKey::EscrowRecord(current_id), &escrow);
-                migrated_count += 1;
+                    .get::<_, Receipt>(&DataKey::Receipt(receipt_hash))
+                {
+                    let escrow = EscrowRecord {
+                        version: ESCROW_STORAGE_VERSION,
+                        depositor: receipt.depositor,
+                        token: env
+                            .storage()
+                            .instance()
+                            .get(&DataKey::Token)
+                            .unwrap_or_else(|| Address::from_string(&soroban_sdk::String::from_str(&env, ""))),
+                        amount: receipt.amount,
+                        ledger: receipt.ledger,
+                        migrated: true,
+                    };
+                    env.storage()
+                        .persistent()
+                        .set(&DataKey::EscrowRecord(current_id), &escrow);
+                    migrated_count += 1;
+                }
             }
             current_id += 1;
         }

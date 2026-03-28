@@ -96,7 +96,8 @@
                 },
                 {
                   "u32": 0
-                }
+                },
+                "void"
               ]
             }
           },
@@ -151,7 +152,8 @@
                 },
                 {
                   "u32": 0
-                }
+                },
+                "void"
               ]
             }
           },
@@ -206,7 +208,8 @@
                 },
                 {
                   "u32": 0
-                }
+                },
+                "void"
               ]
             }
           },
@@ -395,6 +398,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "memo_hash"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "reference"
                     },
                     "val": {
@@ -468,6 +477,12 @@
                     "val": {
                       "u32": 0
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "memo_hash"
+                    },
+                    "val": "void"
                   },
                   {
                     "key": {
@@ -547,6 +562,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "memo_hash"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "reference"
                     },
                     "val": {
@@ -562,6 +583,87 @@
                     }
                   }
                 ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 4095
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "ReceiptIndex"
+                  },
+                  {
+                    "u64": "0"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "bytes": "bee7c74c01ad55f83537f4cffd9bb66b224a055cbcb9e17b64c0beaf92e4c3da"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 4095
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "ReceiptIndex"
+                  },
+                  {
+                    "u64": "1"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "bytes": "d56f52914271f8ca00176a7e7223fc26f51db978272e3894f837628d68a0ae3c"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 4095
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "ReceiptIndex"
+                  },
+                  {
+                    "u64": "2"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "bytes": "5a14a826d52740c3f61e5639cdb8e6b3257b135024ab6d6498565be8b3bbce00"
               }
             }
           },
@@ -768,6 +870,28 @@
                       },
                       "val": {
                         "i128": "100"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "WithdrawQueueHead"
+                          }
+                        ]
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "WithdrawQueueLen"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "0"
                       }
                     }
                   ]
@@ -1217,7 +1341,8 @@
             "topics": [
               {
                 "symbol": "rcpt_issd"
-              }
+              },
+              "void"
             ],
             "data": {
               "bytes": "5a14a826d52740c3f61e5639cdb8e6b3257b135024ab6d6498565be8b3bbce00"
