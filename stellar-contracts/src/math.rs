@@ -1,31 +1,36 @@
-/// Compute (a * b) / c using fixed-point arithmetic to avoid overflow and precision loss.
-/// The result is rounded down (floor division).
-/// 
+#![allow(dead_code)]
+
+/// Fixed-point denominator used throughout the protocol.
+pub const FIXED_POINT: i128 = 10_000_000;
+
+/// Multiply `a` by `b`, then divide by `d`, rounding down (mathematical floor).
+///
 /// # Panics
-/// Panics if `c` is zero.
-pub fn mul_div_floor(a: i128, b: i128, c: i128) -> i128 {
-    if c == 0 {
-        panic!("Division by zero in mul_div_floor");
+/// Panics if `d` is zero or if `a * b` overflows `i128`.
+pub fn mul_div_floor(a: i128, b: i128, d: i128) -> i128 {
+    if d == 0 {
+        panic!("division by zero in mul_div_floor");
     }
-    
-    // To avoid overflow, check if a * b would overflow i128
-    // For simplicity, we use checked_mul where possible, or fall back to
-    // using u128 for intermediate computation if both a and b are positive
-    
-    let is_negative = (a < 0) ^ (b < 0) ^ (c < 0);
-    
-    let a_abs = a.abs() as u128;
-    let b_abs = b.abs() as u128;
-    let c_abs = c.abs() as u128;
-    
-    let result = (a_abs.saturating_mul(b_abs)) / c_abs;
-    
-    let result_i128 = result as i128;
-    if is_negative {
-        -result_i128
+
+    let product = a
+        .checked_mul(b)
+        .unwrap_or_else(|| panic!("overflow in mul_div_floor"));
+
+    let q = product / d;
+    let r = product % d;
+
+    // Rust division truncates toward zero. Adjust by -1 when signs differ and
+    // there is a remainder to produce true floor semantics.
+    if r != 0 && ((r > 0) != (d > 0)) {
+        q - 1
     } else {
-        result_i128
+        q
     }
+}
+
+/// Scale `amount` by `(numerator / denominator)`, rounding down.
+pub fn scale_floor(amount: i128, numerator: i128, denominator: i128) -> i128 {
+    mul_div_floor(amount, numerator, denominator)
 }
 
 #[cfg(test)]
@@ -43,5 +48,12 @@ mod tests {
         assert_eq!(mul_div_floor(-10, 20, 4), -50);
         assert_eq!(mul_div_floor(10, -20, 4), -50);
         assert_eq!(mul_div_floor(-10, -20, 4), 50);
+        assert_eq!(mul_div_floor(-1, 1, 2), -1);
+        assert_eq!(mul_div_floor(1, -1, 2), -1);
+    }
+
+    #[test]
+    fn test_scale_floor() {
+        assert_eq!(scale_floor(1_000, 25, 100), 250);
     }
 }
