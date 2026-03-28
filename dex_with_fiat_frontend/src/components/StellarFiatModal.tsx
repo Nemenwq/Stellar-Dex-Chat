@@ -96,6 +96,51 @@ export default function StellarFiatModal({
   const [isLoadingUI, setIsLoadingUI] = useState(true);
   const [copied, setCopied] = useState(false);
   const [lastActionTimestamp, setLastActionTimestamp] = useState(0);
+  const [walletBalance, setWalletBalance] = useState<string | null>(null);
+  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || !connection.isConnected || !connection.publicKey) {
+      setWalletBalance(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingBalance(true);
+
+    const fetchBalance = async () => {
+      try {
+        const horizonUrl =
+          connection.network?.toUpperCase() === 'PUBLIC'
+            ? 'https://horizon.stellar.org'
+            : 'https://horizon-testnet.stellar.org';
+        const res = await fetch(
+          `${horizonUrl}/accounts/${connection.publicKey}`,
+        );
+        if (!res.ok) throw new Error('Failed to fetch account');
+        const data = await res.json();
+        const native = (
+          data.balances as Array<{ asset_type: string; balance: string }>
+        ).find((b) => b.asset_type === 'native');
+        if (!cancelled && native) {
+          setWalletBalance(native.balance);
+        }
+      } catch {
+        if (!cancelled) {
+          setWalletBalance(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingBalance(false);
+        }
+      }
+    };
+
+    void fetchBalance();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, connection.isConnected, connection.publicKey]);
 
   const handleCopyHash = () => {
     if (!txHash) return;
@@ -675,6 +720,18 @@ export default function StellarFiatModal({
                 <p className="theme-soft-danger flex items-center gap-2 rounded-lg px-3 py-2 mt-2 text-xs">
                   <AlertCircle className="w-3 h-3 flex-shrink-0" />
                   Invalid amount. Please enter a positive number.
+                </p>
+              )}
+              {connection.isConnected && (
+                <p className="theme-text-secondary text-xs mt-2">
+                  Available:{' '}
+                  <span className="theme-text-primary font-medium">
+                    {isLoadingBalance
+                      ? 'Loading...'
+                      : walletBalance !== null
+                        ? `${walletBalance} XLM`
+                        : 'Unable to fetch balance'}
+                  </span>
                 </p>
               )}
             </div>
