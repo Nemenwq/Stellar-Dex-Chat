@@ -78,7 +78,7 @@ export const clearExpiredDrafts = (ttlSeconds: number = DEFAULT_TTL): void => {
             localStorage.removeItem(key);
           }
         }
-      } catch (e) {
+      } catch {
         // Remove corrupted items
         localStorage.removeItem(key);
       }
