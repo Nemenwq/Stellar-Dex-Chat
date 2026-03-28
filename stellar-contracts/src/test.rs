@@ -3,7 +3,7 @@ extern crate std;
 
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Events, Ledger},
+    testutils::{Address as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     Address, Bytes, Env,
 };
@@ -404,4 +404,43 @@ fn test_invariant_violation_insufficent_balance() {
     // Any mutation should fail because of check_invariants
     let result = bridge.try_deposit(&user, &10, &token_addr, &Bytes::new(&env));
     assert_eq!(result, Err(Ok(Error::InsufficientFunds)));
+}
+
+#[test]
+fn test_anti_sandwich_delay() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_contract_id, bridge, _, token_addr, token, token_sac) = setup_bridge(&env, 1000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    bridge.set_anti_sandwich_delay(&50);
+    assert_eq!(bridge.get_anti_sandwich_delay(), 50);
+
+    let snapshot = bridge.get_config_snapshot();
+    assert_eq!(snapshot.anti_sandwich_delay, 50);
+
+    let start_ledger = env.ledger().sequence();
+    bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env));
+    
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr);
+
+    // Should fail immediately
+    let result = bridge.try_execute_withdrawal(&req_id, &None);
+    assert_eq!(result, Err(Ok(Error::AntiSandwichDelayActive)));
+
+    // Advance 49 ledgers - still should fail
+    env.ledger().with_mut(|li| {
+        li.sequence_number = start_ledger + 49;
+    });
+    let result = bridge.try_execute_withdrawal(&req_id, &None);
+    assert_eq!(result, Err(Ok(Error::AntiSandwichDelayActive)));
+
+    // Advance to 50 ledgers
+    env.ledger().with_mut(|li| {
+        li.sequence_number = start_ledger + 50;
+    });
+    bridge.execute_withdrawal(&req_id, &None);
+    assert_eq!(token.balance(&user), 900);
 }
