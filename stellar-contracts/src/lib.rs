@@ -28,6 +28,7 @@ pub enum Error {
     NotAllowed = 202,
     NoPendingAdmin = 203,
     InvalidRecipient = 204,
+    NotOperator = 205,
 
     // --- 300 series: Constraints & Limits ---
     ZeroAmount = 301,
@@ -154,6 +155,8 @@ pub enum DataKey {
     FiatLimit,
     UserDailyVolume(Address),
     AntiSandwichDelay,
+    Operator(Address),
+    OperatorHeartbeat(Address),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -886,6 +889,55 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
         Ok(())
+    }
+
+    // ── Operator Role & Heartbeat ───────────────────────────────────────
+    pub fn set_operator(env: Env, operator: Address, active: bool) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::Operator(operator), &active);
+        Ok(())
+    }
+
+    pub fn heartbeat(env: Env, operator: Address) -> Result<(), Error> {
+        operator.require_auth();
+        if !env
+            .storage()
+            .instance()
+            .get::<_, bool>(&DataKey::Operator(operator.clone()))
+            .unwrap_or(false)
+        {
+            return Err(Error::NotOperator);
+        }
+
+        let curr = env.ledger().sequence();
+        env.storage()
+            .instance()
+            .set(&DataKey::OperatorHeartbeat(operator.clone()), &curr);
+
+        env.events()
+            .publish((Symbol::new(&env, "heartbeat"), operator), curr);
+
+        Ok(())
+    }
+
+    pub fn is_operator(env: Env, operator: Address) -> bool {
+        env.storage()
+            .instance()
+            .get::<_, bool>(&DataKey::Operator(operator))
+            .unwrap_or(false)
+    }
+
+    pub fn get_operator_heartbeat(env: Env, operator: Address) -> Option<u32> {
+        env.storage()
+            .instance()
+            .get(&DataKey::OperatorHeartbeat(operator))
     }
 
     // ── View Functions ────────────────────────────────────────────────────
