@@ -26,6 +26,7 @@ pub enum Error {
     NotInitialized = 101,
     AlreadyInitialized = 102,
     InternalError = 103,
+    ContractPaused = 104,
 
     // --- 200 series: Authorization & Access ---
     Unauthorized = 201,
@@ -188,6 +189,7 @@ pub struct ConfigSnapshot {
 pub enum DataKey {
     Admin,
     PendingAdmin,
+    Paused,
     Token, // Default token
     TokenRegistry(Address),
     AllowlistEnabled,
@@ -313,6 +315,7 @@ impl FiatBridge {
     ) -> Result<BytesN<32>, Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         from.require_auth();
+        Self::require_not_paused(&env)?;
 
         if amount <= 0 {
             return Err(Error::ZeroAmount);
@@ -510,6 +513,7 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        Self::require_not_paused(&env)?;
 
         if amount <= 0 {
             return Err(Error::ZeroAmount);
@@ -560,6 +564,7 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        Self::require_not_paused(&env)?;
 
         if amount <= 0 {
             return Err(Error::ZeroAmount);
@@ -589,11 +594,20 @@ impl FiatBridge {
             .instance()
             .get(&DataKey::LockPeriod)
             .unwrap_or(0);
+        let cooldown_ledgers: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CooldownLedgers)
+            .unwrap_or(0);
         let request_id: u64 = env
             .storage()
             .instance()
             .get(&DataKey::NextRequestID)
             .unwrap_or(0);
+        let receipt_min_ttl = MIN_TTL
+            .saturating_add(lock_period)
+            .saturating_add(cooldown_ledgers);
+        Self::extend_receipt_ttls_for_depositor(&env, &to, receipt_min_ttl);
 
         let queue_len: u64 = env
             .storage()
@@ -668,6 +682,7 @@ impl FiatBridge {
         max_slippage: u32,
     ) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        Self::require_not_paused(&env)?;
         let mut request: WithdrawRequest = env
             .storage()
             .persistent()
@@ -796,6 +811,7 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        Self::require_not_paused(&env)?;
         if !env
             .storage()
             .persistent()
@@ -958,6 +974,32 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
         env.storage().instance().set(&DataKey::LockPeriod, &ledgers);
+        Ok(())
+    }
+
+    pub fn pause(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Paused, &true);
+        env.events()
+            .publish((Symbol::new(&env, "paused"), Symbol::new(&env, "v1")), ());
+        Ok(())
+    }
+
+    pub fn unpause(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Paused, &false);
+        env.events()
+            .publish((Symbol::new(&env, "unpaused"), Symbol::new(&env, "v1")), ());
         Ok(())
     }
 
@@ -1723,6 +1765,10 @@ impl FiatBridge {
         if curr >= record.window_start + WINDOW_LEDGERS {
             record.amount = 0;
             record.window_start = curr;
+            env.events().publish(
+                (Symbol::new(env, "quota_reset"), Symbol::new(env, "v1")),
+                (user.clone(), record.window_start),
+            );
         }
 
         if record.amount + amount > quota {
@@ -1735,6 +1781,50 @@ impl FiatBridge {
             .set(&DataKey::UserDailyWithdrawal(user.clone()), &record);
 
         Ok(())
+    }
+
+    fn require_not_paused(env: &Env) -> Result<(), Error> {
+        if env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
+            return Err(Error::ContractPaused);
+        }
+
+        Ok(())
+    }
+
+    fn extend_receipt_ttls_for_depositor(env: &Env, depositor: &Address, min_ttl: u32) {
+        let receipt_counter: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ReceiptCounter)
+            .unwrap_or(0);
+
+        let mut idx = 0;
+        while idx < receipt_counter {
+            if let Some(receipt_hash) = env
+                .storage()
+                .persistent()
+                .get::<_, BytesN<32>>(&DataKey::ReceiptIndex(idx))
+            {
+                let receipt_key = DataKey::Receipt(receipt_hash.clone());
+                if let Some(receipt) = env
+                    .storage()
+                    .persistent()
+                    .get::<_, Receipt>(&receipt_key)
+                {
+                    if receipt.depositor == *depositor {
+                        env.storage()
+                            .persistent()
+                            .extend_ttl(&receipt_key, min_ttl, min_ttl);
+                    }
+                }
+            }
+            idx += 1;
+        }
     }
 
     // ── Escrow Migration ──────────────────────────────────────────────────
