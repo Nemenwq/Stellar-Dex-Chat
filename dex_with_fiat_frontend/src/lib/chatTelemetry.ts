@@ -83,17 +83,17 @@ export function setTelemetryConsent(enabled: boolean): void {
  * Dispatches a CustomEvent on window so any listener can react
  * (analytics adapters, logging, etc.) without tight coupling.
  */
-function emit<P extends Record<string, unknown>>(
+function emit<P extends object>(
   name: ChatEventName,
   payload: P,
 ): void {
   if (!getTelemetryConsent()) return;
 
-  const event: ChatEvent<P> = {
+  const event: ChatEvent = {
     name,
     version: TELEMETRY_SCHEMA_VERSION,
     timestamp: Date.now(),
-    payload,
+    payload: payload as Record<string, unknown>,
   };
 
   if (typeof window !== 'undefined') {
