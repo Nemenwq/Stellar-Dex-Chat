@@ -31,7 +31,6 @@ export default function ReceiptDrawer({
     filterStats,
     toggleFilter,
     clearAllFilters,
-    hasActiveFilters,
   } = useTransactionFilters(transactions);
 
   // Determine which transactions to display
