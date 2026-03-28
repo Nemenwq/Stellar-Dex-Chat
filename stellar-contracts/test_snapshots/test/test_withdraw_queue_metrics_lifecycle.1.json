@@ -125,7 +125,10 @@
                 {
                   "address": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN"
                 },
-                "void"
+                "void",
+                {
+                  "u32": 0
+                }
               ]
             }
           },
@@ -154,7 +157,10 @@
                 {
                   "address": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN"
                 },
-                "void"
+                "void",
+                {
+                  "u32": 0
+                }
               ]
             }
           },
@@ -220,6 +226,30 @@
           "ext": "v0"
         },
         "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "DeployConfigHash"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "bytes": "301e65d1de05a3c746f877c07d8bb67c48195cfe9b0b49e178b0a96f753470b3"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 4095
       },
       {
         "entry": {
@@ -461,6 +491,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "risk_tier"
+                    },
+                    "val": {
+                      "u32": 0
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "to"
                     },
                     "val": {
@@ -600,6 +638,36 @@
                       },
                       "val": {
                         "u32": 1
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TierQueueHead"
+                          },
+                          {
+                            "u32": 0
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "1"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "TierQueueLen"
+                          },
+                          {
+                            "u32": 0
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "1"
                       }
                     },
                     {
