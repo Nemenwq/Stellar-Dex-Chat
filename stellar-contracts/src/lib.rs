@@ -70,6 +70,10 @@ pub enum Error {
     WithdrawalQuotaExceeded = 801,
     MigrationAlreadyComplete = 802,
     BatchOperationFailed = 803,
+
+    // --- 900 series: Replay Protection ---
+    InvalidNonce = 901,
+    StaleNonce = 902,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -223,6 +227,7 @@ pub enum DataKey {
     PendingRenounceLedger,
     Operator(Address),
     OperatorHeartbeat(Address),
+    OperatorNonce(Address),
     Denied(Address),
     FeeVault(Address),
     ReceiptIndex(u64),
@@ -1194,7 +1199,7 @@ impl FiatBridge {
         Ok(())
     }
 
-    pub fn heartbeat(env: Env, operator: Address) -> Result<(), Error> {
+    pub fn heartbeat(env: Env, operator: Address, nonce: u64) -> Result<(), Error> {
         operator.require_auth();
         if !env
             .storage()
@@ -1204,6 +1209,9 @@ impl FiatBridge {
         {
             return Err(Error::NotOperator);
         }
+
+        // Validate and increment nonce for replay protection
+        Self::validate_and_increment_nonce(&env, &operator, nonce)?;
 
         let curr = env.ledger().sequence();
         env.storage()
@@ -1227,6 +1235,42 @@ impl FiatBridge {
         env.storage()
             .instance()
             .get(&DataKey::OperatorHeartbeat(operator))
+    }
+
+    pub fn get_operator_nonce(env: Env, operator: Address) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::OperatorNonce(operator))
+            .unwrap_or(0)
+    }
+
+    fn validate_and_increment_nonce(env: &Env, operator: &Address, provided_nonce: u64) -> Result<(), Error> {
+        let current_nonce: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::OperatorNonce(operator.clone()))
+            .unwrap_or(0);
+
+        // Nonce must be exactly current_nonce (monotonically increasing)
+        if provided_nonce != current_nonce {
+            if provided_nonce < current_nonce {
+                return Err(Error::StaleNonce);
+            } else {
+                return Err(Error::InvalidNonce);
+            }
+        }
+
+        // Increment nonce
+        env.storage()
+            .instance()
+            .set(&DataKey::OperatorNonce(operator.clone()), &(current_nonce + 1));
+
+        env.events().publish(
+            (Symbol::new(env, "nonce_inc"), operator.clone()),
+            current_nonce + 1,
+        );
+
+        Ok(())
     }
 
     // ── Ownership Renounce ────────────────────────────────────────────────

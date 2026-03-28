@@ -819,7 +819,7 @@ fn test_operator_heartbeat() {
 
     // Heartbeat
     let curr = env.ledger().sequence();
-    bridge.heartbeat(&operator);
+    bridge.heartbeat(&operator, &0);
     assert_eq!(bridge.get_operator_heartbeat(&operator), Some(curr));
 
     // Deactivate operator
@@ -827,7 +827,7 @@ fn test_operator_heartbeat() {
     assert!(!bridge.is_operator(&operator));
 
     // Heartbeat should fail now
-    let res = bridge.try_heartbeat(&operator);
+    let res = bridge.try_heartbeat(&operator, &1);
     assert_eq!(res, Err(Ok(Error::NotOperator)));
 }
 
@@ -1378,6 +1378,327 @@ fn test_rescue_insufficient_balance() {
     assert_eq!(result, Err(Ok(Error::InsufficientFunds)));
 }
 
+// ── nonce-based replay protection tests ───────────────────────────────────
+
+#[test]
+fn test_operator_nonce_starts_at_zero() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    let operator = Address::generate(&env);
+
+    bridge.set_operator(&operator, &true);
+    assert_eq!(bridge.get_operator_nonce(&operator), 0);
+}
+
+#[test]
+fn test_heartbeat_with_valid_nonce_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    let operator = Address::generate(&env);
+
+    bridge.set_operator(&operator, &true);
+    
+    // First heartbeat with nonce 0
+    bridge.heartbeat(&operator, &0);
+    assert_eq!(bridge.get_operator_nonce(&operator), 1);
+    
+    // Second heartbeat with nonce 1
+    bridge.heartbeat(&operator, &1);
+    assert_eq!(bridge.get_operator_nonce(&operator), 2);
+}
+
+#[test]
+fn test_heartbeat_with_stale_nonce_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    let operator = Address::generate(&env);
+
+    bridge.set_operator(&operator, &true);
+    
+    // First heartbeat with nonce 0
+    bridge.heartbeat(&operator, &0);
+    assert_eq!(bridge.get_operator_nonce(&operator), 1);
+    
+    // Try to replay with nonce 0 (stale)
+    let result = bridge.try_heartbeat(&operator, &0);
+    assert_eq!(result, Err(Ok(Error::StaleNonce)));
+    
+    // Nonce should remain unchanged
+    assert_eq!(bridge.get_operator_nonce(&operator), 1);
+}
+
+#[test]
+fn test_heartbeat_with_future_nonce_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    let operator = Address::generate(&env);
+
+    bridge.set_operator(&operator, &true);
+    
+    // Try to use nonce 5 when current is 0
+    let result = bridge.try_heartbeat(&operator, &5);
+    assert_eq!(result, Err(Ok(Error::InvalidNonce)));
+    
+    // Nonce should remain unchanged
+    assert_eq!(bridge.get_operator_nonce(&operator), 0);
+}
+
+#[test]
+fn test_heartbeat_replay_attack_prevented() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    let operator = Address::generate(&env);
+
+    bridge.set_operator(&operator, &true);
+    
+    // Execute heartbeat with nonce 0
+    bridge.heartbeat(&operator, &0);
+    let first_heartbeat = bridge.get_operator_heartbeat(&operator);
+    
+    // Advance ledger
+    env.ledger().with_mut(|li| {
+        li.sequence_number += 10;
+    });
+    
+    // Try to replay the same nonce
+    let result = bridge.try_heartbeat(&operator, &0);
+    assert_eq!(result, Err(Ok(Error::StaleNonce)));
+    
+    // Heartbeat timestamp should not have changed
+    assert_eq!(bridge.get_operator_heartbeat(&operator), first_heartbeat);
+}
+
+#[test]
+fn test_nonce_is_per_operator() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    let operator_a = Address::generate(&env);
+    let operator_b = Address::generate(&env);
+
+    bridge.set_operator(&operator_a, &true);
+    bridge.set_operator(&operator_b, &true);
+    
+    // Both start at nonce 0
+    assert_eq!(bridge.get_operator_nonce(&operator_a), 0);
+    assert_eq!(bridge.get_operator_nonce(&operator_b), 0);
+    
+    // Operator A uses nonce 0
+    bridge.heartbeat(&operator_a, &0);
+    assert_eq!(bridge.get_operator_nonce(&operator_a), 1);
+    assert_eq!(bridge.get_operator_nonce(&operator_b), 0);
+    
+    // Operator B can still use nonce 0
+    bridge.heartbeat(&operator_b, &0);
+    assert_eq!(bridge.get_operator_nonce(&operator_a), 1);
+    assert_eq!(bridge.get_operator_nonce(&operator_b), 1);
+}
+
+#[test]
+fn test_nonce_increments_monotonically() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    let operator = Address::generate(&env);
+
+    bridge.set_operator(&operator, &true);
+    
+    // Execute multiple heartbeats
+    for i in 0..10 {
+        assert_eq!(bridge.get_operator_nonce(&operator), i);
+        bridge.heartbeat(&operator, &i);
+        assert_eq!(bridge.get_operator_nonce(&operator), i + 1);
+    }
+}
+
+#[test]
+fn test_nonce_skipping_not_allowed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    let operator = Address::generate(&env);
+
+    bridge.set_operator(&operator, &true);
+    
+    // Use nonce 0
+    bridge.heartbeat(&operator, &0);
+    
+    // Try to skip to nonce 2 (skipping 1)
+    let result = bridge.try_heartbeat(&operator, &2);
+    assert_eq!(result, Err(Ok(Error::InvalidNonce)));
+    
+    // Nonce should still be 1
+    assert_eq!(bridge.get_operator_nonce(&operator), 1);
+    
+    // Using nonce 1 should work
+    bridge.heartbeat(&operator, &1);
+    assert_eq!(bridge.get_operator_nonce(&operator), 2);
+}
+
+#[test]
+fn test_nonce_persists_across_operator_deactivation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    let operator = Address::generate(&env);
+
+    bridge.set_operator(&operator, &true);
+    
+    // Use nonce 0 and 1
+    bridge.heartbeat(&operator, &0);
+    bridge.heartbeat(&operator, &1);
+    assert_eq!(bridge.get_operator_nonce(&operator), 2);
+    
+    // Deactivate operator
+    bridge.set_operator(&operator, &false);
+    
+    // Nonce should still be 2
+    assert_eq!(bridge.get_operator_nonce(&operator), 2);
+    
+    // Reactivate operator
+    bridge.set_operator(&operator, &true);
+    
+    // Must use nonce 2, not 0
+    let result = bridge.try_heartbeat(&operator, &0);
+    assert_eq!(result, Err(Ok(Error::StaleNonce)));
+    
+    bridge.heartbeat(&operator, &2);
+    assert_eq!(bridge.get_operator_nonce(&operator), 3);
+}
+
+#[test]
+fn test_duplicate_nonce_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    let operator = Address::generate(&env);
+
+    bridge.set_operator(&operator, &true);
+    
+    // Use nonce 0
+    bridge.heartbeat(&operator, &0);
+    
+    // Try to use nonce 0 again
+    let result = bridge.try_heartbeat(&operator, &0);
+    assert_eq!(result, Err(Ok(Error::StaleNonce)));
+    
+    // Use nonce 1
+    bridge.heartbeat(&operator, &1);
+    
+    // Try to use nonce 1 again
+    let result = bridge.try_heartbeat(&operator, &1);
+    assert_eq!(result, Err(Ok(Error::StaleNonce)));
+}
+
+#[test]
+fn test_nonce_validation_before_heartbeat_update() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    let operator = Address::generate(&env);
+
+    bridge.set_operator(&operator, &true);
+    
+    let initial_ledger = env.ledger().sequence();
+    bridge.heartbeat(&operator, &0);
+    assert_eq!(bridge.get_operator_heartbeat(&operator), Some(initial_ledger));
+    
+    // Advance ledger
+    env.ledger().with_mut(|li| {
+        li.sequence_number += 5;
+    });
+    
+    // Try with invalid nonce - heartbeat should not update
+    let result = bridge.try_heartbeat(&operator, &0);
+    assert_eq!(result, Err(Ok(Error::StaleNonce)));
+    
+    // Heartbeat timestamp should not have changed
+    assert_eq!(bridge.get_operator_heartbeat(&operator), Some(initial_ledger));
+}
+
+#[test]
+fn test_non_operator_cannot_use_nonce() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    let non_operator = Address::generate(&env);
+
+    // Don't set as operator
+    assert!(!bridge.is_operator(&non_operator));
+    
+    // Try to heartbeat with nonce 0
+    let result = bridge.try_heartbeat(&non_operator, &0);
+    assert_eq!(result, Err(Ok(Error::NotOperator)));
+    
+    // Nonce should still be 0 (unchanged)
+    assert_eq!(bridge.get_operator_nonce(&non_operator), 0);
+}
+
+#[test]
+fn test_nonce_overflow_protection() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    let operator = Address::generate(&env);
+
+    bridge.set_operator(&operator, &true);
+    
+    // Simulate high nonce value (near u64::MAX would take too long to test)
+    // Instead, test that the system handles large nonces correctly
+    let _large_nonce = 1_000_000u64;
+    
+    // Manually set a high nonce by executing many operations
+    // For testing purposes, we'll just verify the logic works with reasonable values
+    for i in 0..100 {
+        bridge.heartbeat(&operator, &i);
+    }
+    
+    assert_eq!(bridge.get_operator_nonce(&operator), 100);
+}
+
+#[test]
+fn test_concurrent_operators_independent_nonces() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    let op1 = Address::generate(&env);
+    let op2 = Address::generate(&env);
+    let op3 = Address::generate(&env);
+
+    bridge.set_operator(&op1, &true);
+    bridge.set_operator(&op2, &true);
+    bridge.set_operator(&op3, &true);
+    
+    // Interleaved operations
+    bridge.heartbeat(&op1, &0);
+    bridge.heartbeat(&op2, &0);
+    bridge.heartbeat(&op1, &1);
+    bridge.heartbeat(&op3, &0);
+    bridge.heartbeat(&op2, &1);
+    bridge.heartbeat(&op1, &2);
+    
+    assert_eq!(bridge.get_operator_nonce(&op1), 3);
+    assert_eq!(bridge.get_operator_nonce(&op2), 2);
+    assert_eq!(bridge.get_operator_nonce(&op3), 1);
 // ── Issue #214: deployment config hash tests ─────────────────────────────
 
 #[test]

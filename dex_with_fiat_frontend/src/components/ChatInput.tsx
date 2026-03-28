@@ -5,6 +5,7 @@ import { Send, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/contexts/TranslationContext';
 import { saveDraft, getDraft, clearDraft } from '@/lib/draftUtils';
+import { useIdempotentAction } from '@/hooks/useIdempotentAction';
 
 interface ChatInputProps {
   onSendMessage: (message: string) => void;
@@ -35,6 +36,11 @@ export default function ChatInput({
   const [showPalette, setShowPalette] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [paletteIndex, setPaletteIndex] = useState(0);
+  
+  const { execute: executeSubmit, isProcessing: isSubmitting } = useIdempotentAction({
+    cooldownMs: 1000,
+    logSuppressed: true,
+  });
 
   const commands = [
     { cmd: '/deposit', desc: t('common.deposit_desc') || 'Add funds to your Stellar account' },
@@ -60,11 +66,13 @@ export default function ChatInput({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (message.trim() && !isLoading) {
-      onSendMessage(message.trim());
-      setMessage('');
-      if (sessionId) clearDraft(sessionId);
-      setShowCommands(false);
+    if (message.trim() && !isLoading && !isSubmitting) {
+      executeSubmit(async () => {
+        onSendMessage(message.trim());
+        setMessage('');
+        if (sessionId) clearDraft(sessionId);
+        setShowCommands(false);
+      }, 'chat_message_submit');
     }
   };
 
@@ -286,10 +294,10 @@ export default function ChatInput({
 
         <button
           type="submit"
-          disabled={!message.trim() || isLoading}
+          disabled={!message.trim() || isLoading || isSubmitting}
           className="theme-primary-button flex items-center justify-center w-12 h-12 disabled:bg-gray-300 text-white rounded-lg transition-all duration-200 disabled:cursor-not-allowed transform hover:scale-105 disabled:hover:scale-100 shadow-lg"
         >
-          {isLoading ? (
+          {isLoading || isSubmitting ? (
             <Loader2 className="w-5 h-5 animate-spin" />
           ) : (
             <Send className="w-5 h-5" />
