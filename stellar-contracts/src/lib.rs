@@ -101,6 +101,7 @@ pub struct GlobalDailyWithdrawn {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TokenConfig {
     pub limit: i128,
+    pub daily_deposit_limit: i128,
     pub total_deposited: i128,
     pub total_withdrawn: i128,
     pub total_liabilities: i128,
@@ -137,6 +138,13 @@ pub struct UserDailyVolume {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UserDailyWithdrawal {
+    pub amount: i128,
+    pub window_start: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserDailyDeposit {
     pub amount: i128,
     pub window_start: u32,
 }
@@ -220,6 +228,7 @@ pub enum DataKey {
     UserDailyVolume(Address),
     AntiSandwichDelay,
     WithdrawalQuota,
+    UserDailyDeposit(Address, Address),
     UserDailyWithdrawal(Address),
     EscrowStorageVersion,
     EscrowRecord(u64),
@@ -262,6 +271,7 @@ impl FiatBridge {
 
         let config = TokenConfig {
             limit,
+            daily_deposit_limit: 0,
             total_deposited: 0,
             total_withdrawn: 0,
             total_liabilities: 0,
@@ -380,6 +390,7 @@ impl FiatBridge {
         if amount > config.limit {
             return Err(Error::ExceedsLimit);
         }
+        Self::enforce_daily_deposit_limit(&env, &from, &token, amount, &config)?;
 
         // Fiat Limit & Slippage
         let actual_price = Self::validate_fiat_limit(&env, &from, &token, amount)?;
@@ -917,6 +928,29 @@ impl FiatBridge {
         Ok(())
     }
 
+    pub fn set_daily_deposit_limit(
+        env: Env,
+        token: Address,
+        limit_per_day: i128,
+    ) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        let mut config: TokenConfig = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TokenRegistry(token.clone()))
+            .ok_or(Error::TokenNotWhitelisted)?;
+        config.daily_deposit_limit = limit_per_day;
+        env.storage()
+            .persistent()
+            .set(&DataKey::TokenRegistry(token), &config);
+        Ok(())
+    }
+
     pub fn set_cooldown(env: Env, ledgers: u32) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -1107,6 +1141,38 @@ impl FiatBridge {
         }
 
         Ok(price)
+    }
+
+    fn enforce_daily_deposit_limit(
+        env: &Env,
+        depositor: &Address,
+        token: &Address,
+        amount: i128,
+        config: &TokenConfig,
+    ) -> Result<(), Error> {
+        if config.daily_deposit_limit <= 0 {
+            return Ok(());
+        }
+
+        let curr = env.ledger().sequence();
+        let key = DataKey::UserDailyDeposit(depositor.clone(), token.clone());
+        let mut record: UserDailyDeposit = env.storage().instance().get(&key).unwrap_or(UserDailyDeposit {
+            amount: 0,
+            window_start: curr,
+        });
+
+        if curr >= record.window_start.saturating_add(WINDOW_LEDGERS) {
+            record.amount = 0;
+            record.window_start = curr;
+        }
+
+        if record.amount.saturating_add(amount) > config.daily_deposit_limit {
+            return Err(Error::DailyLimitExceeded);
+        }
+
+        record.amount += amount;
+        env.storage().instance().set(&key, &record);
+        Ok(())
     }
 
     // ── Timelock ──────────────────────────────────────────────────────────
