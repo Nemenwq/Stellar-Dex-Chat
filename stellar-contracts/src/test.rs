@@ -1419,6 +1419,7 @@ fn test_batch_admin_success() {
     let result = bridge.execute_batch_admin(&ops);
     assert_eq!(result.total_ops, 2);
     assert_eq!(result.success_count, 2);
+    assert_eq!(result.failure_count, 0);
     assert!(result.failed_index.is_none());
 
     assert_eq!(bridge.get_cooldown(), 100);
@@ -1448,10 +1449,14 @@ fn test_batch_admin_rollback_on_failure() {
         payload: Bytes::new(&env),
     });
 
-    let result = bridge.try_execute_batch_admin(&ops);
-    assert_eq!(result, Err(Ok(Error::BatchOperationFailed)));
+    let result = bridge.execute_batch_admin(&ops);
+    assert_eq!(result.total_ops, 2);
+    assert_eq!(result.success_count, 1);
+    assert_eq!(result.failure_count, 1);
+    assert_eq!(result.failed_index, Some(1));
 
-    assert_eq!(bridge.get_cooldown(), 10);
+    // First valid op is applied, invalid op is skipped.
+    assert_eq!(bridge.get_cooldown(), 100);
     assert_eq!(bridge.get_lock_period(), 20);
 }
 
@@ -1481,8 +1486,50 @@ fn test_batch_admin_partial_failure_index() {
         payload: Bytes::new(&env),
     });
 
-    let result = bridge.try_execute_batch_admin(&ops);
-    assert_eq!(result, Err(Ok(Error::BatchOperationFailed)));
+    let result = bridge.execute_batch_admin(&ops);
+    assert_eq!(result.total_ops, 3);
+    assert_eq!(result.success_count, 2);
+    assert_eq!(result.failure_count, 1);
+    assert_eq!(result.failed_index, Some(2));
+}
+
+#[test]
+fn test_batch_admin_mixed_success_failure_continues() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+
+    bridge.set_cooldown(&10);
+    bridge.set_lock_period(&20);
+
+    let mut ops = soroban_sdk::Vec::new(&env);
+
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_cooldown"),
+        payload: Bytes::from_array(&env, &100u32.to_be_bytes()),
+    });
+
+    // Invalid op in the middle should not revert successful ops.
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "invalid_op"),
+        payload: Bytes::new(&env),
+    });
+
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_lock"),
+        payload: Bytes::from_array(&env, &50u32.to_be_bytes()),
+    });
+
+    let result = bridge.execute_batch_admin(&ops);
+    assert_eq!(result.total_ops, 3);
+    assert_eq!(result.success_count, 2);
+    assert_eq!(result.failure_count, 1);
+    assert_eq!(result.failed_index, Some(1));
+
+    // State reflects both successful operations (1st and 3rd).
+    assert_eq!(bridge.get_cooldown(), 100);
+    assert_eq!(bridge.get_lock_period(), 50);
 }
 
 #[test]
@@ -1503,6 +1550,7 @@ fn test_batch_admin_with_quota() {
     let result = bridge.execute_batch_admin(&ops);
     assert_eq!(result.total_ops, 1);
     assert_eq!(result.success_count, 1);
+    assert_eq!(result.failure_count, 0);
 
     assert_eq!(bridge.get_withdrawal_quota(), 1000);
 }
@@ -1519,6 +1567,7 @@ fn test_batch_admin_empty_batch() {
     let result = bridge.execute_batch_admin(&ops);
     assert_eq!(result.total_ops, 0);
     assert_eq!(result.success_count, 0);
+    assert_eq!(result.failure_count, 0);
     assert!(result.failed_index.is_none());
 }
 
