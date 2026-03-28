@@ -2,12 +2,12 @@
 extern crate std;
 
 use super::*;
+use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{
     testutils::{storage::Persistent as _, Address as _, Events as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     vec, Address, Bytes, BytesN, Env, IntoVal, Symbol,
 };
-use soroban_sdk::xdr::ToXdr;
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -826,7 +826,7 @@ fn test_set_withdrawal_quota() {
     env.mock_all_auths();
 
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
-    
+
     assert_eq!(bridge.get_withdrawal_quota(), 0);
     bridge.set_withdrawal_quota(&500);
     assert_eq!(bridge.get_withdrawal_quota(), 500);
@@ -980,8 +980,24 @@ fn test_withdrawal_quota_per_user() {
     token_sac.mint(&user_a, &2000);
     token_sac.mint(&user_b, &2000);
 
-    bridge.deposit(&user_a, &1000, &token_addr, &Bytes::new(&env), &0, &0, &None);
-    bridge.deposit(&user_b, &1000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.deposit(
+        &user_a,
+        &1000,
+        &token_addr,
+        &Bytes::new(&env),
+        &0,
+        &0,
+        &None,
+    );
+    bridge.deposit(
+        &user_b,
+        &1000,
+        &token_addr,
+        &Bytes::new(&env),
+        &0,
+        &0,
+        &None,
+    );
     bridge.set_withdrawal_quota(&500);
 
     bridge.withdraw(&user_a, &500, &token_addr);
@@ -1112,16 +1128,16 @@ fn test_receipt_id_determinism_and_uniqueness() {
     token_sac.mint(&user, &1000);
 
     let reference = Bytes::from_slice(&env, b"ref1");
-    
+
     // First deposit
     let id1 = bridge.deposit(&user, &100, &token_addr, &reference, &0, &0, &None);
-    
+
     // Second identical deposit (except internal counter will increase)
     let id2 = bridge.deposit(&user, &100, &token_addr, &reference, &0, &0, &None);
-    
+
     // They must be unique
     assert_ne!(id1, id2);
-    
+
     // Verify determinism: re-calculate id1 manually
     // Derivation: sha256(xdr(depositor, amount, ledger, reference, counter))
     // counter for id1 was 0
@@ -1141,19 +1157,19 @@ fn test_receipt_id_collision_resistance() {
     let env = Env::default();
     env.mock_all_auths();
     let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 1000);
-    
+
     let user1 = Address::generate(&env);
     let user2 = Address::generate(&env);
     token_sac.mint(&user1, &500);
     token_sac.mint(&user2, &500);
-    
+
     let ref_shared = Bytes::from_slice(&env, b"ref");
-    
+
     let id1 = bridge.deposit(&user1, &100, &token_addr, &ref_shared, &0, &0, &None);
     let id2 = bridge.deposit(&user2, &100, &token_addr, &ref_shared, &0, &0, &None);
-    
+
     assert_ne!(id1, id2);
-    
+
     // Different amount
     let id3 = bridge.deposit(&user1, &200, &token_addr, &ref_shared, &0, &0, &None);
     assert_ne!(id1, id3);
@@ -1326,7 +1342,15 @@ fn test_denylist_does_not_affect_other_users() {
     bridge.deny_address(&denied_user);
 
     // Normal user should not be affected
-    bridge.deposit(&normal_user, &200, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.deposit(
+        &normal_user,
+        &200,
+        &token_addr,
+        &Bytes::new(&env),
+        &0,
+        &0,
+        &None,
+    );
     assert_eq!(bridge.get_user_deposited(&normal_user), 200);
 }
 
@@ -1378,7 +1402,7 @@ fn test_batch_admin_success() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
 
     let mut ops = soroban_sdk::Vec::new(&env);
-    
+
     let cooldown_bytes = Bytes::from_array(&env, &100u32.to_be_bytes());
     ops.push_back(BatchAdminOp {
         op_type: Symbol::new(&env, "set_cooldown"),
@@ -1411,7 +1435,7 @@ fn test_batch_admin_rollback_on_failure() {
     bridge.set_lock_period(&20);
 
     let mut ops = soroban_sdk::Vec::new(&env);
-    
+
     let cooldown_bytes = Bytes::from_array(&env, &100u32.to_be_bytes());
     ops.push_back(BatchAdminOp {
         op_type: Symbol::new(&env, "set_cooldown"),
@@ -1438,7 +1462,7 @@ fn test_batch_admin_partial_failure_index() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
 
     let mut ops = soroban_sdk::Vec::new(&env);
-    
+
     let cooldown_bytes = Bytes::from_array(&env, &100u32.to_be_bytes());
     ops.push_back(BatchAdminOp {
         op_type: Symbol::new(&env, "set_cooldown"),
@@ -1468,7 +1492,7 @@ fn test_batch_admin_with_quota() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
 
     let mut ops = soroban_sdk::Vec::new(&env);
-    
+
     let quota_bytes = Bytes::from_array(&env, &1000i128.to_be_bytes());
     ops.push_back(BatchAdminOp {
         op_type: Symbol::new(&env, "set_quota"),

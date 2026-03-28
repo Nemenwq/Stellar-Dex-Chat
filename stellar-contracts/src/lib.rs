@@ -12,7 +12,8 @@ pub const MIN_TTL: u32 = 518_400; // ~30 days
 pub const MAX_TTL: u32 = 535_680; // ~31 days
 const MAX_REFERENCE_LEN: u32 = 64;
 const WINDOW_LEDGERS: u32 = 17_280; // ~24 hours
-const WITHDRAWAL_EXPIRY_WINDOW_LEDGERS: u32 = 17_280; // ~24 hours
+#[allow(dead_code)]
+const WITHDRAWAL_EXPIRY_WINDOW_LEDGERS: u32 = 17_280; // ~24 hours — reserved for future withdrawal expiry feature
 const MIN_TIMELOCK_DELAY: u32 = 34_560; // 48 hours
 const DEFAULT_INACTIVITY_THRESHOLD: u32 = 1_555_200; // ~3 months
 pub const EVENT_VERSION: u32 = 1;
