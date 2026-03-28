@@ -1173,7 +1173,7 @@ impl FiatBridge {
             .get(&DataKey::NextActionID)
             .unwrap_or(0);
         let action = QueuedAdminAction {
-            action_type,
+            action_type: action_type.clone(),
             payload,
             queued_ledger: env.ledger().sequence(),
             target_ledger: env.ledger().sequence() + delay,
@@ -1184,6 +1184,10 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::NextActionID, &(id + 1));
+        env.events().publish(
+            (Symbol::new(&env, "admin_action_queued"), action_type, id),
+            action.target_ledger,
+        );
         Ok(id)
     }
 
@@ -1205,6 +1209,10 @@ impl FiatBridge {
         env.storage()
             .persistent()
             .remove(&DataKey::QueuedAdminAction(id));
+        env.events().publish(
+            (Symbol::new(&env, "admin_action_executed"), id),
+            true, // success
+        );
         env.storage()
             .instance()
             .set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
