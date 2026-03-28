@@ -536,3 +536,329 @@ fn test_slippage_violation_reverts() {
     bridge.deposit(&user, &1000, &token_addr, &Bytes::new(&env), &expected_price, &600);
     assert_eq!(token.balance(&user), 4000);
 }
+
+// ── event versioning tests ────────────────────────────────────────────────
+#[test]
+fn test_event_version_constant() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    assert_eq!(bridge.get_event_version(), 1);
+}
+
+// ── withdrawal quota tests ────────────────────────────────────────────────
+#[test]
+fn test_set_withdrawal_quota() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    
+    assert_eq!(bridge.get_withdrawal_quota(), 0);
+    bridge.set_withdrawal_quota(&500);
+    assert_eq!(bridge.get_withdrawal_quota(), 500);
+}
+
+#[test]
+fn test_withdrawal_quota_enforced() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &1000, &token_addr, &Bytes::new(&env), &0, &0);
+    bridge.set_withdrawal_quota(&200);
+
+    bridge.withdraw(&user, &100, &token_addr);
+    bridge.withdraw(&user, &100, &token_addr);
+
+    let result = bridge.try_withdraw(&user, &100, &token_addr);
+    assert_eq!(result, Err(Ok(Error::WithdrawalQuotaExceeded)));
+}
+
+#[test]
+fn test_withdrawal_quota_resets_after_window() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0);
+    bridge.set_withdrawal_quota(&500);
+
+    bridge.withdraw(&user, &500, &token_addr);
+
+    let result = bridge.try_withdraw(&user, &100, &token_addr);
+    assert_eq!(result, Err(Ok(Error::WithdrawalQuotaExceeded)));
+
+    let start_ledger = env.ledger().sequence();
+    env.ledger().with_mut(|li| {
+        li.sequence_number = start_ledger + 17_280;
+    });
+
+    bridge.withdraw(&user, &500, &token_addr);
+    assert_eq!(bridge.get_user_daily_withdrawal(&user), 500);
+}
+
+#[test]
+fn test_withdrawal_quota_per_user() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    token_sac.mint(&user_a, &2000);
+    token_sac.mint(&user_b, &2000);
+
+    bridge.deposit(&user_a, &1000, &token_addr, &Bytes::new(&env), &0, &0);
+    bridge.deposit(&user_b, &1000, &token_addr, &Bytes::new(&env), &0, &0);
+    bridge.set_withdrawal_quota(&500);
+
+    bridge.withdraw(&user_a, &500, &token_addr);
+    bridge.withdraw(&user_b, &500, &token_addr);
+
+    let result_a = bridge.try_withdraw(&user_a, &100, &token_addr);
+    assert_eq!(result_a, Err(Ok(Error::WithdrawalQuotaExceeded)));
+
+    let result_b = bridge.try_withdraw(&user_b, &100, &token_addr);
+    assert_eq!(result_b, Err(Ok(Error::WithdrawalQuotaExceeded)));
+}
+
+#[test]
+fn test_withdrawal_quota_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0);
+    bridge.set_withdrawal_quota(&500);
+
+    bridge.withdraw(&user, &500, &token_addr);
+    assert_eq!(bridge.get_user_daily_withdrawal(&user), 500);
+
+    let result = bridge.try_withdraw(&user, &1, &token_addr);
+    assert_eq!(result, Err(Ok(Error::WithdrawalQuotaExceeded)));
+}
+
+// ── escrow migration tests ────────────────────────────────────────────────
+#[test]
+fn test_escrow_storage_version() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
+    assert_eq!(bridge.get_escrow_storage_version(), 0);
+}
+
+#[test]
+fn test_migrate_escrow_basic() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0);
+    bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env), &0, &0);
+
+    let migrated = bridge.migrate_escrow(&10);
+    assert_eq!(migrated, 2);
+    assert_eq!(bridge.get_escrow_storage_version(), 1);
+}
+
+#[test]
+fn test_migrate_escrow_idempotent() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0);
+
+    bridge.migrate_escrow(&10);
+    let result = bridge.try_migrate_escrow(&10);
+    assert_eq!(result, Err(Ok(Error::MigrationAlreadyComplete)));
+}
+
+#[test]
+fn test_migrate_escrow_resumable() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0);
+    bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env), &0, &0);
+    bridge.deposit(&user, &300, &token_addr, &Bytes::new(&env), &0, &0);
+
+    let migrated1 = bridge.migrate_escrow(&2);
+    assert_eq!(migrated1, 2);
+    assert_eq!(bridge.get_migration_cursor(), 2);
+    assert_eq!(bridge.get_escrow_storage_version(), 0);
+
+    let migrated2 = bridge.migrate_escrow(&2);
+    assert_eq!(migrated2, 1);
+    assert_eq!(bridge.get_migration_cursor(), 3);
+    assert_eq!(bridge.get_escrow_storage_version(), 1);
+}
+
+#[test]
+fn test_get_escrow_record() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0);
+    bridge.migrate_escrow(&10);
+
+    let escrow = bridge.get_escrow_record(&0).unwrap();
+    assert_eq!(escrow.version, 1);
+    assert_eq!(escrow.depositor, user);
+    assert_eq!(escrow.amount, 100);
+    assert!(escrow.migrated);
+}
+
+// ── batch admin operations tests ──────────────────────────────────────────
+#[test]
+fn test_batch_admin_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+
+    let mut ops = soroban_sdk::Vec::new(&env);
+    
+    let cooldown_bytes = Bytes::from_array(&env, &100u32.to_be_bytes());
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_cooldown"),
+        payload: cooldown_bytes,
+    });
+
+    let lock_bytes = Bytes::from_array(&env, &50u32.to_be_bytes());
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_lock"),
+        payload: lock_bytes,
+    });
+
+    let result = bridge.execute_batch_admin(&ops);
+    assert_eq!(result.total_ops, 2);
+    assert_eq!(result.success_count, 2);
+    assert!(result.failed_index.is_none());
+
+    assert_eq!(bridge.get_cooldown(), 100);
+    assert_eq!(bridge.get_lock_period(), 50);
+}
+
+#[test]
+fn test_batch_admin_rollback_on_failure() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+
+    bridge.set_cooldown(&10);
+    bridge.set_lock_period(&20);
+
+    let mut ops = soroban_sdk::Vec::new(&env);
+    
+    let cooldown_bytes = Bytes::from_array(&env, &100u32.to_be_bytes());
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_cooldown"),
+        payload: cooldown_bytes,
+    });
+
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "invalid_op"),
+        payload: Bytes::new(&env),
+    });
+
+    let result = bridge.try_execute_batch_admin(&ops);
+    assert_eq!(result, Err(Ok(Error::BatchOperationFailed)));
+
+    assert_eq!(bridge.get_cooldown(), 10);
+    assert_eq!(bridge.get_lock_period(), 20);
+}
+
+#[test]
+fn test_batch_admin_partial_failure_index() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+
+    let mut ops = soroban_sdk::Vec::new(&env);
+    
+    let cooldown_bytes = Bytes::from_array(&env, &100u32.to_be_bytes());
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_cooldown"),
+        payload: cooldown_bytes,
+    });
+
+    let lock_bytes = Bytes::from_array(&env, &50u32.to_be_bytes());
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_lock"),
+        payload: lock_bytes,
+    });
+
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "unknown"),
+        payload: Bytes::new(&env),
+    });
+
+    let result = bridge.try_execute_batch_admin(&ops);
+    assert_eq!(result, Err(Ok(Error::BatchOperationFailed)));
+}
+
+#[test]
+fn test_batch_admin_with_quota() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+
+    let mut ops = soroban_sdk::Vec::new(&env);
+    
+    let quota_bytes = Bytes::from_array(&env, &1000i128.to_be_bytes());
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_quota"),
+        payload: quota_bytes,
+    });
+
+    let result = bridge.execute_batch_admin(&ops);
+    assert_eq!(result.total_ops, 1);
+    assert_eq!(result.success_count, 1);
+
+    assert_eq!(bridge.get_withdrawal_quota(), 1000);
+}
+
+#[test]
+fn test_batch_admin_empty_batch() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+
+    let ops = soroban_sdk::Vec::new(&env);
+
+    let result = bridge.execute_batch_admin(&ops);
+    assert_eq!(result.total_ops, 0);
+    assert_eq!(result.success_count, 0);
+    assert!(result.failed_index.is_none());
+}
