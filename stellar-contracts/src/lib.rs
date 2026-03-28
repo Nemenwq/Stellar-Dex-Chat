@@ -18,6 +18,7 @@ const WINDOW_LEDGERS: u32 = 17_280; // ~24 hours
 const WITHDRAWAL_EXPIRY_WINDOW_LEDGERS: u32 = 17_280; // ~24 hours — reserved for future withdrawal expiry feature
 const MIN_TIMELOCK_DELAY: u32 = 34_560; // 48 hours
 const DEFAULT_INACTIVITY_THRESHOLD: u32 = 1_555_200; // ~3 months
+const MIN_UPGRADE_DELAY: u32 = 1_000;
 pub const EVENT_VERSION: u32 = 1;
 pub const ESCROW_STORAGE_VERSION: u32 = 1;
 
@@ -26,7 +27,7 @@ pub const ESCROW_STORAGE_VERSION: u32 = 1;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    Overflow = 8,
+    Overflow = 10,
 
     // --- 100 series: Initialization & State ---
     NotInitialized = 101,
@@ -70,6 +71,9 @@ pub enum Error {
     ActionNotReady = 602,
     InactivityThresholdNotReached = 603,
     NoEmergencyRecoveryAddress = 604,
+    UpgradeNotReady = 605,
+    UpgradeProposalMissing = 606,
+    UpgradeDelayTooShort = 607,
 
     // --- 700 series: External Services ---
     OracleNotSet = 701,
@@ -147,6 +151,13 @@ pub struct QueuedAdminAction {
 pub struct UserDailyVolume {
     pub usd_cents: i128,
     pub window_start: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeProposal {
+    pub wasm_hash: BytesN<32>,
+    pub executable_after: u32,
 }
 
 #[contracttype]
@@ -274,6 +285,9 @@ pub enum DataKey {
     // ── Issue #226: withdrawal queue risk tiers ───────────────────────────
     TierQueueHead(u32),
     TierQueueLen(u32),
+    // ── Issue #107: governed upgrade mechanism ───────────────────────────
+    UpgradeProposal,
+    UpgradeDelay,
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -331,6 +345,9 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::OperatorList, &Vec::<Address>::new(&env));
+        env.storage()
+            .instance()
+            .set(&DataKey::UpgradeDelay, &MIN_UPGRADE_DELAY);
 
         // ── Issue #214: store and emit immutable deployment config hash ──
         let config_data = (admin.clone(), token.clone(), limit);
@@ -516,7 +533,7 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::ReceiptCounter, &(receipt_counter + 1));
 
-        config.total_deposited = config.total_deposited.checked_add(amount).ok_or(Error::InternalError)?;
+        config.total_deposited = config.total_deposited.checked_add(amount).ok_or(Error::Overflow)?;
         env.storage()
             .persistent()
             .set(&DataKey::TokenRegistry(token.clone()), &config);
@@ -2826,6 +2843,99 @@ impl FiatBridge {
 
     pub fn get_withdraw_operator(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::WithdrawOperator)
+    }
+
+    // ── Issue #107: Governed upgrade mechanism ────────────────────────────
+
+    pub fn set_upgrade_delay(env: Env, ledgers: u32) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        if ledgers < MIN_UPGRADE_DELAY {
+            return Err(Error::UpgradeDelayTooShort);
+        }
+        env.storage().instance().set(&DataKey::UpgradeDelay, &ledgers);
+        Ok(())
+    }
+
+    pub fn get_upgrade_delay(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::UpgradeDelay)
+            .unwrap_or(MIN_UPGRADE_DELAY)
+    }
+
+    pub fn propose_upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let delay: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::UpgradeDelay)
+            .unwrap_or(MIN_UPGRADE_DELAY);
+
+        let proposal = UpgradeProposal {
+            wasm_hash: new_wasm_hash.clone(),
+            executable_after: env.ledger().sequence().saturating_add(delay),
+        };
+
+        env.storage().instance().set(&DataKey::UpgradeProposal, &proposal);
+        env.events().publish(
+            (EVENT_VERSION, Symbol::new(&env, "upg_prop")),
+            (new_wasm_hash, proposal.executable_after),
+        );
+        Ok(())
+    }
+
+    pub fn execute_upgrade(env: Env) -> Result<(), Error> {
+        let proposal: UpgradeProposal = env
+            .storage()
+            .instance()
+            .get(&DataKey::UpgradeProposal)
+            .ok_or(Error::UpgradeProposalMissing)?;
+
+        if env.ledger().sequence() < proposal.executable_after {
+            return Err(Error::UpgradeNotReady);
+        }
+
+        env.deployer()
+            .update_current_contract_wasm(proposal.wasm_hash.clone());
+        env.storage().instance().remove(&DataKey::UpgradeProposal);
+        env.events()
+            .publish((EVENT_VERSION, Symbol::new(&env, "upg_exec")), proposal.wasm_hash);
+        Ok(())
+    }
+
+    pub fn cancel_upgrade(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let proposal: UpgradeProposal = env
+            .storage()
+            .instance()
+            .get(&DataKey::UpgradeProposal)
+            .ok_or(Error::UpgradeProposalMissing)?;
+
+        env.storage().instance().remove(&DataKey::UpgradeProposal);
+        env.events()
+            .publish((EVENT_VERSION, Symbol::new(&env, "upg_can")), proposal.wasm_hash);
+        Ok(())
+    }
+
+    pub fn get_upgrade_proposal(env: Env) -> Option<UpgradeProposal> {
+        env.storage().instance().get(&DataKey::UpgradeProposal)
     }
 }
 
