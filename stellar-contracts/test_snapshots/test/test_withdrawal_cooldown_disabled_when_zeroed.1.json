@@ -259,7 +259,7 @@
                     "symbol": "Receipt"
                   },
                   {
-                    "u64": "0"
+                    "bytes": "45e1d6d81eeef1521d4488bab6c1a338203970e4f6fe9c514f8997e07ee6b56c"
                   }
                 ]
               },
@@ -287,7 +287,7 @@
                       "symbol": "id"
                     },
                     "val": {
-                      "u64": "0"
+                      "bytes": "45e1d6d81eeef1521d4488bab6c1a338203970e4f6fe9c514f8997e07ee6b56c"
                     }
                   },
                   {

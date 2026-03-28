@@ -1,6 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Bytes, Env, Symbol,
+    contract, contracterror, contractimpl, contracttype, token, xdr::ToXdr, Address, Bytes, BytesN,
+    Env, Symbol,
 };
 
 pub mod oracle;
@@ -79,7 +80,7 @@ pub struct TokenConfig {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Receipt {
-    pub id: u64,
+    pub id: BytesN<32>,
     pub depositor: Address,
     pub amount: i128,
     pub ledger: u32,
@@ -130,7 +131,7 @@ pub enum DataKey {
     Allowed(Address),
     LastDeposit(Address),
     ReceiptCounter,
-    Receipt(u64),
+    Receipt(BytesN<32>),
     LockPeriod,
     NextRequestID,
     WithdrawQueue(u64),
@@ -202,7 +203,7 @@ impl FiatBridge {
         amount: i128,
         token: Address,
         reference: Bytes,
-    ) -> Result<u64, Error> {
+    ) -> Result<BytesN<32>, Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         from.require_auth();
 
@@ -274,13 +275,30 @@ impl FiatBridge {
         token_client.transfer(&from, &env.current_contract_address(), &amount);
 
         // State update
-        let receipt_id: u64 = env
+        let receipt_counter: u64 = env
             .storage()
             .instance()
             .get(&DataKey::ReceiptCounter)
             .unwrap_or(0);
+
+        // Formalize receipt ID derivation (deterministic + unique via counter)
+        // Rule: SHA256(XDR(depositor, amount, ledger, reference, counter))
+        let derivation_data = (
+            from.clone(),
+            amount,
+            env.ledger().sequence(),
+            reference.clone(),
+            receipt_counter,
+        );
+        let receipt_id = env.crypto().sha256(&derivation_data.to_xdr(&env));
+
+        // Collision check (safety)
+        if env.storage().persistent().has(&DataKey::Receipt(receipt_id.clone().into())) {
+            return Err(Error::InternalError);
+        }
+
         let receipt = Receipt {
-            id: receipt_id,
+            id: receipt_id.clone().into(),
             depositor: from.clone(),
             amount,
             ledger: env.ledger().sequence(),
@@ -289,10 +307,10 @@ impl FiatBridge {
         };
         env.storage()
             .persistent()
-            .set(&DataKey::Receipt(receipt_id), &receipt);
+            .set(&DataKey::Receipt(receipt_id.clone().into()), &receipt);
         env.storage()
             .instance()
-            .set(&DataKey::ReceiptCounter, &(receipt_id + 1));
+            .set(&DataKey::ReceiptCounter, &(receipt_counter + 1));
 
         config.total_deposited += amount;
         env.storage()
@@ -329,11 +347,11 @@ impl FiatBridge {
         env.events()
             .publish((Symbol::new(&env, "deposit"), from), amount);
         env.events()
-            .publish((Symbol::new(&env, "rcpt_issd"),), receipt_id);
+            .publish((Symbol::new(&env, "rcpt_issd"),), receipt_id.clone());
 
         Self::check_invariants(&env, &token)?;
 
-        Ok(receipt_id)
+        Ok(receipt_id.into())
     }
 
     fn check_invariants(env: &Env, token_addr: &Address) -> Result<(), Error> {

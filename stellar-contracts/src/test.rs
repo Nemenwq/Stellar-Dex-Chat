@@ -5,8 +5,9 @@ use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Bytes, Env,
+    Address, Bytes, BytesN, Env, Symbol,
 };
+use soroban_sdk::xdr::ToXdr;
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -498,4 +499,60 @@ fn test_withdrawal_cooldown_disabled_when_zeroed() {
     // No cooldown active — withdrawal should go through immediately
     let req_id = bridge.request_withdrawal(&user, &200, &token_addr);
     bridge.execute_withdrawal(&req_id, &None);
+}
+
+#[test]
+fn test_receipt_id_determinism_and_uniqueness() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 1000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1000);
+
+    let reference = Bytes::from_slice(&env, b"ref1");
+    
+    // First deposit
+    let id1 = bridge.deposit(&user, &100, &token_addr, &reference);
+    
+    // Second identical deposit (except internal counter will increase)
+    let id2 = bridge.deposit(&user, &100, &token_addr, &reference);
+    
+    // They must be unique
+    assert_ne!(id1, id2);
+    
+    // Verify determinism: re-calculate id1 manually
+    // Derivation: sha256(xdr(depositor, amount, ledger, reference, counter))
+    // counter for id1 was 0
+    let expected_id1_data = (
+        user.clone(),
+        100i128,
+        env.ledger().sequence(),
+        reference.clone(),
+        0u64,
+    );
+    let expected_id1: BytesN<32> = env.crypto().sha256(&expected_id1_data.to_xdr(&env)).into();
+    assert_eq!(id1, expected_id1);
+}
+
+#[test]
+fn test_receipt_id_collision_resistance() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 1000);
+    
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    token_sac.mint(&user1, &500);
+    token_sac.mint(&user2, &500);
+    
+    let ref_shared = Bytes::from_slice(&env, b"ref");
+    
+    let id1 = bridge.deposit(&user1, &100, &token_addr, &ref_shared);
+    let id2 = bridge.deposit(&user2, &100, &token_addr, &ref_shared);
+    
+    assert_ne!(id1, id2);
+    
+    // Different amount
+    let id3 = bridge.deposit(&user1, &200, &token_addr, &ref_shared);
+    assert_ne!(id1, id3);
 }

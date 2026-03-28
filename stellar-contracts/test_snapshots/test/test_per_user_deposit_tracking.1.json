@@ -345,7 +345,7 @@
                     "symbol": "Receipt"
                   },
                   {
-                    "u64": "0"
+                    "bytes": "0428779174b4e0a091fab89ed6eb4e3c11d9bd6834639649845d7f09544bae37"
                   }
                 ]
               },
@@ -373,7 +373,7 @@
                       "symbol": "id"
                     },
                     "val": {
-                      "u64": "0"
+                      "bytes": "0428779174b4e0a091fab89ed6eb4e3c11d9bd6834639649845d7f09544bae37"
                     }
                   },
                   {
@@ -421,7 +421,7 @@
                     "symbol": "Receipt"
                   },
                   {
-                    "u64": "1"
+                    "bytes": "bde97c30747e9d8f00f94651699a30d6f95435379b12e286c31cd183d79eecbf"
                   }
                 ]
               },
@@ -449,7 +449,7 @@
                       "symbol": "id"
                     },
                     "val": {
-                      "u64": "1"
+                      "bytes": "bde97c30747e9d8f00f94651699a30d6f95435379b12e286c31cd183d79eecbf"
                     }
                   },
                   {
@@ -497,7 +497,7 @@
                     "symbol": "Receipt"
                   },
                   {
-                    "u64": "2"
+                    "bytes": "cabf36a5e5144b179318ece8647a89f1f5e94ed1cb70d8e746c4549262d21cff"
                   }
                 ]
               },
@@ -525,7 +525,7 @@
                       "symbol": "id"
                     },
                     "val": {
-                      "u64": "2"
+                      "bytes": "cabf36a5e5144b179318ece8647a89f1f5e94ed1cb70d8e746c4549262d21cff"
                     }
                   },
                   {
