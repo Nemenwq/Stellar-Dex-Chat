@@ -92,7 +92,14 @@
                 },
                 {
                   "bytes": ""
-                }
+                },
+                {
+                  "i128": "0"
+                },
+                {
+                  "u32": 0
+                },
+                "void"
               ]
             }
           },
@@ -143,7 +150,14 @@
                 },
                 {
                   "bytes": ""
-                }
+                },
+                {
+                  "i128": "0"
+                },
+                {
+                  "u32": 0
+                },
+                "void"
               ]
             }
           },
@@ -194,7 +208,14 @@
                 },
                 {
                   "bytes": ""
-                }
+                },
+                {
+                  "i128": "0"
+                },
+                {
+                  "u32": 0
+                },
+                "void"
               ]
             }
           },
@@ -386,6 +407,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "memo_hash"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "reference"
                     },
                     "val": {
@@ -462,6 +489,12 @@
                   },
                   {
                     "key": {
+                      "symbol": "memo_hash"
+                    },
+                    "val": "void"
+                  },
+                  {
+                    "key": {
                       "symbol": "reference"
                     },
                     "val": {
@@ -535,6 +568,12 @@
                     "val": {
                       "u32": 0
                     }
+                  },
+                  {
+                    "key": {
+                      "symbol": "memo_hash"
+                    },
+                    "val": "void"
                   },
                   {
                     "key": {
@@ -675,6 +714,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "LastAdminActionLedger"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "NextActionID"
                           }
                         ]
@@ -747,6 +798,28 @@
                       },
                       "val": {
                         "i128": "200"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "WithdrawQueueHead"
+                          }
+                        ]
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "WithdrawQueueLen"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u64": "0"
                       }
                     }
                   ]
