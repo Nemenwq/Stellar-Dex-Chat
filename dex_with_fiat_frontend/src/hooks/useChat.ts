@@ -444,6 +444,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
     [
       aiAssistant,
       connection,
+      conversationState,
       isLoading,
       messages,
       onTransactionReady,
@@ -509,6 +510,8 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
       awaitingClarification: machineState.state === ChatState.AWAITING_CLARIFICATION,
       clarificationQuestion: machineState.context.clarificationQuestion,
     };
+    // stateUpdateTrigger is intentionally included to force re-computation when machine state changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, stateUpdateTrigger]);
 
   return {

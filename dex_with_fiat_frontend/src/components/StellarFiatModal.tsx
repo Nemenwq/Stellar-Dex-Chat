@@ -97,7 +97,6 @@ export default function StellarFiatModal({
   const [isLoadingUI, setIsLoadingUI] = useState(true);
   const [copied, setCopied] = useState(false);
   const [lastActionTimestamp, setLastActionTimestamp] = useState(0);
-  const [idempotencyKey, setIdempotencyKey] = useState('');
 
   const handleCopyHash = () => {
     if (!txHash) return;
@@ -150,7 +149,6 @@ export default function StellarFiatModal({
     setNote('');
     setRiskConfirmation('');
     setLastLoggedRiskAmount('');
-    setIdempotencyKey(uuidv4());
     setLastActionTimestamp(0);
 
     if (isAdminMode) {
