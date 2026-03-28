@@ -61,7 +61,7 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
       scale: 1,
       transition: {
         duration: 0.4,
-        ease: [0.23, 1, 0.32, 1] // Custom cubic-bezier for premium feel
+        ease: [0.23, 1, 0.32, 1] as const // Custom cubic-bezier for premium feel
       }
     }
   };

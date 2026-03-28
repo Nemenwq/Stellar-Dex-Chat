@@ -149,7 +149,7 @@ export default function ChatMessages({
     // Delay setting isReadyToAnimate to ensure initial history is processed
     const timer = setTimeout(() => setIsReadyToAnimate(true), 100);
     return () => clearTimeout(timer);
-  }, []);
+  }, [allMessages]);
 
   // Update seen messages whenever visibleMessages changes, but don't trigger re-render
   useEffect(() => {
@@ -186,7 +186,7 @@ export default function ChatMessages({
         return () => clearTimeout(timer);
       }
     }
-  }, [allMessages.length, isLoading, isLoadingMore, shouldPreserveScroll]);
+  }, [allMessages.length, isLoading, isLoadingMore, shouldPreserveScroll, scrollToBottom]);
 
   // Handle scroll preservation when loading more
   useEffect(() => {
