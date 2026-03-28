@@ -95,9 +95,9 @@ export function useTransactionFilters(
   const toggleFilter = useCallback(
     (category: FilterCategory, value: string) => {
       const currentValues = filterState[category];
-      const newValues = currentValues.includes(value)
+      const newValues = currentValues.includes(value as never)
         ? currentValues.filter((v) => v !== value)
-        : [...currentValues, value];
+        : [...currentValues, value as never];
 
       const newFilterState: FilterState = {
         ...filterState,
