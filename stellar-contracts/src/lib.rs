@@ -12,6 +12,8 @@ const MAX_REFERENCE_LEN: u32 = 64;
 const WINDOW_LEDGERS: u32 = 17_280; // ~24 hours
 const MIN_TIMELOCK_DELAY: u32 = 34_560; // 48 hours
 const DEFAULT_INACTIVITY_THRESHOLD: u32 = 1_555_200; // ~3 months
+pub const EVENT_VERSION: u32 = 1;
+pub const ESCROW_STORAGE_VERSION: u32 = 1;
 
 // ── Error codes ───────────────────────────────────────────────────────────
 #[contracterror]
@@ -60,6 +62,11 @@ pub enum Error {
     OracleNotSet = 701,
     OraclePriceInvalid = 702,
     SlippageExceeded = 703,
+
+    // --- 800 series: Quota & Migration ---
+    WithdrawalQuotaExceeded = 801,
+    MigrationAlreadyComplete = 802,
+    BatchOperationFailed = 803,
     NotOperator = 704,
 }
 
@@ -114,6 +121,39 @@ pub struct UserDailyVolume {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserDailyWithdrawal {
+    pub amount: i128,
+    pub window_start: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowRecord {
+    pub version: u32,
+    pub depositor: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub ledger: u32,
+    pub migrated: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchAdminOp {
+    pub op_type: Symbol,
+    pub payload: Bytes,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchResult {
+    pub total_ops: u32,
+    pub success_count: u32,
+    pub failed_index: Option<u32>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConfigSnapshot {
     pub admin: Address,
     pub pending_admin: Option<Address>,
@@ -164,6 +204,11 @@ pub enum DataKey {
     FiatLimit,
     UserDailyVolume(Address),
     AntiSandwichDelay,
+    WithdrawalQuota,
+    UserDailyWithdrawal(Address),
+    EscrowStorageVersion,
+    EscrowRecord(u64),
+    EscrowMigrationCursor,
     PendingRenounceLedger,
     Operator(Address),
     OperatorHeartbeat(Address),
@@ -411,6 +456,7 @@ impl FiatBridge {
             return Err(Error::ZeroAmount);
         }
 
+        Self::enforce_withdrawal_quota(&env, &to, amount)?;
         // Denylist
         if env.storage().persistent().has(&DataKey::Denied(to.clone())) {
             return Err(Error::AddressDenied);
@@ -584,6 +630,8 @@ impl FiatBridge {
             }
             None => request.amount,
         };
+
+        Self::enforce_withdrawal_quota(&env, &request.to, execute_amount)?;
 
         if execute_amount > balance {
             return Err(Error::InsufficientFunds);
@@ -887,8 +935,10 @@ impl FiatBridge {
             0
         };
 
-        env.events()
-            .publish((Symbol::new(env, "slippage"),), slippage_bps as u32);
+        env.events().publish(
+            (Symbol::new(env, "slippage"), Symbol::new(env, "v1")),
+            slippage_bps as u32,
+        );
 
         if slippage_bps > max_slippage_bps as i128 {
             return Err(Error::SlippageExceeded);
@@ -1412,6 +1462,330 @@ impl FiatBridge {
                 .get(&DataKey::AntiSandwichDelay)
                 .unwrap_or(0),
         })
+    }
+
+    // ── Withdrawal Quota ──────────────────────────────────────────────────
+    pub fn set_withdrawal_quota(env: Env, quota: i128) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawalQuota, &quota);
+        env.events().publish(
+            (Symbol::new(&env, "quota_set"), Symbol::new(&env, "v1")),
+            quota,
+        );
+        Ok(())
+    }
+
+    pub fn get_withdrawal_quota(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::WithdrawalQuota)
+            .unwrap_or(0)
+    }
+
+    pub fn get_user_daily_withdrawal(env: Env, user: Address) -> i128 {
+        let curr = env.ledger().sequence();
+        let record: UserDailyWithdrawal = env
+            .storage()
+            .instance()
+            .get(&DataKey::UserDailyWithdrawal(user))
+            .unwrap_or(UserDailyWithdrawal {
+                amount: 0,
+                window_start: curr,
+            });
+        if curr >= record.window_start + WINDOW_LEDGERS {
+            0
+        } else {
+            record.amount
+        }
+    }
+
+    fn enforce_withdrawal_quota(env: &Env, user: &Address, amount: i128) -> Result<(), Error> {
+        let quota: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawalQuota)
+            .unwrap_or(0);
+        if quota <= 0 {
+            return Ok(());
+        }
+
+        let curr = env.ledger().sequence();
+        let mut record: UserDailyWithdrawal = env
+            .storage()
+            .instance()
+            .get(&DataKey::UserDailyWithdrawal(user.clone()))
+            .unwrap_or(UserDailyWithdrawal {
+                amount: 0,
+                window_start: curr,
+            });
+
+        if curr >= record.window_start + WINDOW_LEDGERS {
+            record.amount = 0;
+            record.window_start = curr;
+        }
+
+        if record.amount + amount > quota {
+            return Err(Error::WithdrawalQuotaExceeded);
+        }
+
+        record.amount += amount;
+        env.storage()
+            .instance()
+            .set(&DataKey::UserDailyWithdrawal(user.clone()), &record);
+
+        Ok(())
+    }
+
+    // ── Escrow Migration ──────────────────────────────────────────────────
+    pub fn get_escrow_storage_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::EscrowStorageVersion)
+            .unwrap_or(0)
+    }
+
+    pub fn migrate_escrow(
+        env: Env,
+        batch_size: u32,
+    ) -> Result<u32, Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let current_version: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::EscrowStorageVersion)
+            .unwrap_or(0);
+
+        if current_version >= ESCROW_STORAGE_VERSION {
+            return Err(Error::MigrationAlreadyComplete);
+        }
+
+        let cursor: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::EscrowMigrationCursor)
+            .unwrap_or(0);
+
+        let receipt_counter: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ReceiptCounter)
+            .unwrap_or(0);
+
+        let mut migrated_count: u32 = 0;
+        let mut current_id = cursor;
+
+        while current_id < receipt_counter && migrated_count < batch_size {
+            if let Some(receipt) = env
+                .storage()
+                .persistent()
+                .get::<_, Receipt>(&DataKey::Receipt(current_id))
+            {
+                let escrow = EscrowRecord {
+                    version: ESCROW_STORAGE_VERSION,
+                    depositor: receipt.depositor,
+                    token: env
+                        .storage()
+                        .instance()
+                        .get(&DataKey::Token)
+                        .unwrap_or_else(|| Address::from_string(&soroban_sdk::String::from_str(&env, ""))),
+                    amount: receipt.amount,
+                    ledger: receipt.ledger,
+                    migrated: true,
+                };
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::EscrowRecord(current_id), &escrow);
+                migrated_count += 1;
+            }
+            current_id += 1;
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::EscrowMigrationCursor, &current_id);
+
+        if current_id >= receipt_counter {
+            env.storage()
+                .instance()
+                .set(&DataKey::EscrowStorageVersion, &ESCROW_STORAGE_VERSION);
+        }
+
+        env.events().publish(
+            (Symbol::new(&env, "migration"), Symbol::new(&env, "v1")),
+            (current_id, migrated_count),
+        );
+
+        Ok(migrated_count)
+    }
+
+    pub fn get_escrow_record(env: Env, id: u64) -> Option<EscrowRecord> {
+        env.storage().persistent().get(&DataKey::EscrowRecord(id))
+    }
+
+    pub fn get_migration_cursor(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::EscrowMigrationCursor)
+            .unwrap_or(0)
+    }
+
+    // ── Batched Admin Operations ──────────────────────────────────────────
+    pub fn execute_batch_admin(
+        env: Env,
+        operations: Vec<BatchAdminOp>,
+    ) -> Result<BatchResult, Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let total_ops = operations.len() as u32;
+        let mut success_count: u32 = 0;
+
+        let snapshot_cooldown: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CooldownLedgers)
+            .unwrap_or(0);
+        let snapshot_lock_period: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LockPeriod)
+            .unwrap_or(0);
+        let snapshot_quota: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawalQuota)
+            .unwrap_or(0);
+        let snapshot_anti_sandwich: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::AntiSandwichDelay)
+            .unwrap_or(0);
+
+        for (idx, op) in operations.iter().enumerate() {
+            let result = Self::execute_single_admin_op(&env, &op);
+            if result.is_err() {
+                env.storage()
+                    .instance()
+                    .set(&DataKey::CooldownLedgers, &snapshot_cooldown);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::LockPeriod, &snapshot_lock_period);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::WithdrawalQuota, &snapshot_quota);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::AntiSandwichDelay, &snapshot_anti_sandwich);
+
+                env.events().publish(
+                    (Symbol::new(&env, "batch_fail"), Symbol::new(&env, "v1")),
+                    (idx as u32, total_ops),
+                );
+
+                return Err(Error::BatchOperationFailed);
+            }
+            success_count += 1;
+        }
+
+        let batch_result = BatchResult {
+            total_ops,
+            success_count,
+            failed_index: None,
+        };
+
+        env.events().publish(
+            (Symbol::new(&env, "batch_ok"), Symbol::new(&env, "v1")),
+            (success_count, total_ops),
+        );
+
+        Ok(batch_result)
+    }
+
+    fn execute_single_admin_op(env: &Env, op: &BatchAdminOp) -> Result<(), Error> {
+        let op_name = &op.op_type;
+
+        if *op_name == Symbol::new(env, "set_cooldown") {
+            if op.payload.len() < 4 {
+                return Err(Error::InternalError);
+            }
+            let ledgers = Self::bytes_to_u32(env, &op.payload)?;
+            env.storage()
+                .instance()
+                .set(&DataKey::CooldownLedgers, &ledgers);
+            Ok(())
+        } else if *op_name == Symbol::new(env, "set_lock") {
+            if op.payload.len() < 4 {
+                return Err(Error::InternalError);
+            }
+            let ledgers = Self::bytes_to_u32(env, &op.payload)?;
+            env.storage()
+                .instance()
+                .set(&DataKey::LockPeriod, &ledgers);
+            Ok(())
+        } else if *op_name == Symbol::new(env, "set_quota") {
+            if op.payload.len() < 16 {
+                return Err(Error::InternalError);
+            }
+            let quota = Self::bytes_to_i128(env, &op.payload)?;
+            env.storage()
+                .instance()
+                .set(&DataKey::WithdrawalQuota, &quota);
+            Ok(())
+        } else if *op_name == Symbol::new(env, "set_sandwich") {
+            if op.payload.len() < 4 {
+                return Err(Error::InternalError);
+            }
+            let ledgers = Self::bytes_to_u32(env, &op.payload)?;
+            env.storage()
+                .instance()
+                .set(&DataKey::AntiSandwichDelay, &ledgers);
+            Ok(())
+        } else {
+            Err(Error::InternalError)
+        }
+    }
+
+    fn bytes_to_u32(_env: &Env, bytes: &Bytes) -> Result<u32, Error> {
+        if bytes.len() < 4 {
+            return Err(Error::InternalError);
+        }
+        let mut arr = [0u8; 4];
+        for i in 0..4 {
+            arr[i] = bytes.get(i as u32).ok_or(Error::InternalError)?;
+        }
+        Ok(u32::from_be_bytes(arr))
+    }
+
+    fn bytes_to_i128(_env: &Env, bytes: &Bytes) -> Result<i128, Error> {
+        if bytes.len() < 16 {
+            return Err(Error::InternalError);
+        }
+        let mut arr = [0u8; 16];
+        for i in 0..16 {
+            arr[i] = bytes.get(i as u32).ok_or(Error::InternalError)?;
+        }
+        Ok(i128::from_be_bytes(arr))
+    }
+
+    pub fn get_event_version(_env: Env) -> u32 {
+        EVENT_VERSION
     }
 }
 
