@@ -59,6 +59,7 @@ export interface TransactionData {
   recipient?: string;
   transactionId?: string;
   txHash?: string; // Transaction hash for completed transactions
+  receiptId?: string; // On-chain receipt ID (hex-encoded BytesN<32>)
   note?: string;
 }
 

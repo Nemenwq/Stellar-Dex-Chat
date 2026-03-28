@@ -5,7 +5,8 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useUserPreferences } from '@/contexts/UserPreferencesContext';
 import { useMasking } from '@/hooks/useMasking';
 import { ChatMessage } from '@/types';
-import { AlertTriangle, Bot, Clock, Coins, Link, RotateCcw, User, Loader2, RefreshCcw, XCircle } from 'lucide-react';
+import { AlertTriangle, Bot, Clock, Coins, Copy, Check, Link, RotateCcw, User, Loader2, RefreshCcw, XCircle } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useTranslation } from '@/contexts/TranslationContext';
 
@@ -34,6 +35,16 @@ export default function Message({ message, onActionClick, onRetry }: MessageProp
   const { t } = useTranslation();
   const isPending = message.metadata?.status === 'pending';
   const isFailed = message.metadata?.status === 'failed';
+  const [receiptCopied, setReceiptCopied] = useState(false);
+
+  const handleCopyReceiptId = useCallback((receiptId: string) => {
+    navigator.clipboard?.writeText(receiptId).then(() => {
+      setReceiptCopied(true);
+      setTimeout(() => setReceiptCopied(false), 2000);
+    }).catch(() => {
+      /* clipboard unavailable */
+    });
+  }, []);
 
   return (
     <div
@@ -310,6 +321,34 @@ export default function Message({ message, onActionClick, onRetry }: MessageProp
                       <span className="theme-text-primary font-medium">
                         {message.metadata.transactionData.note}
                       </span>
+                    </div>
+                  )}
+                  {message.metadata.transactionData.receiptId && (
+                    <div className="flex justify-between items-center gap-2">
+                      <span>Receipt ID:</span>
+                      <div className="flex items-center gap-1">
+                        <span className="theme-text-primary font-mono text-xs">
+                          {message.metadata.transactionData.receiptId.slice(0, 6)}
+                          ...
+                          {message.metadata.transactionData.receiptId.slice(-4)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleCopyReceiptId(
+                              message.metadata!.transactionData!.receiptId!,
+                            )
+                          }
+                          className="flex-shrink-0 p-0.5 rounded text-gray-400 hover:text-blue-400 transition-colors"
+                          title="Copy receipt ID"
+                        >
+                          {receiptCopied ? (
+                            <Check className="w-3 h-3 text-green-400" />
+                          ) : (
+                            <Copy className="w-3 h-3" />
+                          )}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
