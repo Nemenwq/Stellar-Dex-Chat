@@ -18,28 +18,43 @@ const DEFAULT_INACTIVITY_THRESHOLD: u32 = 1_555_200; // ~3 months
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    NotInitialized = 1,
-    AlreadyInitialized = 2,
-    Unauthorized = 3,
-    ZeroAmount = 4,
-    ExceedsLimit = 5,
-    InsufficientFunds = 6,
-    WithdrawalLocked = 7,
-    RequestNotFound = 8,
-    TokenNotWhitelisted = 9,
-    ReferenceTooLong = 10,
-    DailyLimitExceeded = 11,
-    CooldownActive = 12,
-    NotAllowed = 13,
-    OracleNotSet = 14,
-    ExceedsFiatLimit = 15,
-    NoPendingAdmin = 16,
-    ActionNotReady = 17,
-    ActionNotQueued = 18,
-    NoEmergencyRecoveryAddress = 19,
-    InactivityThresholdNotReached = 20,
-    InvalidRecipient = 21,
-    AntiSandwichDelayActive = 22,
+    // --- 100 series: Initialization & State ---
+    NotInitialized = 101,
+    AlreadyInitialized = 102,
+    InternalError = 103,
+
+    // --- 200 series: Authorization & Access ---
+    Unauthorized = 201,
+    NotAllowed = 202,
+    NoPendingAdmin = 203,
+    InvalidRecipient = 204,
+
+    // --- 300 series: Constraints & Limits ---
+    ZeroAmount = 301,
+    ExceedsLimit = 302,
+    DailyLimitExceeded = 303,
+    ExceedsFiatLimit = 304,
+    ReferenceTooLong = 305,
+    CooldownActive = 306,
+    AntiSandwichDelayActive = 307,
+    TokenNotWhitelisted = 308,
+
+    // --- 400 series: Funds & Balances ---
+    InsufficientFunds = 401,
+
+    // --- 500 series: Withdrawal Queue ---
+    RequestNotFound = 501,
+    WithdrawalLocked = 502,
+
+    // --- 600 series: Governance & Timelock ---
+    ActionNotQueued = 601,
+    ActionNotReady = 602,
+    InactivityThresholdNotReached = 603,
+    NoEmergencyRecoveryAddress = 604,
+
+    // --- 700 series: External Services ---
+    OracleNotSet = 701,
+    OraclePriceInvalid = 702,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -332,13 +347,13 @@ impl FiatBridge {
         let balance = token_client.balance(&env.current_contract_address());
 
         if config.total_deposited < config.total_withdrawn {
-            return Err(Error::NotAllowed); // Should not happen
+            return Err(Error::InternalError);
         }
 
         let net_deposited = config.total_deposited - config.total_withdrawn;
 
         if net_deposited < config.total_liabilities {
-            return Err(Error::NotAllowed); // Should not happen
+            return Err(Error::InternalError);
         }
 
         if balance < net_deposited {
@@ -729,7 +744,7 @@ impl FiatBridge {
         let oracle = crate::oracle::OracleClient::new(env, &oracle_addr);
         let price = oracle.get_price(token).unwrap_or(0);
         if price <= 0 {
-            return Err(Error::OracleNotSet);
+            return Err(Error::OraclePriceInvalid);
         }
 
         let usd_cents = (amount * price) / (ORACLE_PRICE_DECIMALS / 100);
@@ -830,17 +845,17 @@ impl FiatBridge {
             .get(&DataKey::Token)
             .ok_or(Error::NotInitialized)
     }
-    pub fn get_limit(env: Env) -> i128 {
+    pub fn get_limit(env: Env) -> Result<i128, Error> {
         let tok = env
             .storage()
             .instance()
             .get::<_, Address>(&DataKey::Token)
-            .unwrap();
-        env.storage()
+            .ok_or(Error::NotInitialized)?;
+        Ok(env.storage()
             .persistent()
             .get::<_, TokenConfig>(&DataKey::TokenRegistry(tok))
-            .unwrap()
-            .limit
+            .ok_or(Error::InternalError)?
+            .limit)
     }
     pub fn get_user_deposited(env: Env, user: Address) -> i128 {
         env.storage()
@@ -848,17 +863,17 @@ impl FiatBridge {
             .get(&DataKey::UserDeposited(user))
             .unwrap_or(0)
     }
-    pub fn get_total_deposited(env: Env) -> i128 {
+    pub fn get_total_deposited(env: Env) -> Result<i128, Error> {
         let tok = env
             .storage()
             .instance()
             .get::<_, Address>(&DataKey::Token)
-            .unwrap();
-        env.storage()
+            .ok_or(Error::NotInitialized)?;
+        Ok(env.storage()
             .persistent()
             .get::<_, TokenConfig>(&DataKey::TokenRegistry(tok))
-            .unwrap()
-            .total_deposited
+            .ok_or(Error::InternalError)?
+            .total_deposited)
     }
     pub fn get_lock_period(env: Env) -> u32 {
         env.storage()
@@ -898,29 +913,29 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
-    pub fn get_total_withdrawn(env: Env) -> i128 {
+    pub fn get_total_withdrawn(env: Env) -> Result<i128, Error> {
         let tok = env
             .storage()
             .instance()
             .get::<_, Address>(&DataKey::Token)
-            .unwrap();
-        env.storage()
+            .ok_or(Error::NotInitialized)?;
+        Ok(env.storage()
             .persistent()
             .get::<_, TokenConfig>(&DataKey::TokenRegistry(tok))
-            .unwrap()
-            .total_withdrawn
+            .ok_or(Error::InternalError)?
+            .total_withdrawn)
     }
-    pub fn get_total_liabilities(env: Env) -> i128 {
+    pub fn get_total_liabilities(env: Env) -> Result<i128, Error> {
         let tok = env
             .storage()
             .instance()
             .get::<_, Address>(&DataKey::Token)
-            .unwrap();
-        env.storage()
+            .ok_or(Error::NotInitialized)?;
+        Ok(env.storage()
             .persistent()
             .get::<_, TokenConfig>(&DataKey::TokenRegistry(tok))
-            .unwrap()
-            .total_liabilities
+            .ok_or(Error::InternalError)?
+            .total_liabilities)
     }
 
     pub fn get_config_snapshot(env: Env) -> Result<ConfigSnapshot, Error> {
