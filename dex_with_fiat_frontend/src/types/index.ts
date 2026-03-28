@@ -59,6 +59,7 @@ export interface TransactionData {
   recipient?: string;
   transactionId?: string;
   txHash?: string; // Transaction hash for completed transactions
+  receiptId?: string; // On-chain receipt ID (hex-encoded BytesN<32>)
   note?: string;
 }
 
@@ -185,4 +186,34 @@ export interface FiatTransactionParams {
   fiatAmount: string;
   transactionId: string;
   bankAccount?: BankAccount;
+}
+
+// Filter Types for Transaction Views
+export type TransactionStatus =
+  | 'pending'
+  | 'completed'
+  | 'warning'
+  | 'failed'
+  | 'cancelled';
+
+export type FilterCategory = 'status' | 'asset' | 'network';
+
+export interface FilterState {
+  status: TransactionStatus[];
+  asset: string[];
+  network: string[];
+}
+
+export interface FilterOption {
+  value: string;
+  label: string;
+  count: number;
+}
+
+export interface FilterStats {
+  statusOptions: FilterOption[];
+  assetOptions: FilterOption[];
+  networkOptions: FilterOption[];
+  totalCount: number;
+  filteredCount: number;
 }

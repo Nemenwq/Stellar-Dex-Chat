@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { v4 as uuidv4 } from 'uuid';
 import { pollTransaction } from '@/lib/stellarContract';
 import {
   X,
@@ -33,6 +32,7 @@ import { useTxHistory } from '@/hooks/useTxHistory';
 import { downloadReceipt } from '@/lib/receipt';
 import type { ChatMessage } from '@/types';
 import { useAccessibleModal } from '@/hooks/useAccessibleModal';
+import { useIdempotentAction } from '@/hooks/useIdempotentAction';
 
 interface StellarFiatModalProps {
   isOpen: boolean;
@@ -74,6 +74,11 @@ export default function StellarFiatModal({
   const { connection, signTx } = useStellarWallet();
   const { addNotification } = useNotifications();
   const { addEntry } = useTxHistory();
+  
+  const { execute: executeTransaction, isProcessing: isTxProcessing } = useIdempotentAction({
+    cooldownMs: SUBMIT_COOLDOWN_MS,
+    logSuppressed: true,
+  });
 
   const [amount, setAmount] = useState(defaultAmount);
   const [activePreset, setActivePreset] = useState<number | null>(null);
@@ -91,7 +96,51 @@ export default function StellarFiatModal({
   const [isLoadingUI, setIsLoadingUI] = useState(true);
   const [copied, setCopied] = useState(false);
   const [lastActionTimestamp, setLastActionTimestamp] = useState(0);
-  const [idempotencyKey, setIdempotencyKey] = useState('');
+  const [walletBalance, setWalletBalance] = useState<string | null>(null);
+  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || !connection.isConnected || !connection.publicKey) {
+      setWalletBalance(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingBalance(true);
+
+    const fetchBalance = async () => {
+      try {
+        const horizonUrl =
+          connection.network?.toUpperCase() === 'PUBLIC'
+            ? 'https://horizon.stellar.org'
+            : 'https://horizon-testnet.stellar.org';
+        const res = await fetch(
+          `${horizonUrl}/accounts/${connection.publicKey}`,
+        );
+        if (!res.ok) throw new Error('Failed to fetch account');
+        const data = await res.json();
+        const native = (
+          data.balances as Array<{ asset_type: string; balance: string }>
+        ).find((b) => b.asset_type === 'native');
+        if (!cancelled && native) {
+          setWalletBalance(native.balance);
+        }
+      } catch {
+        if (!cancelled) {
+          setWalletBalance(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingBalance(false);
+        }
+      }
+    };
+
+    void fetchBalance();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, connection.isConnected, connection.publicKey]);
 
   const handleCopyHash = () => {
     if (!txHash) return;
@@ -144,7 +193,6 @@ export default function StellarFiatModal({
     setNote('');
     setRiskConfirmation('');
     setLastLoggedRiskAmount('');
-    setIdempotencyKey(uuidv4());
     setLastActionTimestamp(0);
 
     if (isAdminMode) {
@@ -424,91 +472,89 @@ export default function StellarFiatModal({
       return;
     }
 
-    if (
-      status === 'loading' ||
-      Date.now() - lastActionTimestamp < SUBMIT_COOLDOWN_MS
-    ) {
+    if (status === 'loading' || isTxProcessing) {
       return;
     }
 
-    setStatus('loading');
-    setLastActionTimestamp(Date.now());
-    setErrorMsg('');
+    await executeTransaction(async (generatedIdempotencyKey) => {
+      setStatus('loading');
+      setErrorMsg('');
 
-    console.log(
-      `[StellarFiatModal] Initiating ${isAdminMode ? 'withdraw' : 'deposit'} with idempotencyKey: ${idempotencyKey}`,
-    );
-
-    const onHashKnown = (hash: string) => {
-      localStorage.setItem(
-        PENDING_TX_KEY,
-        JSON.stringify({
-          hash,
-          amount,
-          isAdminMode,
-          recipient,
-          idempotencyKey,
-        } satisfies PendingTxRecord),
+      console.log(
+        `[StellarFiatModal] Initiating ${isAdminMode ? 'withdraw' : 'deposit'} with idempotencyKey: ${generatedIdempotencyKey}`,
       );
-    };
 
-    try {
-      addNotification(
-        'tx_submit',
-        `Submitting ${isAdminMode ? 'withdrawal' : 'deposit'} transaction...`,
-      );
-      let hash: string;
-      if (isAdminMode) {
-        const to = recipient || connection.publicKey;
-        hash = await withdrawFromContract(
-          connection.publicKey,
-          to,
-          stroopsAmount,
-          signTx,
-          onHashKnown,
+      const onHashKnown = (hash: string) => {
+        localStorage.setItem(
+          PENDING_TX_KEY,
+          JSON.stringify({
+            hash,
+            amount,
+            isAdminMode,
+            recipient,
+            idempotencyKey: generatedIdempotencyKey,
+          } satisfies PendingTxRecord),
         );
-      } else {
-        hash = await depositToContract(
-          connection.publicKey,
-          stroopsAmount,
-          signTx,
-          onHashKnown,
-        );
-      }
+      };
 
-      setTxHash(hash);
-      setStatus('success');
-      clearCache();
-      localStorage.removeItem(PENDING_TX_KEY);
-      addNotification(
-        'tx_confirm',
-        `Transaction confirmed successfully! (${hash.slice(0, 8)}...)`,
-      );
-      addEntry({
-        kind: isAdminMode ? 'payout' : 'deposit',
-        status: 'completed',
-        amount,
-        asset: 'XLM',
-        note: note.trim() || undefined,
-        txHash: hash,
-        message: `${isAdminMode ? 'Withdrawal' : 'Deposit'} confirmed on Stellar.`,
-      });
       try {
-        await refetchStats();
-      } catch {
-        // ignore refresh failures after a confirmed transaction
-      }
-      if (!isAdminMode && onDepositSuccess) {
-        onDepositSuccess({
-          xlmAmount: parseFloat(amount || '0'),
+        addNotification(
+          'tx_submit',
+          `Submitting ${isAdminMode ? 'withdrawal' : 'deposit'} transaction...`,
+        );
+        let hash: string;
+        if (isAdminMode) {
+          const to = recipient || connection.publicKey;
+          hash = await withdrawFromContract(
+            connection.publicKey,
+            to,
+            stroopsAmount,
+            signTx,
+            onHashKnown,
+          );
+        } else {
+          hash = await depositToContract(
+            connection.publicKey,
+            stroopsAmount,
+            signTx,
+            onHashKnown,
+          );
+        }
+
+        setTxHash(hash);
+        setStatus('success');
+        clearCache();
+        localStorage.removeItem(PENDING_TX_KEY);
+        addNotification(
+          'tx_confirm',
+          `Transaction confirmed successfully! (${hash.slice(0, 8)}...)`,
+        );
+        addEntry({
+          kind: isAdminMode ? 'payout' : 'deposit',
+          status: 'completed',
+          amount,
+          asset: 'XLM',
           note: note.trim() || undefined,
+          txHash: hash,
+          message: `${isAdminMode ? 'Withdrawal' : 'Deposit'} confirmed on Stellar.`,
         });
+        try {
+          await refetchStats();
+        } catch {
+          // ignore refresh failures after a confirmed transaction
+        }
+        if (!isAdminMode && onDepositSuccess) {
+          onDepositSuccess({
+            xlmAmount: parseFloat(amount || '0'),
+            note: note.trim() || undefined,
+          });
+        }
+      } catch (err) {
+        setErrorMsg(err instanceof Error ? err.message : 'Transaction failed');
+        setStatus('error');
+        localStorage.removeItem(PENDING_TX_KEY);
       }
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Transaction failed');
-      setStatus('error');
-      localStorage.removeItem(PENDING_TX_KEY);
-    }
+    }, `stellar_${isAdminMode ? 'withdraw' : 'deposit'}`);
   };
 
   const handleClose = () => {
@@ -674,6 +720,18 @@ export default function StellarFiatModal({
                 <p className="theme-soft-danger flex items-center gap-2 rounded-lg px-3 py-2 mt-2 text-xs">
                   <AlertCircle className="w-3 h-3 flex-shrink-0" />
                   Invalid amount. Please enter a positive number.
+                </p>
+              )}
+              {connection.isConnected && (
+                <p className="theme-text-secondary text-xs mt-2">
+                  Available:{' '}
+                  <span className="theme-text-primary font-medium">
+                    {isLoadingBalance
+                      ? 'Loading...'
+                      : walletBalance !== null
+                        ? `${walletBalance} XLM`
+                        : 'Unable to fetch balance'}
+                  </span>
                 </p>
               )}
             </div>
@@ -936,10 +994,10 @@ export default function StellarFiatModal({
             <div className="flex flex-col gap-2">
               <button
                 onClick={handleAction}
-                disabled={isSubmitDisabled}
+                disabled={isSubmitDisabled || isTxProcessing}
                 className="theme-primary-button w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-lg font-semibold transition-all"
               >
-                {status === 'loading' ? (
+                {status === 'loading' || isTxProcessing ? (
                   <>
                     <Loader2
                       data-testid="loading-spinner"
