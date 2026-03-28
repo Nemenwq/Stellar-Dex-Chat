@@ -3,9 +3,9 @@ extern crate std;
 
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
+    testutils::{Address as _, Ledger, Events},
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Bytes, BytesN, Env, Symbol,
+    Address, Bytes, BytesN, Env, Symbol, IntoVal,
 };
 use soroban_sdk::xdr::ToXdr;
 
@@ -1376,4 +1376,65 @@ fn test_rescue_insufficient_balance() {
 
     let result = bridge.try_rescue_token(&stray_addr, &Address::generate(&env), &200);
     assert_eq!(result, Err(Ok(Error::InsufficientFunds)));
+}
+
+// ── fee and admin event tests ──────────────────────────────────────────
+
+#[test]
+fn test_get_accrued_fees() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, _) = setup_bridge(&env, 10_000);
+    
+    // Initial fees should be 0
+    assert_eq!(bridge.get_accrued_fees(&token_addr), 0);
+
+    // Accrue some fees
+    bridge.accrue_fee(&token_addr, &500);
+    
+    // Check accrued fees
+    assert_eq!(bridge.get_accrued_fees(&token_addr), 500);
+
+    // Accrue more
+    bridge.accrue_fee(&token_addr, &300);
+    assert_eq!(bridge.get_accrued_fees(&token_addr), 800);
+}
+
+#[test]
+fn test_admin_action_events() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+    
+    let delay = 34_560u32; // MIN_TIMELOCK_DELAY
+    let target_ledger = env.ledger().sequence() + delay;
+    let action_type = Symbol::new(&env, "set_limit");
+    let payload = Bytes::new(&env);
+    
+    // Queue admin action
+    let action_id = bridge.queue_admin_action(&action_type, &payload, &delay);
+    
+    // Verify queuing event
+    let topics_queued = soroban_sdk::vec![&env, Symbol::new(&env, "admin_action_queued").into_val(&env), action_type.clone().into_val(&env), action_id.clone().into_val(&env)];
+    assert_eq!(
+        env.events().all().filter_by_contract(&bridge.address),
+        soroban_sdk::vec![&env, (bridge.address.clone(), topics_queued, target_ledger.into_val(&env))]
+    );
+    
+    // Fast forward ledger to execute
+    env.ledger().with_mut(|li| {
+        li.sequence_number = target_ledger + 1;
+    });
+
+    // Execute admin action
+    bridge.execute_admin_action(&action_id);
+    
+    // Verify execution event
+    let topics_exec = soroban_sdk::vec![&env, Symbol::new(&env, "admin_action_executed").into_val(&env), action_id.into_val(&env)];
+    assert_eq!(
+        env.events().all().filter_by_contract(&bridge.address),
+        soroban_sdk::vec![&env, (bridge.address.clone(), topics_exec, true.into_val(&env))]
+    );
 }
