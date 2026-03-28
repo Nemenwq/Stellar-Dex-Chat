@@ -16,6 +16,7 @@ import {
   PinOff,
 } from 'lucide-react';
 import SkeletonSidebar from '@/components/ui/skeleton/SkeletonSidebar';
+import EmptyState from '@/components/ui/EmptyState';
 
 import { ChatSession } from '@/types';
 
@@ -235,18 +236,19 @@ export default function ChatHistorySidebar({
         {isLoading ? (
           <SkeletonSidebar />
         ) : !hasHistory ? (
-          <div className="theme-text-muted p-4 text-center">
-            <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">No conversations yet</p>
-            <p className="text-xs mt-1 opacity-70">
-              Start chatting to see your history here
-            </p>
-          </div>
+          <EmptyState
+            icon={MessageSquare}
+            title="No conversations yet"
+            description="Start chatting to see your history here"
+            cta={{ label: 'New Conversation', onClick: () => window.location.reload() }}
+          />
         ) : filteredSessions.length === 0 ? (
-          <div className="theme-text-muted p-4 text-center">
-            <Search className="w-6 h-6 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">No conversations found</p>
-          </div>
+          <EmptyState
+            icon={Search}
+            title="No conversations found"
+            description={`No results for "${searchQuery}"`}
+            cta={{ label: 'Clear search', onClick: () => setSearchQuery('') }}
+          />
         ) : (
           <div className="p-2">
             {filteredPinned.length > 0 && (
@@ -318,9 +320,12 @@ export default function ChatHistorySidebar({
         </div>
 
         {entries.length === 0 ? (
-          <p className="theme-text-muted text-xs">
-            Deposits, payouts, risk checks, and notes will appear here.
-          </p>
+          <EmptyState
+            icon={Coins}
+            title="No transactions yet"
+            description="Deposits, payouts, risk checks, and notes will appear here."
+            className="py-3"
+          />
         ) : (
           <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
             {entries.slice(0, 8).map((entry) => (
