@@ -3,9 +3,9 @@ extern crate std;
 
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
+    testutils::{Address as _, Ledger, Events},
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Bytes, BytesN, Env, Symbol,
+    Address, Bytes, BytesN, Env, Symbol, IntoVal,
 };
 use soroban_sdk::xdr::ToXdr;
 
