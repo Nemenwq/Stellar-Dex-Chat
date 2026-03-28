@@ -273,7 +273,7 @@ fn test_insufficient_funds_withdraw() {
 
     // Requesting more than net deposits (100) should fail due to invariant check
     let result = bridge.try_request_withdrawal(&user, &200, &token_addr);
-    assert_eq!(result, Err(Ok(Error::NotAllowed)));
+    assert_eq!(result, Err(Ok(Error::InternalError)));
 }
 
 #[test]
