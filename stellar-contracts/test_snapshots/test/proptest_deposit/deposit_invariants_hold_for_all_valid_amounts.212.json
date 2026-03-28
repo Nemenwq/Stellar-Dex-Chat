@@ -63,7 +63,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
-                  "i128": "403"
+                  "i128": "95"
                 },
                 {
                   "address": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN"
@@ -95,7 +95,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                     },
                     {
-                      "i128": "403"
+                      "i128": "95"
                     }
                   ]
                 }
@@ -225,7 +225,7 @@
                     "symbol": "Receipt"
                   },
                   {
-                    "bytes": "8c1a0a3654e8316520ccbad33bcdd04f4e1b8aeb6a353a5aa81505f0b6c6cdbd"
+                    "bytes": "ec51be27919f6b5db67f389315d172afc88f49f8ab633c3734d81c128bd2a620"
                   }
                 ]
               },
@@ -237,7 +237,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "403"
+                      "i128": "95"
                     }
                   },
                   {
@@ -253,7 +253,7 @@
                       "symbol": "id"
                     },
                     "val": {
-                      "bytes": "8c1a0a3654e8316520ccbad33bcdd04f4e1b8aeb6a353a5aa81505f0b6c6cdbd"
+                      "bytes": "ec51be27919f6b5db67f389315d172afc88f49f8ab633c3734d81c128bd2a620"
                     }
                   },
                   {
@@ -313,7 +313,7 @@
               },
               "durability": "persistent",
               "val": {
-                "bytes": "8c1a0a3654e8316520ccbad33bcdd04f4e1b8aeb6a353a5aa81505f0b6c6cdbd"
+                "bytes": "ec51be27919f6b5db67f389315d172afc88f49f8ab633c3734d81c128bd2a620"
               }
             }
           },
@@ -343,6 +343,14 @@
                 "map": [
                   {
                     "key": {
+                      "symbol": "daily_deposit_limit"
+                    },
+                    "val": {
+                      "i128": "0"
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "limit"
                     },
                     "val": {
@@ -354,7 +362,7 @@
                       "symbol": "total_deposited"
                     },
                     "val": {
-                      "i128": "403"
+                      "i128": "95"
                     }
                   },
                   {
@@ -504,7 +512,7 @@
                         ]
                       },
                       "val": {
-                        "i128": "403"
+                        "i128": "95"
                       }
                     },
                     {
@@ -603,7 +611,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "403"
+                      "i128": "95"
                     }
                   },
                   {
@@ -655,7 +663,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "597"
+                      "i128": "905"
                     }
                   },
                   {
