@@ -67,6 +67,7 @@ pub enum Error {
     OracleNotSet = 701,
     OraclePriceInvalid = 702,
     SlippageExceeded = 703,
+    SlippageTooHigh = 704,
 
     // --- 800 series: Quota & Migration ---
     WithdrawalQuotaExceeded = 801,
@@ -1139,9 +1140,10 @@ impl FiatBridge {
         // Computed slippage in BPS: (Expected - Actual) / Expected * 10,000
         // We only care about downward slippage for these paths.
         // ── Issue #220: use precision-safe fixed-point math ───────────────
+        // Use ceiling division to ensure boundary violations are caught (conservative approach)
         let slippage_bps = if actual_price < expected_price {
             let diff = expected_price - actual_price;
-            crate::math::mul_div_floor(diff, 10000, expected_price)
+            crate::math::mul_div_ceil(diff, 10000, expected_price)
         } else {
             0
         };
@@ -1152,7 +1154,7 @@ impl FiatBridge {
         );
 
         if slippage_bps > max_slippage_bps as i128 {
-            return Err(Error::SlippageExceeded);
+            return Err(Error::SlippageTooHigh);
         }
 
         Ok(())
@@ -1450,6 +1452,18 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Checks if an address is on the denylist.
+    ///
+    /// Returns `true` if the address has been denied via [`deny_address`],
+    /// `false` otherwise. Denied addresses cannot deposit, withdraw, or
+    /// request withdrawals.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `address` - The address to check
+    ///
+    /// # Returns
+    /// `true` if the address is denied, `false` otherwise
     pub fn is_denied(env: Env, address: Address) -> bool {
         env.storage().persistent().has(&DataKey::Denied(address))
     }
