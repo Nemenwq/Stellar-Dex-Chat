@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Bytes, Env, Symbol,
+    contract, contracterror, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, Symbol,
 };
 
 pub mod oracle;
@@ -66,6 +66,7 @@ pub struct WithdrawRequest {
     pub token: Address,
     pub amount: i128,
     pub unlock_ledger: u32,
+    pub memo_hash: Option<BytesN<32>>,
 }
 
 #[contracttype]
@@ -86,6 +87,7 @@ pub struct Receipt {
     pub ledger: u32,
     pub reference: Bytes,
     pub refunded: bool,
+    pub memo_hash: Option<BytesN<32>>,
 }
 
 #[contracttype]
@@ -205,6 +207,7 @@ impl FiatBridge {
         reference: Bytes,
         expected_price: i128,
         max_slippage: u32,
+        memo_hash: Option<BytesN<32>>,
     ) -> Result<u64, Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         from.require_auth();
@@ -290,6 +293,7 @@ impl FiatBridge {
             ledger: env.ledger().sequence(),
             reference,
             refunded: false,
+            memo_hash: memo_hash.clone(),
         };
         env.storage()
             .persistent()
@@ -333,7 +337,7 @@ impl FiatBridge {
         env.events()
             .publish((Symbol::new(&env, "deposit"), from), amount);
         env.events()
-            .publish((Symbol::new(&env, "rcpt_issd"),), receipt_id);
+            .publish((Symbol::new(&env, "rcpt_issd"), memo_hash), receipt_id);
 
         Self::check_invariants(&env, &token)?;
 
@@ -407,6 +411,7 @@ impl FiatBridge {
         to: Address,
         amount: i128,
         token: Address,
+        memo_hash: Option<BytesN<32>>,
     ) -> Result<u64, Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
@@ -451,10 +456,11 @@ impl FiatBridge {
             .unwrap_or(0);
 
         let request = WithdrawRequest {
-            to,
+            to: to.clone(),
             token: token.clone(),
             amount,
             unlock_ledger: env.ledger().sequence() + lock_period,
+            memo_hash: memo_hash.clone(),
         };
         env.storage()
             .persistent()
@@ -473,6 +479,11 @@ impl FiatBridge {
             .set(&DataKey::TokenRegistry(token.clone()), &config);
 
         Self::check_invariants(&env, &token)?;
+        
+        env.events().publish(
+            (Symbol::new(&env, "req_withdr"), to),
+            (request_id, memo_hash),
+        );
 
         Ok(request_id)
     }
