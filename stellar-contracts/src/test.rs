@@ -832,6 +832,41 @@ fn test_operator_heartbeat() {
 }
 
 #[test]
+fn test_operator_cap_enforced() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    let op1 = Address::generate(&env);
+    let op2 = Address::generate(&env);
+
+    bridge.set_max_operators(&1);
+    bridge.set_operator(&op1, &true);
+
+    let result = bridge.try_set_operator(&op2, &true);
+    assert_eq!(result, Err(Ok(Error::OperatorCapReached)));
+    assert!(!bridge.is_operator(&op2));
+}
+
+#[test]
+fn test_operator_cap_recovers_after_deactivation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    let op1 = Address::generate(&env);
+    let op2 = Address::generate(&env);
+
+    bridge.set_max_operators(&1);
+    bridge.set_operator(&op1, &true);
+    bridge.set_operator(&op1, &false);
+    bridge.set_operator(&op2, &true);
+
+    assert!(!bridge.is_operator(&op1));
+    assert!(bridge.is_operator(&op2));
+}
+
+#[test]
 fn test_receipt_id_determinism_and_uniqueness() {
     let env = Env::default();
     env.mock_all_auths();

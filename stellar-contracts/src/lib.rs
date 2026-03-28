@@ -33,6 +33,7 @@ pub enum Error {
     NoPendingAdmin = 203,
     InvalidRecipient = 204,
     NotOperator = 205,
+    OperatorCapReached = 206,
 
     // --- 300 series: Constraints & Limits ---
     ZeroAmount = 301,
@@ -226,6 +227,8 @@ pub enum DataKey {
     EscrowMigrationCursor,
     PendingRenounceLedger,
     Operator(Address),
+    OperatorCount,
+    MaxOperators,
     OperatorHeartbeat(Address),
     OperatorNonce(Address),
     Denied(Address),
@@ -285,6 +288,8 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::AntiSandwichDelay, &0u32);
+        env.storage().instance().set(&DataKey::OperatorCount, &0u32);
+        env.storage().instance().set(&DataKey::MaxOperators, &0u32);
 
         // ── Issue #214: store and emit immutable deployment config hash ──
         let config_data = (admin.clone(), token.clone(), limit);
@@ -1177,9 +1182,50 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        let was_active = env
+            .storage()
+            .instance()
+            .get::<_, bool>(&DataKey::Operator(operator.clone()))
+            .unwrap_or(false);
+        let mut operator_count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::OperatorCount)
+            .unwrap_or(0);
+        let max_operators: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxOperators)
+            .unwrap_or(0);
+
+        if active && !was_active && max_operators > 0 && operator_count >= max_operators {
+            return Err(Error::OperatorCapReached);
+        }
+
         env.storage()
             .instance()
-            .set(&DataKey::Operator(operator), &active);
+            .set(&DataKey::Operator(operator.clone()), &active);
+        if active && !was_active {
+            operator_count += 1;
+        } else if !active && was_active {
+            operator_count = operator_count.saturating_sub(1);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::OperatorCount, &operator_count);
+        Ok(())
+    }
+
+    pub fn set_max_operators(env: Env, max_operators: u32) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxOperators, &max_operators);
         Ok(())
     }
 

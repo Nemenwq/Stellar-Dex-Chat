@@ -491,6 +491,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "MaxOperators"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "NextActionID"
                           }
                         ]
@@ -512,6 +524,18 @@
                       },
                       "val": {
                         "bool": true
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "OperatorCount"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 1
                       }
                     },
                     {
