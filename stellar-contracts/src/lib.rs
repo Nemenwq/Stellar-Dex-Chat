@@ -176,6 +176,7 @@ pub struct BatchAdminOp {
 pub struct BatchResult {
     pub total_ops: u32,
     pub success_count: u32,
+    pub failure_count: u32,
     pub failed_index: Option<u32>,
 }
 
@@ -2099,50 +2100,21 @@ impl FiatBridge {
 
         let total_ops = operations.len() as u32;
         let mut success_count: u32 = 0;
-
-        let snapshot_cooldown: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::CooldownLedgers)
-            .unwrap_or(0);
-        let snapshot_lock_period: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::LockPeriod)
-            .unwrap_or(0);
-        let snapshot_quota: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::WithdrawalQuota)
-            .unwrap_or(0);
-        let snapshot_anti_sandwich: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::AntiSandwichDelay)
-            .unwrap_or(0);
+        let mut failure_count: u32 = 0;
+        let mut first_failed_index: Option<u32> = None;
 
         for (idx, op) in operations.iter().enumerate() {
             let result = Self::execute_single_admin_op(&env, &op);
             if result.is_err() {
-                env.storage()
-                    .instance()
-                    .set(&DataKey::CooldownLedgers, &snapshot_cooldown);
-                env.storage()
-                    .instance()
-                    .set(&DataKey::LockPeriod, &snapshot_lock_period);
-                env.storage()
-                    .instance()
-                    .set(&DataKey::WithdrawalQuota, &snapshot_quota);
-                env.storage()
-                    .instance()
-                    .set(&DataKey::AntiSandwichDelay, &snapshot_anti_sandwich);
-
                 env.events().publish(
                     (Symbol::new(&env, "batch_fail"), Symbol::new(&env, "v1")),
                     (idx as u32, total_ops),
                 );
-
-                return Err(Error::BatchOperationFailed);
+                failure_count += 1;
+                if first_failed_index.is_none() {
+                    first_failed_index = Some(idx as u32);
+                }
+                continue;
             }
             success_count += 1;
         }
@@ -2150,12 +2122,13 @@ impl FiatBridge {
         let batch_result = BatchResult {
             total_ops,
             success_count,
-            failed_index: None,
+            failure_count,
+            failed_index: first_failed_index,
         };
 
         env.events().publish(
             (Symbol::new(&env, "batch_ok"), Symbol::new(&env, "v1")),
-            (success_count, total_ops),
+            (success_count, failure_count, total_ops),
         );
 
         Ok(batch_result)
