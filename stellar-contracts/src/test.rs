@@ -1699,6 +1699,8 @@ fn test_concurrent_operators_independent_nonces() {
     assert_eq!(bridge.get_operator_nonce(&op1), 3);
     assert_eq!(bridge.get_operator_nonce(&op2), 2);
     assert_eq!(bridge.get_operator_nonce(&op3), 1);
+}
+
 // ── Issue #214: deployment config hash tests ─────────────────────────────
 
 #[test]
@@ -1998,4 +2000,111 @@ fn test_get_next_priority_returns_none_when_empty() {
 
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
     assert_eq!(bridge.get_next_priority_withdrawal(), None);
+}
+
+// ── get_receipt_by_index tests ───────────────────────────────────────
+
+#[test]
+fn test_get_receipt_by_index_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    let receipt_hash = bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    let receipt = bridge.get_receipt_by_index(&0);
+    assert!(receipt.is_some());
+    let receipt = receipt.unwrap();
+    assert_eq!(receipt.id, receipt_hash);
+    assert_eq!(receipt.depositor, user);
+    assert_eq!(receipt.amount, 100);
+}
+
+#[test]
+fn test_get_receipt_by_index_out_of_range() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    // Index 1 does not exist (only one deposit at index 0)
+    assert_eq!(bridge.get_receipt_by_index(&1), None);
+    // Large out-of-range index
+    assert_eq!(bridge.get_receipt_by_index(&999), None);
+}
+
+#[test]
+fn test_get_receipt_by_index_nonexistent_index() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    // The receipt at index 0 should be accessible
+    let receipt = bridge.get_receipt_by_index(&0);
+    assert!(receipt.is_some());
+    assert_eq!(receipt.unwrap().amount, 100);
+
+    // Indexes that were never written return None
+    assert_eq!(bridge.get_receipt_by_index(&50), None);
+    assert_eq!(bridge.get_receipt_by_index(&u64::MAX), None);
+}
+
+// ── Property-based tests (proptest) ──────────────────────────────────────────
+
+#[cfg(test)]
+mod proptest_deposit {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Deposit invariants that must hold for every positive amount ≤ limit:
+    ///   1. deposit() succeeds
+    ///   2. contract balance increases by exactly `amount`
+    ///   3. user balance decreases by exactly `amount`
+    ///   4. get_user_deposited() returns `amount`
+    proptest! {
+        #[test]
+        fn deposit_invariants_hold_for_all_valid_amounts(amount in 1i128..=500i128) {
+            let env = Env::default();
+            env.mock_all_auths();
+
+            let (contract_id, bridge, _, token_addr, token, token_sac) = setup_bridge(&env, 500);
+            let user = Address::generate(&env);
+            token_sac.mint(&user, &1_000);
+
+            let user_before = token.balance(&user);
+            let contract_before = token.balance(&contract_id);
+
+            bridge.deposit(&user, &amount, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+            prop_assert_eq!(token.balance(&user), user_before - amount);
+            prop_assert_eq!(token.balance(&contract_id), contract_before + amount);
+            prop_assert_eq!(bridge.get_user_deposited(&user), amount);
+        }
+
+        /// Amounts above the configured limit must be rejected with ExceedsLimit.
+        #[test]
+        fn deposit_above_limit_is_rejected(amount in 501i128..=10_000i128) {
+            let env = Env::default();
+            env.mock_all_auths();
+
+            let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 500);
+            let user = Address::generate(&env);
+            token_sac.mint(&user, &amount);
+
+            let result = bridge.try_deposit(&user, &amount, &token_addr, &Bytes::new(&env), &0, &0, &None);
+            prop_assert_eq!(result, Err(Ok(Error::ExceedsLimit)));
+        }
+    }
 }
