@@ -3,6 +3,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, xdr::ToXdr, Address, Bytes, BytesN,
     Env, Symbol, Vec,
 };
+use soroban_sdk::IntoVal;
 
 pub mod math;
 pub mod oracle;
