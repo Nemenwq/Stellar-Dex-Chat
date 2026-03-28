@@ -329,6 +329,63 @@ fn test_over_limit_deposit() {
 }
 
 #[test]
+fn test_daily_deposit_limit_enforces_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 1_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    bridge.set_daily_deposit_limit(&token_addr, &150);
+
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.deposit(&user, &50, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    let result = bridge.try_deposit(&user, &1, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    assert_eq!(result, Err(Ok(Error::DailyLimitExceeded)));
+}
+
+#[test]
+fn test_daily_deposit_limit_resets_after_window() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 1_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    bridge.set_daily_deposit_limit(&token_addr, &150);
+    let start_ledger = env.ledger().sequence();
+
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    let result = bridge.try_deposit(&user, &60, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    assert_eq!(result, Err(Ok(Error::DailyLimitExceeded)));
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number = start_ledger + WINDOW_LEDGERS;
+    });
+
+    bridge.deposit(&user, &150, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    assert_eq!(bridge.get_user_deposited(&user), 250);
+}
+
+#[test]
+fn test_single_tx_limit_still_enforced_with_daily_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 500);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    bridge.set_daily_deposit_limit(&token_addr, &1_000);
+
+    let result = bridge.try_deposit(&user, &600, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    assert_eq!(result, Err(Ok(Error::ExceedsLimit)));
+}
+
+#[test]
 fn test_zero_amount_deposit() {
     let env = Env::default();
     env.mock_all_auths();
