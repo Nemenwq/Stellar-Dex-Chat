@@ -1142,10 +1142,10 @@ impl FiatBridge {
         // Computed slippage in BPS: (Expected - Actual) / Expected * 10,000
         // We only care about downward slippage for these paths.
         // ── Issue #220: use precision-safe fixed-point math ───────────────
-        // Compute slippage_bps with ceiling to be conservative about violations
         let slippage_bps = if actual_price < expected_price {
             let diff = expected_price - actual_price;
-            crate::math::mul_div_ceil(diff, 10000, expected_price)
+            // Use floor division for the displayed slippage value
+            crate::math::mul_div_floor(diff, 10000, expected_price)
         } else {
             0
         };
@@ -1155,13 +1155,26 @@ impl FiatBridge {
             slippage_bps as u32,
         );
 
-        // Compare without final division to avoid rounding errors:
-        // Allow if: (expected - actual) * 10_000 <= max_slippage_bps * expected
-        // Reject if: (expected - actual) * 10_000 > max_slippage_bps * expected
+        // Check slippage using floor division but account for rounding:
+        // If floor(diff * 10_000 / expected) == max_slippage and remainder is significant,
+        // round up to catch boundary violations from ceiling-computed expected_price
         if actual_price < expected_price {
             let diff = expected_price - actual_price;
-            if diff * 10_000 > (max_slippage_bps as i128) * expected_price {
+            let numerator = diff * 10_000;
+            let quotient = numerator / expected_price;
+            
+            // Reject if quotient exceeds max
+            if quotient > (max_slippage_bps as i128) {
                 return Err(Error::SlippageTooHigh);
+            }
+            
+            // Also reject if quotient equals max but remainder indicates ceiling would exceed
+            if quotient == (max_slippage_bps as i128) {
+                let remainder = numerator % expected_price;
+                // If remainder > expected_price / 2, ceiling would round up
+                if remainder > 0 && remainder >= expected_price / 2 {
+                    return Err(Error::SlippageTooHigh);
+                }
             }
         }
 
