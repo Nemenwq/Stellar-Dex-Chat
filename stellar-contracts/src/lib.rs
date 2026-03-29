@@ -40,6 +40,7 @@ pub enum Error {
     NoPendingAdmin = 203,
     InvalidRecipient = 204,
     NotOperator = 205,
+    OperatorCapReached = 206,
 
     // --- 300 series: Constraints & Limits ---
     ZeroAmount = 301,
@@ -250,6 +251,8 @@ pub enum DataKey {
     EscrowMigrationCursor,
     PendingRenounceLedger,
     Operator(Address),
+    OperatorCount,
+    MaxOperators,
     OperatorList,
     OperatorHeartbeat(Address),
     OperatorNonce(Address),
@@ -320,6 +323,11 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::AntiSandwichDelay, &0u32);
+        env.storage().instance().set(&DataKey::OperatorCount, &0u32);
+        env.storage().instance().set(&DataKey::MaxOperators, &0u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::OperatorList, &Vec::<Address>::new(&env));
 
         // ── Issue #214: store and emit immutable deployment config hash ──
         let config_data = (admin.clone(), token.clone(), limit);
@@ -1434,17 +1442,25 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
         Self::prune_inactive_operators_internal(&env);
-
         let was_active = env
             .storage()
             .instance()
             .get::<_, bool>(&DataKey::Operator(operator.clone()))
             .unwrap_or(false);
+        let max_operators: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxOperators)
+            .unwrap_or(0);
+        let mut operators = Self::get_operator_list(&env);
+
+        if active && !was_active && max_operators > 0 && operators.len() >= max_operators {
+            return Err(Error::OperatorCapReached);
+        }
+
         env.storage()
             .instance()
             .set(&DataKey::Operator(operator.clone()), &active);
-
-        let mut operators = Self::get_operator_list(&env);
         if active {
             if !was_active {
                 operators.push_back(operator);
@@ -1455,6 +1471,22 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::OperatorList, &operators);
+        env.storage()
+            .instance()
+            .set(&DataKey::OperatorCount, &operators.len());
+        Ok(())
+    }
+
+    pub fn set_max_operators(env: Env, max_operators: u32) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxOperators, &max_operators);
         Ok(())
     }
 
@@ -1628,6 +1660,9 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::OperatorList, &retained);
+        env.storage()
+            .instance()
+            .set(&DataKey::OperatorCount, &retained.len());
     }
 
     fn get_operator_list(env: &Env) -> Vec<Address> {
