@@ -40,6 +40,7 @@ pub enum Error {
     NoPendingAdmin = 203,
     InvalidRecipient = 204,
     NotOperator = 205,
+    SameAdmin = 207,
     OperatorCapReached = 206,
 
     // --- 300 series: Constraints & Limits ---
@@ -485,9 +486,13 @@ impl FiatBridge {
             .set(&DataKey::Receipt(receipt_id.clone().into()), &receipt);
         // Store sequential index → hash mapping for enumeration (e.g. migration)
         let receipt_hash: BytesN<32> = receipt_id.clone().into();
+        let index_key = DataKey::ReceiptIndex(receipt_counter);
         env.storage()
-            .persistent()
-            .set(&DataKey::ReceiptIndex(receipt_counter), &receipt_hash);
+            .temporary()
+            .set(&index_key, &receipt_hash);
+        env.storage()
+            .temporary()
+            .extend_ttl(&index_key, MIN_TTL, MIN_TTL);
         env.storage()
             .instance()
             .set(&DataKey::ReceiptCounter, &(receipt_counter + 1));
@@ -808,8 +813,6 @@ impl FiatBridge {
                 }
             }
         }
-
-
 
         let token_client = token::Client::new(&env, &request.token);
         let balance = token_client.balance(&env.current_contract_address());
@@ -1172,6 +1175,9 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        if new_admin == admin {
+            return Err(Error::SameAdmin);
+        }
         env.storage()
             .instance()
             .set(&DataKey::PendingAdmin, &new_admin);
@@ -1251,6 +1257,22 @@ impl FiatBridge {
             
             if diff * 10_000 > threshold {
                 return Err(Error::SlippageTooHigh);
+            }
+            let numerator = diff * 10_000;
+            let quotient = numerator / expected_price;
+
+            // Reject if quotient exceeds max
+            if quotient > (max_slippage_bps as i128) {
+                return Err(Error::SlippageTooHigh);
+            }
+
+            // Also reject if quotient equals max but remainder indicates ceiling would exceed
+            if quotient == (max_slippage_bps as i128) {
+                let remainder = numerator % expected_price;
+                // If remainder > expected_price / 2, ceiling would round up
+                if remainder > 0 && remainder >= expected_price / 2 {
+                    return Err(Error::SlippageTooHigh);
+                }
             }
         }
 
@@ -1453,7 +1475,7 @@ impl FiatBridge {
             .set(&DataKey::Operator(operator.clone()), &active);
         if active {
             if !was_active {
-                operators.push_back(operator);
+                operators.push_back(operator.clone());
             }
         } else if was_active {
             operators = Self::remove_operator_from_list(&env, &operators, &operator);
@@ -1464,6 +1486,13 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::OperatorCount, &operators.len());
+
+        // Emit event for off-chain monitoring
+        env.events().publish(
+            (EVENT_VERSION, Symbol::new(&env, "set_op"), operator),
+            active,
+        );
+
         Ok(())
     }
 
@@ -2010,7 +2039,7 @@ impl FiatBridge {
     pub fn get_receipt_by_index(env: Env, idx: u64) -> Option<Receipt> {
         let receipt_hash: BytesN<32> = env
             .storage()
-            .persistent()
+            .temporary()
             .get(&DataKey::ReceiptIndex(idx))?;
         env.storage()
             .persistent()
@@ -2247,7 +2276,7 @@ impl FiatBridge {
         while idx < receipt_counter {
             if let Some(receipt_hash) = env
                 .storage()
-                .persistent()
+                .temporary()
                 .get::<_, BytesN<32>>(&DataKey::ReceiptIndex(idx))
             {
                 let receipt_key = DataKey::Receipt(receipt_hash.clone());
@@ -2256,6 +2285,9 @@ impl FiatBridge {
                         env.storage()
                             .persistent()
                             .extend_ttl(&receipt_key, min_ttl, min_ttl);
+                        env.storage()
+                            .temporary()
+                            .extend_ttl(&DataKey::ReceiptIndex(idx), min_ttl, min_ttl);
                     }
                 }
             }
@@ -2308,7 +2340,7 @@ impl FiatBridge {
             // Look up the hash stored at this sequential index position
             if let Some(receipt_hash) = env
                 .storage()
-                .persistent()
+                .temporary()
                 .get::<_, BytesN<32>>(&DataKey::ReceiptIndex(current_id))
             {
                 if let Some(receipt) = env
