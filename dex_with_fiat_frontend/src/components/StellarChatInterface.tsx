@@ -18,6 +18,8 @@ import {
   AlertCircle,
   RefreshCcw,
   Receipt,
+  Search,
+  Columns2,
 } from 'lucide-react';
 import {
     EXPECTED_NETWORK,
@@ -46,6 +48,10 @@ import {
   subscribeToQueue,
   processQueue,
 } from '@/lib/networkQueue';
+import { useChatHistory } from '@/hooks/useChatHistory';
+import { useSplitView } from '@/hooks/useSplitView';
+import ChatSearchPanel from './ChatSearchPanel';
+import SplitViewComparison from './SplitViewComparison';
 
 export default function StellarChatInterface() {
   const { t } = useTranslation();
@@ -82,8 +88,13 @@ export default function StellarChatInterface() {
     getQueuedReadRequestsCount(),
   );
   const [isReceiptDrawerOpen, setIsReceiptDrawerOpen] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const { entries: txHistory, clearEntries: clearTxHistory } = useTxHistory();
   const accountDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Chat history sessions (for search + split-view)
+  const { sessions } = useChatHistory();
+  const splitView = useSplitView(sessions);
 
   const sheetRef = useRef<HTMLDivElement>(null);
 
@@ -372,6 +383,34 @@ export default function StellarChatInterface() {
             </button>
 
             <NotificationsCenter />
+
+            {/* Search history */}
+            <button
+              onClick={() => setShowSearch((v) => !v)}
+              title="Search chat history"
+              aria-label="Search chat history"
+              aria-pressed={showSearch}
+              className={`p-2 rounded-lg transition-colors ${showSearch ? (isDarkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-gray-900') : (isDarkMode ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-600')}`}
+            >
+              <Search className="w-5 h-5" />
+            </button>
+
+            {/* Split-view comparison */}
+            <button
+              onClick={() => {
+                if (splitView.state.isOpen) {
+                  splitView.close();
+                } else {
+                  splitView.open(sessions[0]?.id ?? '', sessions[1]?.id);
+                }
+              }}
+              title="Compare threads side by side"
+              aria-label="Toggle split-view"
+              aria-pressed={splitView.state.isOpen}
+              className={`p-2 rounded-lg transition-colors ${splitView.state.isOpen ? (isDarkMode ? 'bg-gray-700 text-white' : 'bg-gray-200 text-gray-900') : (isDarkMode ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-600')}`}
+            >
+              <Columns2 className="w-5 h-5" />
+            </button>
 
             <button
               onClick={() => setIsReceiptDrawerOpen(true)}
@@ -700,6 +739,23 @@ export default function StellarChatInterface() {
             />
           </div>
         </>
+      )}
+
+      {/* Split-view comparison overlay */}
+      <SplitViewComparison splitView={splitView} sessions={sessions} />
+
+      {/* Search panel — slide-over on the right */}
+      {showSearch && (
+        <div className="fixed inset-y-0 right-0 z-40 w-80 shadow-2xl flex flex-col">
+          <ChatSearchPanel
+            sessions={sessions}
+            onSelectResult={(sessionId) => {
+              loadChatSession(sessionId);
+              setShowSearch(false);
+            }}
+            onClose={() => setShowSearch(false)}
+          />
+        </div>
       )}
 
       {/* Deposit / Withdraw Modal */}
