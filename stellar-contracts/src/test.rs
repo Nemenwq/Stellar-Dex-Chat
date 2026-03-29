@@ -9,7 +9,7 @@ use soroban_sdk::{
     token::{Client as TokenClient, StellarAssetClient},
     vec, Address, Bytes, BytesN, Env, IntoVal, Symbol,
 };
-use std::{fs, path::PathBuf, string::String, vec::Vec as StdVec};
+use std::{format, fs, path::PathBuf, string::String, vec::Vec as StdVec};
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -3017,7 +3017,7 @@ fn test_event_snapshot_deny_rem() {
 fn test_event_snapshot_quota_reset() {
     let env = new_snapshot_env();
     env.mock_all_auths();
-    let (contract_id, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let (contract_id, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
     let user = Address::generate(&env);
 
     token_sac.mint(&contract_id, &1_000);
@@ -3040,7 +3040,7 @@ fn test_event_snapshot_quota_reset() {
         li.sequence_number = 17_380;
     });
 
-    bridge.withdraw(&user, &500, &token_addr);
+    bridge.withdraw(&admin, &user, &500, &token_addr);
 
     assert_eq!(
         env.events().all().filter_by_contract(&contract_id),
