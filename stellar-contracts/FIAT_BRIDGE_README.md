@@ -128,6 +128,9 @@ A GitHub Actions step validates that the error table stays in sync with the cont
 | `set_fiat_limit(limit_usd_cents)` | admin | Set daily USD fiat limit |
 | `queue_admin_action(type, payload, delay)` | admin | Queue a timelocked admin action |
 | `execute_admin_action(id)` | admin | Execute a matured admin action |
+
+---
+
 # FiatBridge Contract — Integrator Reference
 
 ## Receipt IDs
