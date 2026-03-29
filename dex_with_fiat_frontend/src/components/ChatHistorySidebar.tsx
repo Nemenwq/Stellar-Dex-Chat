@@ -268,21 +268,30 @@ export default function ChatHistorySidebar({
 
   return (
     <div
-      className={`theme-surface h-full flex flex-col transition-all duration-300 border-r ${isCollapsed ? 'w-20' : 'w-full'} transition-colors duration-300`}
+      className={`theme-surface h-full flex flex-col transition-all duration-300 border-r ${
+        isCollapsed ? 'w-20' : 'w-full'
+      } transition-colors duration-300`}
     >
       <div
-        className={`theme-border border-b transition-colors duration-300 ${isCollapsed ? 'p-4 flex flex-col items-center' : 'p-4'}`}
+        className={`theme-border border-b transition-colors duration-300 ${
+          isCollapsed ? 'p-4 flex flex-col items-center' : 'p-4'
+        }`}
       >
         <div
-          className={`flex items-center justify-between mb-4 w-full ${isCollapsed ? 'flex-col gap-4' : ''}`}
+          className={`flex items-center justify-between mb-4 w-full ${
+            isCollapsed ? 'flex-col gap-4' : ''
+          }`}
         >
+
           {!isCollapsed && (
             <h2 className="theme-text-primary text-lg font-semibold">
               Activity
             </h2>
           )}
           <div
-            className={`flex items-center gap-1 ${isCollapsed ? 'flex-col' : ''}`}
+            className={`flex items-center gap-1 ${
+              isCollapsed ? 'flex-col' : ''
+            }`}
           >
             <button
               onClick={clearAllHistory}
@@ -392,23 +401,13 @@ export default function ChatHistorySidebar({
         )}
       </div>
 
-      <div className="theme-border border-t p-4 space-y-4">
+      <div className={`theme-border border-t p-4 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
         <PriceTicker symbols={['XLM', 'ETH', 'BTC']} currency="usd" />
 
-        <div
-          className={`theme-border border-t p-4 ${isCollapsed ? 'flex flex-col items-center' : ''}`}
-        >
-          <div
-            className={`flex items-center justify-between mb-3 w-full ${isCollapsed ? 'flex-col gap-3' : ''}`}
-          >
-            <div className="flex items-center gap-2">
-              <Coins className="w-4 h-4 text-[var(--color-primary)]" />
-              {!isCollapsed && (
-                <h3 className="theme-text-primary text-sm font-semibold">
-                  Transaction History
-                </h3>
-              )}
-            </div>
+        <div className={`theme-border border-t p-4 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
+          <div className={`flex items-center justify-between mb-3 w-full ${isCollapsed ? 'flex-col gap-3' : ''}`}>
+          <div className="flex items-center gap-2">
+            <Coins className="w-4 h-4 text-[var(--color-primary)]" />
             {!isCollapsed && (
               <div className="flex items-center gap-1">
                 <button
@@ -557,6 +556,7 @@ export default function ChatHistorySidebar({
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }
