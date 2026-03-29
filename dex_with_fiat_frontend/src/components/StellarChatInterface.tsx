@@ -86,9 +86,7 @@ export default function StellarChatInterface() {
   const accountDropdownRef = useRef<HTMLDivElement>(null);
 
   const sheetRef = useRef<HTMLDivElement>(null);
-  const dragStartY = useRef(0);
-  const dragDelta = useRef(0);
-  const isDragging = useRef(false);
+
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const {
@@ -248,43 +246,7 @@ export default function StellarChatInterface() {
     }, 300);
   }, []);
 
-  const handleSheetTouchStart = useCallback(
-    (e: React.TouchEvent<HTMLDivElement>) => {
-      dragStartY.current = e.touches[0].clientY;
-      dragDelta.current = 0;
-      isDragging.current = true;
-      if (sheetRef.current) {
-        sheetRef.current.style.transition = 'none';
-      }
-    },
-    [],
-  );
 
-  const handleSheetTouchMove = useCallback(
-    (e: React.TouchEvent<HTMLDivElement>) => {
-      if (!isDragging.current || !sheetRef.current) return;
-      const delta = e.touches[0].clientY - dragStartY.current;
-      dragDelta.current = delta;
-      // Only allow downward drag
-      if (delta > 0) {
-        sheetRef.current.style.transform = `translateY(${delta}px)`;
-      }
-    },
-    [],
-  );
-
-  const handleSheetTouchEnd = useCallback(() => {
-    if (!isDragging.current) return;
-    isDragging.current = false;
-    if (dragDelta.current < -100) {
-      closeSheet();
-    } else if (sheetRef.current) {
-      sheetRef.current.style.transition =
-        'transform 300ms cubic-bezier(0.32, 0.72, 0, 1)';
-      sheetRef.current.style.transform = 'translateX(0)';
-    }
-    dragDelta.current = 0;
-  }, [closeSheet]);
 
   // When the AI decides a transaction is ready, open the modal
   const handleTransactionReady = useCallback(
