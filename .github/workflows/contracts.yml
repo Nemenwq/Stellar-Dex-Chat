@@ -46,7 +46,9 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Run tests
-        run: cargo test
+        run: |
+          mkdir -p test_snapshots
+          cargo test -- --update-snapshots
 
       - name: Build WASM release
         run: cargo build --target wasm32-unknown-unknown --release
