@@ -1236,10 +1236,9 @@ impl FiatBridge {
         if actual_price < expected_price {
             let diff = expected_price - actual_price;
             let max_i128 = max_slippage_bps as i128;
-            // Double the threshold to allow ceiling div boundaries while still catching violations
-            let doubled_threshold = (max_i128 * 2) * expected_price;
+            let threshold = max_i128 * expected_price;
             
-            if diff * 10_000 > doubled_threshold {
+            if diff * 10_000 > threshold {
                 return Err(Error::SlippageTooHigh);
             }
         }
