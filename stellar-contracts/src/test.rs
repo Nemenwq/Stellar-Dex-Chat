@@ -1220,6 +1220,87 @@ fn test_operator_heartbeat() {
 }
 
 #[test]
+fn test_operator_cap_enforced() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    let op1 = Address::generate(&env);
+    let op2 = Address::generate(&env);
+
+    bridge.set_max_operators(&1);
+    bridge.set_operator(&op1, &true);
+
+    let result = bridge.try_set_operator(&op2, &true);
+    assert_eq!(result, Err(Ok(Error::OperatorCapReached)));
+    assert!(!bridge.is_operator(&op2));
+}
+
+#[test]
+fn test_operator_cap_recovers_after_deactivation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    let op1 = Address::generate(&env);
+    let op2 = Address::generate(&env);
+
+    bridge.set_max_operators(&1);
+    bridge.set_operator(&op1, &true);
+    bridge.set_operator(&op1, &false);
+    bridge.set_operator(&op2, &true);
+
+    assert!(!bridge.is_operator(&op1));
+    assert!(bridge.is_operator(&op2));
+}
+
+#[test]
+fn test_prune_inactive_operators_keeps_active_operator() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    let inactive = Address::generate(&env);
+    let active = Address::generate(&env);
+
+    bridge.set_operator(&inactive, &true);
+    bridge.set_operator(&active, &true);
+    bridge.heartbeat(&inactive, &0);
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number = DEFAULT_INACTIVITY_THRESHOLD + 5;
+    });
+
+    bridge.heartbeat(&active, &0);
+    bridge.prune_inactive_operators();
+
+    assert!(!bridge.is_operator(&inactive));
+    assert!(bridge.is_operator(&active));
+}
+
+#[test]
+fn test_set_operator_prunes_inactive_on_next_admin_action() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    let stale = Address::generate(&env);
+    let newcomer = Address::generate(&env);
+
+    bridge.set_operator(&stale, &true);
+    bridge.heartbeat(&stale, &0);
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number = DEFAULT_INACTIVITY_THRESHOLD + 5;
+    });
+
+    bridge.set_operator(&newcomer, &true);
+
+    assert!(!bridge.is_operator(&stale));
+    assert!(bridge.is_operator(&newcomer));
+}
+
+#[test]
 fn test_receipt_id_determinism_and_uniqueness() {
     let env = Env::default();
     env.mock_all_auths();
@@ -2957,7 +3038,7 @@ fn test_withdraw_to_self_address_rejected() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract_id, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let (contract_id, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
     let user = Address::generate(&env);
     token_sac.mint(&user, &1_000);
 
@@ -2965,13 +3046,12 @@ fn test_withdraw_to_self_address_rejected() {
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     // Attempt to withdraw to the contract's own address — should be rejected
-    let result = bridge.try_withdraw(&contract_id, &100, &token_addr);
+    let result = bridge.try_withdraw(&admin, &contract_id, &100, &token_addr);
     assert_eq!(result, Err(Ok(Error::InvalidRecipient)));
 
     // Withdrawing to a regular user address must still succeed
-    bridge.withdraw(&user, &100, &token_addr);
+    bridge.withdraw(&admin, &user, &100, &token_addr);
 }
-
 // ── Issue #111: TotalDeposited accumulator overflow guard tests ──────────
 
 #[test]
