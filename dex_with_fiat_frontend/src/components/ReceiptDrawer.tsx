@@ -267,18 +267,6 @@ export default function ReceiptDrawer({
                           {tx.reference}
                           <CopyButton value={tx.reference} iconClassName="w-3 h-3" />
                         </span>
-                        <span className="text-gray-500">
-                          {t('receipt.hash')}
-                        </span>
-                        <a
-                          href={`https://stellar.expert/explorer/testnet/tx/${tx.txHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-blue-500 hover:underline font-mono text-[10px]"
-                        >
-                          {tx.txHash.substring(0, 8)}...
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
                       </div>
                     )}
                     <div className="flex justify-between text-[10px] text-gray-500 pt-2 border-t dark:border-gray-700">
