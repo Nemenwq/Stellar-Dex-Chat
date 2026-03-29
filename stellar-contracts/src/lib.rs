@@ -1159,13 +1159,14 @@ impl FiatBridge {
             slippage_bps as u32,
         );
 
-        // Check slippage using cross-multiplication to avoid division rounding errors:
-        // Reject if: (expected - actual) * 10_000 > max_slippage_bps * expected
-        // Allow if: (expected - actual) * 10_000 <= max_slippage_bps * expected
+        // Check slippage using integer arithmetic to avoid floating point errors:
+        // We want: floor((expected - actual) * 10_000 / expected) <= max_slippage_bps
+        // This is equivalent to: (expected - actual) * 10_000 <= max_slippage_bps * expected + (expected - 1)
+        // So reject if: (expected - actual) * 10_000 > max_slippage_bps * expected + (expected - 1)
         if actual_price < expected_price {
             let diff = expected_price - actual_price;
-            // Use cross-multiplication to compare without division
-            if diff * 10_000 > (max_slippage_bps as i128) * expected_price {
+            // Check: floor(diff * 10_000 / expected) > max_slippage_bps
+            if diff * 10_000 > (max_slippage_bps as i128) * expected_price + expected_price - 1 {
                 return Err(Error::SlippageTooHigh);
             }
         }
