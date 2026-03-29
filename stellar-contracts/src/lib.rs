@@ -40,6 +40,7 @@ pub enum Error {
     NoPendingAdmin = 203,
     InvalidRecipient = 204,
     NotOperator = 205,
+    SameAdmin = 206,
 
     // --- 300 series: Constraints & Limits ---
     ZeroAmount = 301,
@@ -1161,6 +1162,9 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        if new_admin == admin {
+            return Err(Error::SameAdmin);
+        }
         env.storage()
             .instance()
             .set(&DataKey::PendingAdmin, &new_admin);
@@ -2271,7 +2275,7 @@ impl FiatBridge {
                 EVENT_VERSION,
             ),
             (EVENT_VERSION, Symbol::new(&env, "batch_ok")),
-            (success_count, failure_count, total_ops),
+            // (success_count, failure_count, total_ops),
         );
 
         Ok(batch_result)

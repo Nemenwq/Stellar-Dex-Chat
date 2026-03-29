@@ -2943,6 +2943,7 @@ fn test_withdraw_operator_role() {
     // Operator is removed, so withdraw fails with Unauthorized
     let result = bridge.try_withdraw(&operator, &user, &100, &token_addr);
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
 // ── Issue #109: withdraw self-address guard tests ─────────────────────────
 
 #[test]
@@ -2958,11 +2959,12 @@ fn test_withdraw_to_self_address_rejected() {
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     // Attempt to withdraw to the contract's own address — should be rejected
-    let result = bridge.try_withdraw(&contract_id, &100, &token_addr);
+    let result = bridge.try_withdraw(&contract_id, &token_addr, &100, &contract_id);
     assert_eq!(result, Err(Ok(Error::InvalidRecipient)));
 
     // Withdrawing to a regular user address must still succeed
-    bridge.withdraw(&user, &100, &token_addr);
+    bridge.withdraw(&user, &token_addr, &100, &contract_id);
+}
 // ── Issue #111: TotalDeposited accumulator overflow guard tests ──────────
 
 #[test]
@@ -2998,6 +3000,7 @@ fn test_deposit_overflow_guard() {
     // Depositing 100 should overflow
     let result = bridge.try_deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
     assert_eq!(result, Err(Ok(Error::Overflow)));
+}
 // ── Issue #113: minimum deposit floor tests ───────────────────────────────
 
 #[test]
@@ -3075,3 +3078,4 @@ fn test_set_min_deposit_admin_only() {
     let result = bridge.try_set_min_deposit(&0);
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 }
+
