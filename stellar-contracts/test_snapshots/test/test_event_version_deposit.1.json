@@ -39,7 +39,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
-                  "i128": "1000"
+                  "i128": "500"
                 }
               ]
             }
@@ -48,8 +48,6 @@
         }
       ]
     ],
-    [],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
@@ -63,7 +61,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
-                  "i128": "86"
+                  "i128": "100"
                 },
                 {
                   "address": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN"
@@ -95,7 +93,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                     },
                     {
-                      "i128": "86"
+                      "i128": "100"
                     }
                   ]
                 }
@@ -105,10 +103,7 @@
           ]
         }
       ]
-    ],
-    [],
-    [],
-    []
+    ]
   ],
   "ledger": {
     "protocol_version": 25,
@@ -177,7 +172,7 @@
               },
               "durability": "persistent",
               "val": {
-                "bytes": "5bfc8842ec7da5e07d8f8fa648bddd48c796b4c21699e0fbe63dee650d16b021"
+                "bytes": "c8f28f43d1934704a770abd89cc25bef287625a4b35ceec5afb9d5c0a3f84823"
               }
             }
           },
@@ -225,7 +220,7 @@
                     "symbol": "Receipt"
                   },
                   {
-                    "bytes": "76a92e9277fbedd4dbc4d44faa9845dad465fd4b308241086715ff5474c3eee3"
+                    "bytes": "0428779174b4e0a091fab89ed6eb4e3c11d9bd6834639649845d7f09544bae37"
                   }
                 ]
               },
@@ -237,7 +232,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "86"
+                      "i128": "100"
                     }
                   },
                   {
@@ -253,7 +248,7 @@
                       "symbol": "id"
                     },
                     "val": {
-                      "bytes": "76a92e9277fbedd4dbc4d44faa9845dad465fd4b308241086715ff5474c3eee3"
+                      "bytes": "0428779174b4e0a091fab89ed6eb4e3c11d9bd6834639649845d7f09544bae37"
                     }
                   },
                   {
@@ -313,7 +308,7 @@
               },
               "durability": "persistent",
               "val": {
-                "bytes": "76a92e9277fbedd4dbc4d44faa9845dad465fd4b308241086715ff5474c3eee3"
+                "bytes": "0428779174b4e0a091fab89ed6eb4e3c11d9bd6834639649845d7f09544bae37"
               }
             }
           },
@@ -354,7 +349,7 @@
                       "symbol": "limit"
                     },
                     "val": {
-                      "i128": "500"
+                      "i128": "1000"
                     }
                   },
                   {
@@ -362,7 +357,7 @@
                       "symbol": "total_deposited"
                     },
                     "val": {
-                      "i128": "86"
+                      "i128": "100"
                     }
                   },
                   {
@@ -512,7 +507,7 @@
                         ]
                       },
                       "val": {
-                        "i128": "86"
+                        "i128": "100"
                       }
                     },
                     {
@@ -611,7 +606,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "86"
+                      "i128": "100"
                     }
                   },
                   {
@@ -663,7 +658,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "914"
+                      "i128": "400"
                     }
                   },
                   {
@@ -809,5 +804,85 @@
       }
     ]
   },
-  "events": []
+  "events": [
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "transfer"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+              },
+              {
+                "string": "aaa:GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJXFF"
+              }
+            ],
+            "data": {
+              "i128": "100"
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "u32": 1
+              },
+              {
+                "symbol": "deposit"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+              }
+            ],
+            "data": {
+              "i128": "100"
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "u32": 1
+              },
+              {
+                "symbol": "rcpt_issd"
+              },
+              "void"
+            ],
+            "data": {
+              "bytes": "0428779174b4e0a091fab89ed6eb4e3c11d9bd6834639649845d7f09544bae37"
+            }
+          }
+        }
+      },
+      "failed_call": false
+    }
+  ]
 }

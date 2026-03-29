@@ -881,8 +881,8 @@ fn test_withdrawal_quota_resets_after_window() {
                 contract_id.clone(),
                 vec![
                     &env,
-                    Symbol::new(&env, "quota_reset").into_val(&env),
-                    Symbol::new(&env, "v1").into_val(&env)
+                    EVENT_VERSION.into_val(&env),
+                    Symbol::new(&env, "quota_reset").into_val(&env)
                 ],
                 (user.clone(), start_ledger + 17_280).into_val(&env)
             ),
@@ -890,6 +890,7 @@ fn test_withdrawal_quota_resets_after_window() {
                 contract_id,
                 vec![
                     &env,
+                    EVENT_VERSION.into_val(&env),
                     Symbol::new(&env, "withdraw").into_val(&env),
                     user.into_val(&env)
                 ],
@@ -1420,6 +1421,7 @@ fn test_batch_admin_success() {
     let result = bridge.execute_batch_admin(&ops);
     assert_eq!(result.total_ops, 2);
     assert_eq!(result.success_count, 2);
+    assert_eq!(result.failure_count, 0);
     assert!(result.failed_index.is_none());
 
     assert_eq!(bridge.get_cooldown(), 100);
@@ -1449,10 +1451,14 @@ fn test_batch_admin_rollback_on_failure() {
         payload: Bytes::new(&env),
     });
 
-    let result = bridge.try_execute_batch_admin(&ops);
-    assert_eq!(result, Err(Ok(Error::BatchOperationFailed)));
+    let result = bridge.execute_batch_admin(&ops);
+    assert_eq!(result.total_ops, 2);
+    assert_eq!(result.success_count, 1);
+    assert_eq!(result.failure_count, 1);
+    assert_eq!(result.failed_index, Some(1));
 
-    assert_eq!(bridge.get_cooldown(), 10);
+    // First valid op is applied, invalid op is skipped.
+    assert_eq!(bridge.get_cooldown(), 100);
     assert_eq!(bridge.get_lock_period(), 20);
 }
 
@@ -1482,8 +1488,50 @@ fn test_batch_admin_partial_failure_index() {
         payload: Bytes::new(&env),
     });
 
-    let result = bridge.try_execute_batch_admin(&ops);
-    assert_eq!(result, Err(Ok(Error::BatchOperationFailed)));
+    let result = bridge.execute_batch_admin(&ops);
+    assert_eq!(result.total_ops, 3);
+    assert_eq!(result.success_count, 2);
+    assert_eq!(result.failure_count, 1);
+    assert_eq!(result.failed_index, Some(2));
+}
+
+#[test]
+fn test_batch_admin_mixed_success_failure_continues() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+
+    bridge.set_cooldown(&10);
+    bridge.set_lock_period(&20);
+
+    let mut ops = soroban_sdk::Vec::new(&env);
+
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_cooldown"),
+        payload: Bytes::from_array(&env, &100u32.to_be_bytes()),
+    });
+
+    // Invalid op in the middle should not revert successful ops.
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "invalid_op"),
+        payload: Bytes::new(&env),
+    });
+
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_lock"),
+        payload: Bytes::from_array(&env, &50u32.to_be_bytes()),
+    });
+
+    let result = bridge.execute_batch_admin(&ops);
+    assert_eq!(result.total_ops, 3);
+    assert_eq!(result.success_count, 2);
+    assert_eq!(result.failure_count, 1);
+    assert_eq!(result.failed_index, Some(1));
+
+    // State reflects both successful operations (1st and 3rd).
+    assert_eq!(bridge.get_cooldown(), 100);
+    assert_eq!(bridge.get_lock_period(), 50);
 }
 
 #[test]
@@ -1504,6 +1552,7 @@ fn test_batch_admin_with_quota() {
     let result = bridge.execute_batch_admin(&ops);
     assert_eq!(result.total_ops, 1);
     assert_eq!(result.success_count, 1);
+    assert_eq!(result.failure_count, 0);
 
     assert_eq!(bridge.get_withdrawal_quota(), 1000);
 }
@@ -1520,6 +1569,7 @@ fn test_batch_admin_empty_batch() {
     let result = bridge.execute_batch_admin(&ops);
     assert_eq!(result.total_ops, 0);
     assert_eq!(result.success_count, 0);
+    assert_eq!(result.failure_count, 0);
     assert!(result.failed_index.is_none());
 }
 
@@ -2483,6 +2533,72 @@ fn test_memo_hash_zero_rejected() {
 
     // request_withdrawal: valid hash succeeds
     bridge.request_withdrawal(&user, &50, &token_addr, &Some(valid_hash), &0);
+}
+
+// ── Event topic structure tests ───────────────────────────────────────────────
+
+/// Assert that every event emitted by the bridge contract in `f` has `EVENT_VERSION` (u32)
+/// as its first XDR topic.
+fn assert_bridge_events_have_version(env: &Env, contract_addr: &Address, f: impl FnOnce()) {
+    use soroban_sdk::xdr::{ContractEventBody, ScVal};
+
+    f();
+    let bridge_events = env.events().all().filter_by_contract(contract_addr);
+    let raw = bridge_events.events();
+    assert!(!raw.is_empty(), "no bridge events were emitted");
+    for event in raw {
+        if let ContractEventBody::V0(body) = &event.body {
+            let first = body.topics.first().expect("bridge event has no topics");
+            assert_eq!(
+                *first,
+                ScVal::U32(EVENT_VERSION),
+                "bridge event first topic is not EVENT_VERSION: {:?}",
+                body
+            );
+        }
+    }
+}
+
+#[test]
+fn test_event_version_deposit() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_addr, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 1_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &500);
+
+    assert_bridge_events_have_version(&env, &contract_addr, || {
+        bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    });
+}
+
+#[test]
+fn test_event_version_request_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_addr, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 1_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &500);
+    bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    assert_bridge_events_have_version(&env, &contract_addr, || {
+        bridge.request_withdrawal(&user, &50, &token_addr, &None, &0);
+    });
+}
+
+#[test]
+fn test_event_version_deny_add_remove() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_addr, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+    let target = Address::generate(&env);
+
+    assert_bridge_events_have_version(&env, &contract_addr, || {
+        bridge.deny_address(&target);
+    });
+    assert_bridge_events_have_version(&env, &contract_addr, || {
+        bridge.remove_denied_address(&target);
+    });
 }
 
 // ── Property-based tests (proptest) ──────────────────────────────────────────
