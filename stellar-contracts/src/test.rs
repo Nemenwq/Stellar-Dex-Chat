@@ -2511,6 +2511,77 @@ fn test_circuit_breaker_also_blocks_execute_withdrawal() {
     assert_eq!(result, Err(Ok(Error::CircuitBreakerActive)));
 }
 
+#[test]
+fn test_circuit_breaker_trips_on_large_cumulative_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.set_circuit_breaker_threshold(&500);
+
+    // First withdrawal: 300 (cumulative 300 <= 500)
+    bridge.withdraw(&admin, &user, &300, &token_addr);
+    assert!(!bridge.is_circuit_breaker_tripped());
+
+    // Second withdrawal: 300 (cumulative 600 > 500). This succeeds but trips the breaker.
+    bridge.withdraw(&admin, &user, &300, &token_addr);
+    assert!(bridge.is_circuit_breaker_tripped());
+
+    // Third withdrawal: Should fail because breaker is active
+    let result = bridge.try_withdraw(&admin, &user, &100, &token_addr);
+    assert_eq!(result, Err(Ok(Error::CircuitBreakerActive)));
+}
+
+#[test]
+fn test_circuit_breaker_manual_reset_allows_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.set_circuit_breaker_threshold(&500);
+
+    // Trip the breaker
+    bridge.withdraw(&admin, &user, &600, &token_addr);
+    assert!(bridge.is_circuit_breaker_tripped());
+
+    // Admin resets the breaker
+    bridge.reset_circuit_breaker();
+    assert!(!bridge.is_circuit_breaker_tripped());
+
+    // Withdrawal should succeed now
+    let result = bridge.try_withdraw(&admin, &user, &100, &token_addr);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_circuit_breaker_respects_threshold_zero_disables_it() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    // Setting threshold to 0 disables the circuit breaker logic
+    bridge.set_circuit_breaker_threshold(&0);
+
+    // Perform large withdrawals that would otherwise trip any reasonable threshold
+    bridge.withdraw(&admin, &user, &1000, &token_addr);
+    bridge.withdraw(&admin, &user, &500, &token_addr);
+
+    assert!(!bridge.is_circuit_breaker_tripped());
+}
+
 // ── Issue #226: withdrawal queue risk tier tests ──────────────────────────
 
 #[test]
@@ -3158,4 +3229,77 @@ fn test_set_min_deposit_admin_only() {
     // Try to set below minimum
     let result = bridge.try_set_min_deposit(&0);
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
+}
+
+// ── Circuit Breaker Tests (#356) ──────────────────────────────────────────
+
+#[test]
+fn test_circuit_breaker_trips_on_large_cumulative_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.set_circuit_breaker_threshold(&500);
+
+    // First withdrawal: 300 (cumulative 300 <= 500)
+    bridge.withdraw(&admin, &user, &300, &token_addr);
+    assert!(!bridge.is_circuit_breaker_tripped());
+
+    // Second withdrawal: 300 (cumulative 600 > 500). This succeeds but trips the breaker.
+    bridge.withdraw(&admin, &user, &300, &token_addr);
+    assert!(bridge.is_circuit_breaker_tripped());
+
+    // Third withdrawal: Should fail because breaker is active
+    let result = bridge.try_withdraw(&admin, &user, &100, &token_addr);
+    assert_eq!(result, Err(Ok(Error::CircuitBreakerActive)));
+}
+
+#[test]
+fn test_circuit_breaker_manual_reset_allows_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.set_circuit_breaker_threshold(&500);
+
+    // Trip the breaker
+    bridge.withdraw(&admin, &user, &600, &token_addr);
+    assert!(bridge.is_circuit_breaker_tripped());
+
+    // Admin resets the breaker
+    bridge.reset_circuit_breaker();
+    assert!(!bridge.is_circuit_breaker_tripped());
+
+    // Withdrawal should succeed now
+    let result = bridge.try_withdraw(&admin, &user, &100, &token_addr);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_circuit_breaker_respects_threshold_zero_disables_it() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    // Setting threshold to 0 disables the circuit breaker logic
+    bridge.set_circuit_breaker_threshold(&0);
+
+    // Perform large withdrawals that would otherwise trip any reasonable threshold
+    bridge.withdraw(&admin, &user, &1000, &token_addr);
+    bridge.withdraw(&admin, &user, &500, &token_addr);
+
+    assert!(!bridge.is_circuit_breaker_tripped());
 }
