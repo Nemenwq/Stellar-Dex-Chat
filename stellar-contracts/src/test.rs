@@ -2604,15 +2604,14 @@ fn assert_bridge_events_have_version(env: &Env, contract_addr: &Address, f: impl
     let raw = bridge_events.events();
     assert!(!raw.is_empty(), "no bridge events were emitted");
     for event in raw {
-        if let ContractEventBody::V0(body) = &event.body {
-            let first = body.topics.first().expect("bridge event has no topics");
-            assert_eq!(
-                *first,
-                ScVal::U32(EVENT_VERSION),
-                "bridge event first topic is not EVENT_VERSION: {:?}",
-                body
-            );
-        }
+        let ContractEventBody::V0(body) = &event.body;
+        let first = body.topics.first().expect("bridge event has no topics");
+        assert_eq!(
+            *first,
+            ScVal::U32(EVENT_VERSION),
+            "bridge event first topic is not EVENT_VERSION: {:?}",
+            body
+        );
     }
 }
 
