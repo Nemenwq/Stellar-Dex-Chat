@@ -1402,7 +1402,7 @@ impl FiatBridge {
             .set(&DataKey::OperatorList, &operators);
         env.storage()
             .instance()
-            .set(&DataKey::OperatorCount, &(operators.len() as u32));
+            .set(&DataKey::OperatorCount, &operators.len());
         Ok(())
     }
 
@@ -1591,7 +1591,7 @@ impl FiatBridge {
             .set(&DataKey::OperatorList, &retained);
         env.storage()
             .instance()
-            .set(&DataKey::OperatorCount, &(retained.len() as u32));
+            .set(&DataKey::OperatorCount, &retained.len());
     }
 
     fn get_operator_list(env: &Env) -> Vec<Address> {
@@ -2348,7 +2348,6 @@ impl FiatBridge {
         };
 
         env.events().publish(
-            (Symbol::new(&env, "batch_ok"), Symbol::new(&env, "v1")),
             (EVENT_VERSION, Symbol::new(&env, "batch_ok")),
             (success_count, failure_count, total_ops),
         );
