@@ -760,10 +760,10 @@ fn test_slippage_boundary_exact() {
             // No slippage allowed — expected must equal actual
             actual_price
         } else {
-            // Use ceiling division to ensure slippage_bps ≤ max_slippage_bps
+            // Use floor division to ensure generated expected_price's slippage is <= max_slippage_bps
             let numerator = actual_price * 10_000;
             let denominator = 10_000 - *max_slippage_bps as i128;
-            (numerator + denominator - 1) / denominator
+            numerator / denominator
         };
 
         // Deposit should succeed at exactly max_slippage
