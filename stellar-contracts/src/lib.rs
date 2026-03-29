@@ -252,6 +252,7 @@ pub enum DataKey {
     Operator(Address),
     OperatorHeartbeat(Address),
     OperatorNonce(Address),
+    WithdrawOperator,
     Denied(Address),
     DeniedIndex(u64),
     DeniedCount,
@@ -565,14 +566,34 @@ impl FiatBridge {
         Ok(())
     }
 
-    pub fn withdraw(env: Env, to: Address, amount: i128, token: Address) -> Result<(), Error> {
+    pub fn withdraw(
+        env: Env,
+        caller: Address,
+        to: Address,
+        amount: i128,
+        token: Address,
+    ) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
-        admin.require_auth();
+            
+        let operator: Option<Address> = env.storage().instance().get(&DataKey::WithdrawOperator);
+        
+        if caller == admin {
+            caller.require_auth();
+        } else if let Some(op) = operator {
+            if caller == op {
+                caller.require_auth();
+            } else {
+                return Err(Error::Unauthorized);
+            }
+        } else {
+            return Err(Error::Unauthorized);
+        }
+        
         Self::require_not_paused(&env)?;
 
         if amount <= 0 {
@@ -2519,6 +2540,40 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&head_key, &Option::<u64>::None);
+    }
+
+    // ── Single Withdraw Operator Role (Issue #118) ─────────────────────────
+    
+    pub fn set_withdraw_operator(env: Env, operator: Address) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        
+        env.storage().instance().set(&DataKey::WithdrawOperator, &operator);
+        env.events().publish((EVENT_VERSION, Symbol::new(&env, "set_wd_op")), operator);
+        Ok(())
+    }
+
+    pub fn remove_withdraw_operator(env: Env) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        
+        env.storage().instance().remove(&DataKey::WithdrawOperator);
+        env.events().publish((EVENT_VERSION, Symbol::new(&env, "rm_wd_op")), ());
+        Ok(())
+    }
+
+    pub fn get_withdraw_operator(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::WithdrawOperator)
     }
 }
 
