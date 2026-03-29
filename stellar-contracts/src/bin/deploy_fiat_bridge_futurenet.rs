@@ -10,7 +10,6 @@ use std::process::{Command, exit};
 /// - FUTURENET_RPC_URL: Futurenet RPC endpoint (default: https://rpc-futurenet.stellar.org)
 /// - FUTURENET_NETWORK_PASSPHRASE: Futurenet passphrase (default: Test SDF Future Network ; April 2020)
 /// - OUTPUT_FILE: File path for contract ID output (default: ./contract_id_futurenet.txt)
-
 fn main() {
     let admin_secret = env::var("FUTURENET_ADMIN_SECRET_KEY")
         .expect("❌ FUTURENET_ADMIN_SECRET_KEY environment variable not set");
@@ -31,7 +30,7 @@ fn main() {
     // Build the contract
     println!("📦 Building WASM contract...");
     let build_status = Command::new("cargo")
-        .args(&["build", "--target", "wasm32-unknown-unknown", "--release"])
+        .args(["build", "--target", "wasm32-unknown-unknown", "--release"])
         .status()
         .expect("Failed to build contract");
 
@@ -49,7 +48,7 @@ fn main() {
     // Deploy the contract
     println!("⚙️  Deploying contract to Futurenet...");
     let deploy_output = Command::new("soroban")
-        .args(&[
+        .args([
             "contract", "deploy",
             "--wasm", wasm_path,
             "--secret-key", &admin_secret,
