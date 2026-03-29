@@ -50,11 +50,12 @@ import { clearExpiredDrafts } from '@/lib/draftUtils';
 import { useTranslation } from '@/contexts/TranslationContext';
 import ReceiptDrawer from './ReceiptDrawerWrapper';
 import { useTxHistory } from '@/hooks/useTxHistory';
-import {
-  subscribeToQueue,
-  processQueue,
-} from '@/lib/networkQueue';
+import { subscribeToQueue, processQueue } from '@/lib/networkQueue';
 import CopyButton from '@/components/ui/CopyButton';
+import SplitViewComparison from './SplitViewComparison';
+import ChatSearchPanel from './ChatSearchPanel';
+import { useChatHistory } from '@/hooks/useChatHistory';
+import { useSplitView } from '@/hooks/useSplitView';
 
 export default function StellarChatInterface() {
   const { t } = useTranslation();
