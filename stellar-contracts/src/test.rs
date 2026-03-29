@@ -1012,6 +1012,63 @@ fn test_withdrawal_quota_per_user() {
 }
 
 #[test]
+fn test_withdrawal_quota_window_reset_isolated_per_user() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    token_sac.mint(&user_a, &5_000);
+    token_sac.mint(&user_b, &5_000);
+
+    bridge.deposit(&user_a, &2_000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.deposit(&user_b, &2_000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.set_withdrawal_quota(&500);
+
+    let start_ledger = env.ledger().sequence();
+
+    // User A consumes full quota at start_ledger.
+    bridge.withdraw(&user_a, &500, &token_addr);
+
+    // User B consumes full quota in a later window start.
+    env.ledger().with_mut(|li| {
+        li.sequence_number = start_ledger + 100;
+    });
+    bridge.withdraw(&user_b, &500, &token_addr);
+
+    assert_eq!(
+        bridge.try_withdraw(&user_a, &1, &token_addr),
+        Err(Ok(Error::WithdrawalQuotaExceeded))
+    );
+    assert_eq!(
+        bridge.try_withdraw(&user_b, &1, &token_addr),
+        Err(Ok(Error::WithdrawalQuotaExceeded))
+    );
+
+    // Advance to A's reset point, but still before B's reset point.
+    env.ledger().with_mut(|li| {
+        li.sequence_number = start_ledger + 17_280;
+    });
+
+    // A can withdraw after reset; B is still quota-limited.
+    bridge.withdraw(&user_a, &100, &token_addr);
+    assert_eq!(bridge.get_user_daily_withdrawal(&user_a), 100);
+    assert_eq!(
+        bridge.try_withdraw(&user_b, &1, &token_addr),
+        Err(Ok(Error::WithdrawalQuotaExceeded))
+    );
+
+    // Advance past B's reset point; B can now withdraw independently.
+    env.ledger().with_mut(|li| {
+        li.sequence_number = start_ledger + 17_380;
+    });
+
+    bridge.withdraw(&user_b, &100, &token_addr);
+    assert_eq!(bridge.get_user_daily_withdrawal(&user_b), 100);
+}
+
+#[test]
 fn test_withdrawal_quota_boundary() {
     let env = Env::default();
     env.mock_all_auths();
