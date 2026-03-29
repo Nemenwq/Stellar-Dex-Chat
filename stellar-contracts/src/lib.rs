@@ -247,6 +247,8 @@ pub enum DataKey {
     OperatorHeartbeat(Address),
     OperatorNonce(Address),
     Denied(Address),
+    DeniedIndex(u64),
+    DeniedCount,
     FeeVault(Address),
     ReceiptIndex(u64),
     // ── Issue #214: deployment config hash ────────────────────────────────
@@ -1365,6 +1367,20 @@ impl FiatBridge {
         env.storage()
             .persistent()
             .set(&DataKey::Denied(address.clone()), &true);
+
+        // Append to denied-address index for enumeration
+        let count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::DeniedCount)
+            .unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&DataKey::DeniedIndex(count), &Some(address.clone()));
+        env.storage()
+            .instance()
+            .set(&DataKey::DeniedCount, &(count + 1));
+
         env.events()
             .publish((EVENT_VERSION, Symbol::new(&env, "deny_add")), address);
         Ok(())
@@ -1474,6 +1490,28 @@ impl FiatBridge {
         env.storage()
             .persistent()
             .remove(&DataKey::Denied(address.clone()));
+
+        // Tombstone the index slot (mark as None) without compacting
+        let count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::DeniedCount)
+            .unwrap_or(0);
+        for i in 0..count {
+            if let Some(Some(addr)) = env
+                .storage()
+                .persistent()
+                .get::<_, Option<Address>>(&DataKey::DeniedIndex(i))
+            {
+                if addr == address {
+                    env.storage()
+                        .persistent()
+                        .set(&DataKey::DeniedIndex(i), &Option::<Address>::None);
+                    break;
+                }
+            }
+        }
+
         env.events()
             .publish((EVENT_VERSION, Symbol::new(&env, "deny_rem")), address);
         Ok(())
@@ -1493,6 +1531,29 @@ impl FiatBridge {
     /// `true` if the address is denied, `false` otherwise
     pub fn is_denied(env: Env, address: Address) -> bool {
         env.storage().persistent().has(&DataKey::Denied(address))
+    }
+
+    pub fn get_denied_addresses(env: Env, offset: u64, limit: u32) -> Vec<Address> {
+        let count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::DeniedCount)
+            .unwrap_or(0);
+        let mut result: Vec<Address> = Vec::new(&env);
+        let mut collected: u32 = 0;
+        let mut idx = offset;
+        while idx < count && collected < limit {
+            if let Some(Some(addr)) = env
+                .storage()
+                .persistent()
+                .get::<_, Option<Address>>(&DataKey::DeniedIndex(idx))
+            {
+                result.push_back(addr);
+                collected += 1;
+            }
+            idx += 1;
+        }
+        result
     }
 
     // ── Fee Vault ─────────────────────────────────────────────────────────
