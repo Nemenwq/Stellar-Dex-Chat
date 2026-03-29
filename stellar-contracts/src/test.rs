@@ -2547,15 +2547,14 @@ fn assert_bridge_events_have_version(env: &Env, contract_addr: &Address, f: impl
     let raw = bridge_events.events();
     assert!(!raw.is_empty(), "no bridge events were emitted");
     for event in raw {
-        if let ContractEventBody::V0(body) = &event.body {
-            let first = body.topics.first().expect("bridge event has no topics");
-            assert_eq!(
-                *first,
-                ScVal::U32(EVENT_VERSION),
-                "bridge event first topic is not EVENT_VERSION: {:?}",
-                body
-            );
-        }
+        let ContractEventBody::V0(body) = &event.body;
+        let first = body.topics.first().expect("bridge event has no topics");
+        assert_eq!(
+            *first,
+            ScVal::U32(EVENT_VERSION),
+            "bridge event first topic is not EVENT_VERSION: {:?}",
+            body
+        );
     }
 }
 
@@ -2608,11 +2607,11 @@ mod proptest_deposit {
     use super::*;
     use proptest::prelude::*;
 
-    /// Deposit invariants that must hold for every positive amount ≤ limit:
-    ///   1. deposit() succeeds
-    ///   2. contract balance increases by exactly `amount`
-    ///   3. user balance decreases by exactly `amount`
-    ///   4. get_user_deposited() returns `amount`
+    // Deposit invariants that must hold for every positive amount <= limit:
+    //   1. deposit() succeeds
+    //   2. contract balance increases by exactly `amount`
+    //   3. user balance decreases by exactly `amount`
+    //   4. get_user_deposited() returns `amount`
     proptest! {
         #[test]
         fn deposit_invariants_hold_for_all_valid_amounts(amount in 1i128..=500i128) {
