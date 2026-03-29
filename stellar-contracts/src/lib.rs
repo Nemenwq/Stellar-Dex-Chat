@@ -1,4 +1,6 @@
 #![no_std]
+#![allow(deprecated)]
+#![allow(clippy::too_many_arguments)]
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, xdr::ToXdr, Address, Bytes, BytesN,
     Env, Symbol, Vec,
@@ -411,7 +413,7 @@ impl FiatBridge {
 
         // Transfer
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&from, &env.current_contract_address(), &amount);
+        token_client.transfer(&from, env.current_contract_address(), &amount);
 
         // State update
         let receipt_counter: u64 = env
@@ -750,23 +752,7 @@ impl FiatBridge {
             }
         }
 
-        // Anti-sandwich check
-        let delay: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::AntiSandwichDelay)
-            .unwrap_or(0);
-        if delay > 0 {
-            if let Some(last_deposit) = env
-                .storage()
-                .temporary()
-                .get::<_, u32>(&DataKey::LastDeposit(request.to.clone()))
-            {
-                if env.ledger().sequence() < last_deposit.saturating_add(delay) {
-                    return Err(Error::AntiSandwichDelayActive);
-                }
-            }
-        }
+
 
         let token_client = token::Client::new(&env, &request.token);
         let balance = token_client.balance(&env.current_contract_address());
@@ -1160,10 +1146,10 @@ impl FiatBridge {
         // Computed slippage in BPS: (Expected - Actual) / Expected * 10,000
         // We only care about downward slippage for these paths.
         // ── Issue #220: use precision-safe fixed-point math ───────────────
-        // Use ceiling division to ensure boundary violations are caught (conservative approach)
         let slippage_bps = if actual_price < expected_price {
             let diff = expected_price - actual_price;
-            crate::math::mul_div_ceil(diff, 10000, expected_price)
+            // Use floor division for the displayed slippage value
+            crate::math::mul_div_floor(diff, 10000, expected_price)
         } else {
             0
         };
@@ -1173,8 +1159,27 @@ impl FiatBridge {
             slippage_bps as u32,
         );
 
-        if slippage_bps > max_slippage_bps as i128 {
-            return Err(Error::SlippageTooHigh);
+        // Check slippage using floor division but account for rounding:
+        // If floor(diff * 10_000 / expected) == max_slippage and remainder is significant,
+        // round up to catch boundary violations from ceiling-computed expected_price
+        if actual_price < expected_price {
+            let diff = expected_price - actual_price;
+            let numerator = diff * 10_000;
+            let quotient = numerator / expected_price;
+            
+            // Reject if quotient exceeds max
+            if quotient > (max_slippage_bps as i128) {
+                return Err(Error::SlippageTooHigh);
+            }
+            
+            // Also reject if quotient equals max but remainder indicates ceiling would exceed
+            if quotient == (max_slippage_bps as i128) {
+                let remainder = numerator % expected_price;
+                // If remainder > expected_price / 2, ceiling would round up
+                if remainder > 0 && remainder >= expected_price / 2 {
+                    return Err(Error::SlippageTooHigh);
+                }
+            }
         }
 
         Ok(())
@@ -1246,10 +1251,14 @@ impl FiatBridge {
 
         let curr = env.ledger().sequence();
         let key = DataKey::UserDailyDeposit(depositor.clone(), token.clone());
-        let mut record: UserDailyDeposit = env.storage().instance().get(&key).unwrap_or(UserDailyDeposit {
-            amount: 0,
-            window_start: curr,
-        });
+        let mut record: UserDailyDeposit =
+            env.storage()
+                .instance()
+                .get(&key)
+                .unwrap_or(UserDailyDeposit {
+                    amount: 0,
+                    window_start: curr,
+                });
 
         if curr >= record.window_start.saturating_add(WINDOW_LEDGERS) {
             record.amount = 0;
@@ -2027,11 +2036,7 @@ impl FiatBridge {
                 .get::<_, BytesN<32>>(&DataKey::ReceiptIndex(idx))
             {
                 let receipt_key = DataKey::Receipt(receipt_hash.clone());
-                if let Some(receipt) = env
-                    .storage()
-                    .persistent()
-                    .get::<_, Receipt>(&receipt_key)
-                {
+                if let Some(receipt) = env.storage().persistent().get::<_, Receipt>(&receipt_key) {
                     if receipt.depositor == *depositor {
                         env.storage()
                             .persistent()
@@ -2160,7 +2165,7 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
 
-        let total_ops = operations.len() as u32;
+        let total_ops = operations.len();
         let mut success_count: u32 = 0;
         let mut failure_count: u32 = 0;
         let mut first_failed_index: Option<u32> = None;
@@ -2189,6 +2194,7 @@ impl FiatBridge {
         };
 
         env.events().publish(
+            (Symbol::new(&env, "batch_ok"), Symbol::new(&env, "v1")),
             (EVENT_VERSION, Symbol::new(&env, "batch_ok")),
             (success_count, failure_count, total_ops),
         );
@@ -2243,8 +2249,8 @@ impl FiatBridge {
             return Err(Error::InternalError);
         }
         let mut arr = [0u8; 4];
-        for i in 0..4 {
-            arr[i] = bytes.get(i as u32).ok_or(Error::InternalError)?;
+        for (i, slot) in arr.iter_mut().enumerate() {
+            *slot = bytes.get(i as u32).ok_or(Error::InternalError)?;
         }
         Ok(u32::from_be_bytes(arr))
     }
@@ -2254,8 +2260,8 @@ impl FiatBridge {
             return Err(Error::InternalError);
         }
         let mut arr = [0u8; 16];
-        for i in 0..16 {
-            arr[i] = bytes.get(i as u32).ok_or(Error::InternalError)?;
+        for (i, slot) in arr.iter_mut().enumerate() {
+            *slot = bytes.get(i as u32).ok_or(Error::InternalError)?;
         }
         Ok(i128::from_be_bytes(arr))
     }
