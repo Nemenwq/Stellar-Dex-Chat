@@ -2,12 +2,12 @@
 extern crate std;
 
 use super::*;
+use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{
     testutils::{storage::Persistent as _, Address as _, Events as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     vec, Address, Bytes, BytesN, Env, IntoVal, Symbol,
 };
-use soroban_sdk::xdr::ToXdr;
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -681,7 +681,7 @@ fn test_slippage_violation_reverts() {
         &max_slippage,
         &None,
     );
-    assert_eq!(result, Err(Ok(Error::SlippageExceeded)));
+    assert_eq!(result, Err(Ok(Error::SlippageTooHigh)));
 
     // Now allow it with 600 bps threshold
     bridge.deposit(
@@ -694,6 +694,119 @@ fn test_slippage_violation_reverts() {
         &None,
     );
     assert_eq!(token.balance(&user), 4000);
+}
+
+// ── slippage boundary tests ───────────────────────────────────────────────
+#[test]
+fn test_slippage_boundary_exact() {
+    // Test that deposits pass at exactly max_slippage bps
+    // Sweep max_slippage from 0 to 10_000 bps
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 100_000);
+    let oracle_id = env.register(MockOracle, ());
+    bridge.set_oracle(&oracle_id);
+
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &100_000);
+
+    // Test various slippage boundaries
+    let test_cases = [
+        0u32, 1, 10, 50, 100, 250, 500, 1000, 2500, 5000, 7500, 10000,
+    ];
+
+    for max_slippage_bps in test_cases.iter() {
+        // Calculate expected_price such that actual slippage equals max_slippage_bps
+        // MockOracle returns 9_500_000 (0.95 USD)
+        // We want: (expected - 9_500_000) / expected * 10_000 = max_slippage_bps
+        // Solving: expected = 9_500_000 * 10_000 / (10_000 - max_slippage_bps)
+        
+        let actual_price = 9_500_000i128;
+        let expected_price = if *max_slippage_bps == 10000 {
+            // Special case: 100% slippage means expected can be anything > actual
+            actual_price * 2
+        } else {
+            // Calculate expected price that gives exactly max_slippage_bps
+            actual_price * 10_000 / (10_000 - *max_slippage_bps as i128)
+        };
+
+        // Deposit should succeed at exactly max_slippage
+        let result = bridge.try_deposit(
+            &user,
+            &1000,
+            &token_addr,
+            &Bytes::new(&env),
+            &expected_price,
+            max_slippage_bps,
+            &None,
+        );
+
+        // Should succeed (not return an error)
+        assert!(
+            result.is_ok(),
+            "Deposit should succeed at exactly {} bps slippage, but got error: {:?}",
+            max_slippage_bps,
+            result
+        );
+    }
+}
+
+#[test]
+fn test_slippage_boundary_exceeded() {
+    // Test that deposits fail at max_slippage + 1 bps
+    // Sweep max_slippage from 0 to 10_000 bps
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 100_000);
+    let oracle_id = env.register(MockOracle, ());
+    bridge.set_oracle(&oracle_id);
+
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &100_000);
+
+    // Test various slippage boundaries
+    let test_cases = [
+        0u32, 1, 10, 50, 100, 250, 500, 1000, 2500, 5000, 7500, 9999,
+    ];
+
+    for max_slippage_bps in test_cases.iter() {
+        // Calculate expected_price such that actual slippage equals max_slippage_bps + 1
+        // MockOracle returns 9_500_000 (0.95 USD)
+        // We want: (expected - 9_500_000) / expected * 10_000 = max_slippage_bps + 1
+        // Solving: expected = 9_500_000 * 10_000 / (10_000 - (max_slippage_bps + 1))
+        
+        let actual_price = 9_500_000i128;
+        let target_slippage = *max_slippage_bps + 1;
+        
+        if target_slippage >= 10000 {
+            // Skip if target slippage would be >= 100%
+            continue;
+        }
+
+        let expected_price = actual_price * 10_000 / (10_000 - target_slippage as i128);
+
+        // Deposit should fail at max_slippage + 1
+        let result = bridge.try_deposit(
+            &user,
+            &1000,
+            &token_addr,
+            &Bytes::new(&env),
+            &expected_price,
+            max_slippage_bps,
+            &None,
+        );
+
+        // Should fail with SlippageTooHigh error
+        assert_eq!(
+            result,
+            Err(Ok(Error::SlippageTooHigh)),
+            "Deposit should fail at {} bps slippage (max_slippage={} bps)",
+            target_slippage,
+            max_slippage_bps
+        );
+    }
 }
 
 // ── event versioning tests ────────────────────────────────────────────────
@@ -713,7 +826,7 @@ fn test_set_withdrawal_quota() {
     env.mock_all_auths();
 
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
-    
+
     assert_eq!(bridge.get_withdrawal_quota(), 0);
     bridge.set_withdrawal_quota(&500);
     assert_eq!(bridge.get_withdrawal_quota(), 500);
@@ -770,8 +883,8 @@ fn test_withdrawal_quota_resets_after_window() {
                 contract_id.clone(),
                 vec![
                     &env,
-                    Symbol::new(&env, "quota_reset").into_val(&env),
-                    Symbol::new(&env, "v1").into_val(&env)
+                    EVENT_VERSION.into_val(&env),
+                    Symbol::new(&env, "quota_reset").into_val(&env)
                 ],
                 (user.clone(), start_ledger + 17_280).into_val(&env)
             ),
@@ -779,6 +892,7 @@ fn test_withdrawal_quota_resets_after_window() {
                 contract_id,
                 vec![
                     &env,
+                    EVENT_VERSION.into_val(&env),
                     Symbol::new(&env, "withdraw").into_val(&env),
                     user.into_val(&env)
                 ],
@@ -867,8 +981,24 @@ fn test_withdrawal_quota_per_user() {
     token_sac.mint(&user_a, &2000);
     token_sac.mint(&user_b, &2000);
 
-    bridge.deposit(&user_a, &1000, &token_addr, &Bytes::new(&env), &0, &0, &None);
-    bridge.deposit(&user_b, &1000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.deposit(
+        &user_a,
+        &1000,
+        &token_addr,
+        &Bytes::new(&env),
+        &0,
+        &0,
+        &None,
+    );
+    bridge.deposit(
+        &user_b,
+        &1000,
+        &token_addr,
+        &Bytes::new(&env),
+        &0,
+        &0,
+        &None,
+    );
     bridge.set_withdrawal_quota(&500);
 
     bridge.withdraw(&user_a, &500, &token_addr);
@@ -1034,16 +1164,16 @@ fn test_receipt_id_determinism_and_uniqueness() {
     token_sac.mint(&user, &1000);
 
     let reference = Bytes::from_slice(&env, b"ref1");
-    
+
     // First deposit
     let id1 = bridge.deposit(&user, &100, &token_addr, &reference, &0, &0, &None);
-    
+
     // Second identical deposit (except internal counter will increase)
     let id2 = bridge.deposit(&user, &100, &token_addr, &reference, &0, &0, &None);
-    
+
     // They must be unique
     assert_ne!(id1, id2);
-    
+
     // Verify determinism: re-calculate id1 manually
     // Derivation: sha256(xdr(depositor, amount, ledger, reference, counter))
     // counter for id1 was 0
@@ -1063,19 +1193,19 @@ fn test_receipt_id_collision_resistance() {
     let env = Env::default();
     env.mock_all_auths();
     let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 1000);
-    
+
     let user1 = Address::generate(&env);
     let user2 = Address::generate(&env);
     token_sac.mint(&user1, &500);
     token_sac.mint(&user2, &500);
-    
+
     let ref_shared = Bytes::from_slice(&env, b"ref");
-    
+
     let id1 = bridge.deposit(&user1, &100, &token_addr, &ref_shared, &0, &0, &None);
     let id2 = bridge.deposit(&user2, &100, &token_addr, &ref_shared, &0, &0, &None);
-    
+
     assert_ne!(id1, id2);
-    
+
     // Different amount
     let id3 = bridge.deposit(&user1, &200, &token_addr, &ref_shared, &0, &0, &None);
     assert_ne!(id1, id3);
@@ -1248,8 +1378,36 @@ fn test_denylist_does_not_affect_other_users() {
     bridge.deny_address(&denied_user);
 
     // Normal user should not be affected
-    bridge.deposit(&normal_user, &200, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.deposit(
+        &normal_user,
+        &200,
+        &token_addr,
+        &Bytes::new(&env),
+        &0,
+        &0,
+        &None,
+    );
     assert_eq!(bridge.get_user_deposited(&normal_user), 200);
+}
+
+#[test]
+fn test_is_denied_returns_correct_value() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+
+    // Initially, user should not be denied
+    assert!(!bridge.is_denied(&user));
+
+    // After denying, should return true
+    bridge.deny_address(&user);
+    assert!(bridge.is_denied(&user));
+
+    // After removing from denylist, should return false again
+    bridge.remove_denied_address(&user);
+    assert!(!bridge.is_denied(&user));
 }
 
 #[test]
@@ -1280,7 +1438,7 @@ fn test_batch_admin_success() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
 
     let mut ops = soroban_sdk::Vec::new(&env);
-    
+
     let cooldown_bytes = Bytes::from_array(&env, &100u32.to_be_bytes());
     ops.push_back(BatchAdminOp {
         op_type: Symbol::new(&env, "set_cooldown"),
@@ -1296,6 +1454,7 @@ fn test_batch_admin_success() {
     let result = bridge.execute_batch_admin(&ops);
     assert_eq!(result.total_ops, 2);
     assert_eq!(result.success_count, 2);
+    assert_eq!(result.failure_count, 0);
     assert!(result.failed_index.is_none());
 
     assert_eq!(bridge.get_cooldown(), 100);
@@ -1313,7 +1472,7 @@ fn test_batch_admin_rollback_on_failure() {
     bridge.set_lock_period(&20);
 
     let mut ops = soroban_sdk::Vec::new(&env);
-    
+
     let cooldown_bytes = Bytes::from_array(&env, &100u32.to_be_bytes());
     ops.push_back(BatchAdminOp {
         op_type: Symbol::new(&env, "set_cooldown"),
@@ -1325,10 +1484,14 @@ fn test_batch_admin_rollback_on_failure() {
         payload: Bytes::new(&env),
     });
 
-    let result = bridge.try_execute_batch_admin(&ops);
-    assert_eq!(result, Err(Ok(Error::BatchOperationFailed)));
+    let result = bridge.execute_batch_admin(&ops);
+    assert_eq!(result.total_ops, 2);
+    assert_eq!(result.success_count, 1);
+    assert_eq!(result.failure_count, 1);
+    assert_eq!(result.failed_index, Some(1));
 
-    assert_eq!(bridge.get_cooldown(), 10);
+    // First valid op is applied, invalid op is skipped.
+    assert_eq!(bridge.get_cooldown(), 100);
     assert_eq!(bridge.get_lock_period(), 20);
 }
 
@@ -1340,7 +1503,7 @@ fn test_batch_admin_partial_failure_index() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
 
     let mut ops = soroban_sdk::Vec::new(&env);
-    
+
     let cooldown_bytes = Bytes::from_array(&env, &100u32.to_be_bytes());
     ops.push_back(BatchAdminOp {
         op_type: Symbol::new(&env, "set_cooldown"),
@@ -1358,8 +1521,50 @@ fn test_batch_admin_partial_failure_index() {
         payload: Bytes::new(&env),
     });
 
-    let result = bridge.try_execute_batch_admin(&ops);
-    assert_eq!(result, Err(Ok(Error::BatchOperationFailed)));
+    let result = bridge.execute_batch_admin(&ops);
+    assert_eq!(result.total_ops, 3);
+    assert_eq!(result.success_count, 2);
+    assert_eq!(result.failure_count, 1);
+    assert_eq!(result.failed_index, Some(2));
+}
+
+#[test]
+fn test_batch_admin_mixed_success_failure_continues() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+
+    bridge.set_cooldown(&10);
+    bridge.set_lock_period(&20);
+
+    let mut ops = soroban_sdk::Vec::new(&env);
+
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_cooldown"),
+        payload: Bytes::from_array(&env, &100u32.to_be_bytes()),
+    });
+
+    // Invalid op in the middle should not revert successful ops.
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "invalid_op"),
+        payload: Bytes::new(&env),
+    });
+
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_lock"),
+        payload: Bytes::from_array(&env, &50u32.to_be_bytes()),
+    });
+
+    let result = bridge.execute_batch_admin(&ops);
+    assert_eq!(result.total_ops, 3);
+    assert_eq!(result.success_count, 2);
+    assert_eq!(result.failure_count, 1);
+    assert_eq!(result.failed_index, Some(1));
+
+    // State reflects both successful operations (1st and 3rd).
+    assert_eq!(bridge.get_cooldown(), 100);
+    assert_eq!(bridge.get_lock_period(), 50);
 }
 
 #[test]
@@ -1370,7 +1575,7 @@ fn test_batch_admin_with_quota() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
 
     let mut ops = soroban_sdk::Vec::new(&env);
-    
+
     let quota_bytes = Bytes::from_array(&env, &1000i128.to_be_bytes());
     ops.push_back(BatchAdminOp {
         op_type: Symbol::new(&env, "set_quota"),
@@ -1380,6 +1585,7 @@ fn test_batch_admin_with_quota() {
     let result = bridge.execute_batch_admin(&ops);
     assert_eq!(result.total_ops, 1);
     assert_eq!(result.success_count, 1);
+    assert_eq!(result.failure_count, 0);
 
     assert_eq!(bridge.get_withdrawal_quota(), 1000);
 }
@@ -1396,6 +1602,7 @@ fn test_batch_admin_empty_batch() {
     let result = bridge.execute_batch_admin(&ops);
     assert_eq!(result.total_ops, 0);
     assert_eq!(result.success_count, 0);
+    assert_eq!(result.failure_count, 0);
     assert!(result.failed_index.is_none());
 }
 
@@ -1450,6 +1657,59 @@ fn test_withdraw_fees_success() {
     assert_eq!(bridge.get_accrued_fees(&token_addr), 100);
     assert_eq!(token.balance(&recipient), 100);
     assert_eq!(token.balance(&contract_id), 900);
+}
+
+#[test]
+fn test_withdraw_fees_batch_full_sweep() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, token_a_addr, token_a, token_a_sac) = setup_bridge(&env, 10_000);
+    let token_b_admin = Address::generate(&env);
+    let (token_b_addr, token_b, token_b_sac) = create_token(&env, &token_b_admin);
+    let recipient = Address::generate(&env);
+
+    token_a_sac.mint(&contract_id, &120);
+    token_b_sac.mint(&contract_id, &80);
+
+    bridge.accrue_fee(&token_a_addr, &120);
+    bridge.accrue_fee(&token_b_addr, &80);
+
+    let mut tokens = soroban_sdk::Vec::new(&env);
+    tokens.push_back(token_a_addr.clone());
+    tokens.push_back(token_b_addr.clone());
+
+    bridge.withdraw_fees_batch(&recipient, &tokens);
+
+    assert_eq!(bridge.get_accrued_fees(&token_a_addr), 0);
+    assert_eq!(bridge.get_accrued_fees(&token_b_addr), 0);
+    assert_eq!(token_a.balance(&recipient), 120);
+    assert_eq!(token_b.balance(&recipient), 80);
+}
+
+#[test]
+fn test_withdraw_fees_batch_partial_sweep() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, token_a_addr, token_a, token_a_sac) = setup_bridge(&env, 10_000);
+    let token_b_admin = Address::generate(&env);
+    let (token_b_addr, token_b, _) = create_token(&env, &token_b_admin);
+    let recipient = Address::generate(&env);
+
+    token_a_sac.mint(&contract_id, &200);
+    bridge.accrue_fee(&token_a_addr, &200);
+
+    let mut tokens = soroban_sdk::Vec::new(&env);
+    tokens.push_back(token_a_addr.clone());
+    tokens.push_back(token_b_addr.clone());
+
+    bridge.withdraw_fees_batch(&recipient, &tokens);
+
+    assert_eq!(bridge.get_accrued_fees(&token_a_addr), 0);
+    assert_eq!(bridge.get_accrued_fees(&token_b_addr), 0);
+    assert_eq!(token_a.balance(&recipient), 200);
+    assert_eq!(token_b.balance(&recipient), 0);
 }
 
 #[test]
@@ -2253,6 +2513,127 @@ fn test_get_receipt_by_index_nonexistent_index() {
     // Indexes that were never written return None
     assert_eq!(bridge.get_receipt_by_index(&50), None);
     assert_eq!(bridge.get_receipt_by_index(&u64::MAX), None);
+}
+
+#[test]
+fn test_memo_hash_zero_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 1000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
+    let valid_hash = BytesN::from_array(&env, &[1u8; 32]);
+
+    // deposit: zero hash is rejected
+    let result = bridge.try_deposit(
+        &user,
+        &100,
+        &token_addr,
+        &Bytes::new(&env),
+        &0,
+        &0,
+        &Some(zero_hash.clone()),
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidMemoHash)));
+
+    // deposit: valid hash succeeds
+    bridge.deposit(
+        &user,
+        &100,
+        &token_addr,
+        &Bytes::new(&env),
+        &0,
+        &0,
+        &Some(valid_hash.clone()),
+    );
+
+    // request_withdrawal: zero hash is rejected
+    let result = bridge.try_request_withdrawal(
+        &user,
+        &50,
+        &token_addr,
+        &Some(zero_hash),
+        &0,
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidMemoHash)));
+
+    // request_withdrawal: valid hash succeeds
+    bridge.request_withdrawal(
+        &user,
+        &50,
+        &token_addr,
+        &Some(valid_hash),
+        &0,
+    );
+}
+
+// ── Event topic structure tests ───────────────────────────────────────────────
+
+/// Assert that every event emitted by the bridge contract in `f` has `EVENT_VERSION` (u32)
+/// as its first XDR topic.
+fn assert_bridge_events_have_version(env: &Env, contract_addr: &Address, f: impl FnOnce()) {
+    use soroban_sdk::xdr::{ContractEventBody, ScVal};
+
+    f();
+    let bridge_events = env.events().all().filter_by_contract(contract_addr);
+    let raw = bridge_events.events();
+    assert!(!raw.is_empty(), "no bridge events were emitted");
+    for event in raw {
+        if let ContractEventBody::V0(body) = &event.body {
+            let first = body.topics.first().expect("bridge event has no topics");
+            assert_eq!(
+                *first,
+                ScVal::U32(EVENT_VERSION),
+                "bridge event first topic is not EVENT_VERSION: {:?}",
+                body
+            );
+        }
+    }
+}
+
+#[test]
+fn test_event_version_deposit() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_addr, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 1_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &500);
+
+    assert_bridge_events_have_version(&env, &contract_addr, || {
+        bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    });
+}
+
+#[test]
+fn test_event_version_request_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_addr, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 1_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &500);
+    bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    assert_bridge_events_have_version(&env, &contract_addr, || {
+        bridge.request_withdrawal(&user, &50, &token_addr, &None, &0);
+    });
+}
+
+#[test]
+fn test_event_version_deny_add_remove() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_addr, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+    let target = Address::generate(&env);
+
+    assert_bridge_events_have_version(&env, &contract_addr, || {
+        bridge.deny_address(&target);
+    });
+    assert_bridge_events_have_version(&env, &contract_addr, || {
+        bridge.remove_denied_address(&target);
+    });
 }
 
 // ── Property-based tests (proptest) ──────────────────────────────────────────

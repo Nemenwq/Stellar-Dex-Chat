@@ -1086,6 +1086,9 @@
           "v0": {
             "topics": [
               {
+                "u32": 1
+              },
+              {
                 "symbol": "withdraw"
               },
               {
