@@ -39,7 +39,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
-                  "i128": "1716"
+                  "i128": "9830"
                 }
               ]
             }
@@ -296,6 +296,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "OperatorList"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "vec": []
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "SchemaVersion"
                           }
                         ]
@@ -392,7 +404,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "1716"
+                      "i128": "9830"
                     }
                   },
                   {

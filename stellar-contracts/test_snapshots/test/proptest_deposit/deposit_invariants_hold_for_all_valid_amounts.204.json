@@ -63,7 +63,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
-                  "i128": "339"
+                  "i128": "199"
                 },
                 {
                   "address": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN"
@@ -95,7 +95,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                     },
                     {
-                      "i128": "339"
+                      "i128": "199"
                     }
                   ]
                 }
@@ -225,7 +225,7 @@
                     "symbol": "Receipt"
                   },
                   {
-                    "bytes": "fd0ca5b7cf5ced55af3edf4b7645e0858cfbe6c66333191347be43e74d1349db"
+                    "bytes": "80872eabf095a83ad12d11015efe01b39813e4a6cbae38b5c6b1fdc6f0b377fe"
                   }
                 ]
               },
@@ -237,7 +237,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "339"
+                      "i128": "199"
                     }
                   },
                   {
@@ -253,7 +253,7 @@
                       "symbol": "id"
                     },
                     "val": {
-                      "bytes": "fd0ca5b7cf5ced55af3edf4b7645e0858cfbe6c66333191347be43e74d1349db"
+                      "bytes": "80872eabf095a83ad12d11015efe01b39813e4a6cbae38b5c6b1fdc6f0b377fe"
                     }
                   },
                   {
@@ -313,7 +313,7 @@
               },
               "durability": "persistent",
               "val": {
-                "bytes": "fd0ca5b7cf5ced55af3edf4b7645e0858cfbe6c66333191347be43e74d1349db"
+                "bytes": "80872eabf095a83ad12d11015efe01b39813e4a6cbae38b5c6b1fdc6f0b377fe"
               }
             }
           },
@@ -362,7 +362,7 @@
                       "symbol": "total_deposited"
                     },
                     "val": {
-                      "i128": "339"
+                      "i128": "199"
                     }
                   },
                   {
@@ -492,6 +492,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "OperatorList"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "vec": []
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "ReceiptCounter"
                           }
                         ]
@@ -536,7 +548,7 @@
                         ]
                       },
                       "val": {
-                        "i128": "339"
+                        "i128": "199"
                       }
                     },
                     {
@@ -635,7 +647,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "339"
+                      "i128": "199"
                     }
                   },
                   {
@@ -687,7 +699,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "661"
+                      "i128": "801"
                     }
                   },
                   {
