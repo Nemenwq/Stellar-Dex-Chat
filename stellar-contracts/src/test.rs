@@ -795,7 +795,12 @@ fn test_slippage_boundary_exceeded() {
             continue;
         }
 
-        let expected_price = actual_price * 10_000 / (10_000 - target_slippage as i128);
+        // Use ceiling division to ensure computed slippage equals exactly target_slippage
+        let expected_price = {
+            let numerator = actual_price * 10_000;
+            let denominator = 10_000 - target_slippage as i128;
+            (numerator + denominator - 1) / denominator
+        };
 
         // Deposit should fail at max_slippage + 1
         let result = bridge.try_deposit(

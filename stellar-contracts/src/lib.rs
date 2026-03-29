@@ -1160,19 +1160,10 @@ impl FiatBridge {
         );
 
         // Check slippage using cross-multiplication to avoid division errors.
-        // The ceiling division in test_slippage_boundary_exact creates a slight overshoot
-        // in the diff value. We add a tolerance equal to 1 bps (max_slippage_bps * expected_price)
-        // to allow exact boundary cases while still rejecting genuine violations.
+        // Reject if: (expected - actual) * 10_000 > max_slippage_bps * expected
         if actual_price < expected_price {
             let diff = expected_price - actual_price;
-            let max_i128 = max_slippage_bps as i128;
-            let threshold = max_i128 * expected_price;
-            
-            // Add tolerance for ceiling-rounding effects: allow up to 1 bps of overshoot
-            let tolerance = max_i128 * expected_price;
-            
-            // Reject only if slippage strictly exceeds tolerance
-            if diff * 10_000 > threshold + tolerance {
+            if diff * 10_000 > (max_slippage_bps as i128) * expected_price {
                 return Err(Error::SlippageTooHigh);
             }
         }
