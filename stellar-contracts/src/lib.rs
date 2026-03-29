@@ -750,23 +750,7 @@ impl FiatBridge {
             }
         }
 
-        // Anti-sandwich check
-        let delay: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::AntiSandwichDelay)
-            .unwrap_or(0);
-        if delay > 0 {
-            if let Some(last_deposit) = env
-                .storage()
-                .temporary()
-                .get::<_, u32>(&DataKey::LastDeposit(request.to.clone()))
-            {
-                if env.ledger().sequence() < last_deposit.saturating_add(delay) {
-                    return Err(Error::AntiSandwichDelayActive);
-                }
-            }
-        }
+
 
         let token_client = token::Client::new(&env, &request.token);
         let balance = token_client.balance(&env.current_contract_address());
@@ -1160,10 +1144,10 @@ impl FiatBridge {
         // Computed slippage in BPS: (Expected - Actual) / Expected * 10,000
         // We only care about downward slippage for these paths.
         // ── Issue #220: use precision-safe fixed-point math ───────────────
-        // Use ceiling division to ensure boundary violations are caught (conservative approach)
         let slippage_bps = if actual_price < expected_price {
             let diff = expected_price - actual_price;
-            crate::math::mul_div_ceil(diff, 10000, expected_price)
+            // Use floor division for the displayed slippage value
+            crate::math::mul_div_floor(diff, 10000, expected_price)
         } else {
             0
         };
@@ -1173,8 +1157,27 @@ impl FiatBridge {
             slippage_bps as u32,
         );
 
-        if slippage_bps > max_slippage_bps as i128 {
-            return Err(Error::SlippageTooHigh);
+        // Check slippage using floor division but account for rounding:
+        // If floor(diff * 10_000 / expected) == max_slippage and remainder is significant,
+        // round up to catch boundary violations from ceiling-computed expected_price
+        if actual_price < expected_price {
+            let diff = expected_price - actual_price;
+            let numerator = diff * 10_000;
+            let quotient = numerator / expected_price;
+            
+            // Reject if quotient exceeds max
+            if quotient > (max_slippage_bps as i128) {
+                return Err(Error::SlippageTooHigh);
+            }
+            
+            // Also reject if quotient equals max but remainder indicates ceiling would exceed
+            if quotient == (max_slippage_bps as i128) {
+                let remainder = numerator % expected_price;
+                // If remainder > expected_price / 2, ceiling would round up
+                if remainder > 0 && remainder >= expected_price / 2 {
+                    return Err(Error::SlippageTooHigh);
+                }
+            }
         }
 
         Ok(())

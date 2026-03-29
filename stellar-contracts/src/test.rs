@@ -717,6 +717,13 @@ fn test_slippage_boundary_exact() {
     ];
 
     for max_slippage_bps in test_cases.iter() {
+        // Calculate expected_price such that actual slippage is at most max_slippage_bps.
+        // MockOracle returns 9_500_000 (0.95 USD).
+        // Slippage formula (ceiling): ceil((expected - actual) * 10_000 / expected)
+        // We derive: expected = actual * 10_000 / (10_000 - max_slippage_bps)
+        // BUT we must use ceiling division here so the resulting ceil-computed
+        // slippage does not exceed max_slippage_bps.
+        
         // Calculate expected_price such that actual slippage equals max_slippage_bps
         // MockOracle returns 9_500_000 (0.95 USD)
         // We want: (expected - 9_500_000) / expected * 10_000 = max_slippage_bps
@@ -726,9 +733,14 @@ fn test_slippage_boundary_exact() {
         let expected_price = if *max_slippage_bps == 10000 {
             // Special case: 100% slippage means expected can be anything > actual
             actual_price * 2
+        } else if *max_slippage_bps == 0 {
+            // No slippage allowed — expected must equal actual
+            actual_price
         } else {
-            // Calculate expected price that gives exactly max_slippage_bps
-            actual_price * 10_000 / (10_000 - *max_slippage_bps as i128)
+            // Use ceiling division to ensure slippage_bps ≤ max_slippage_bps
+            let numerator = actual_price * 10_000;
+            let denominator = 10_000 - *max_slippage_bps as i128;
+            (numerator + denominator - 1) / denominator
         };
 
         // Deposit should succeed at exactly max_slippage
