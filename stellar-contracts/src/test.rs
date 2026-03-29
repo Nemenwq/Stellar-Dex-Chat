@@ -2878,3 +2878,40 @@ fn test_escrow_partial_migration_preserves_count() {
     }
     assert_eq!(escrow_total, expected_total);
 }
+
+// ── Issue #111: TotalDeposited accumulator overflow guard tests ──────────
+
+#[test]
+fn test_deposit_overflow_guard() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // Use a large limit to avoid ExceedsLimit
+    let limit = i128::MAX;
+    let (contract_id, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, limit);
+    let user = Address::generate(&env);
+    
+    // User needs enough funds
+    token_sac.mint(&user, &1000);
+
+    // Manually push the total_deposited counter near i128::MAX
+    let mut config: TokenConfig = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get(&DataKey::TokenRegistry(token_addr.clone()))
+            .unwrap()
+    });
+    
+    // Setting it 50 away from MAX
+    config.total_deposited = i128::MAX - 50;
+    
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::TokenRegistry(token_addr.clone()), &config);
+    });
+
+    // Depositing 100 should overflow
+    let result = bridge.try_deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    assert_eq!(result, Err(Ok(Error::Overflow)));
+}
