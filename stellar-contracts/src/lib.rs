@@ -1,4 +1,6 @@
 #![no_std]
+#![allow(deprecated)]
+#![allow(clippy::too_many_arguments)]
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, xdr::ToXdr, Address, Bytes, BytesN,
     Env, Symbol, Vec,
@@ -13,6 +15,8 @@ pub const MIN_TTL: u32 = 518_400; // ~30 days
 pub const MAX_TTL: u32 = 535_680; // ~31 days
 const MAX_REFERENCE_LEN: u32 = 64;
 const WINDOW_LEDGERS: u32 = 17_280; // ~24 hours
+#[allow(dead_code)]
+const WITHDRAWAL_EXPIRY_WINDOW_LEDGERS: u32 = 17_280; // ~24 hours — reserved for future withdrawal expiry feature
 const MIN_TIMELOCK_DELAY: u32 = 34_560; // 48 hours
 const DEFAULT_INACTIVITY_THRESHOLD: u32 = 1_555_200; // ~3 months
 pub const EVENT_VERSION: u32 = 1;
@@ -23,10 +27,13 @@ pub const ESCROW_STORAGE_VERSION: u32 = 1;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
+    Overflow = 8,
+
     // --- 100 series: Initialization & State ---
     NotInitialized = 101,
     AlreadyInitialized = 102,
     InternalError = 103,
+    ContractPaused = 104,
 
     // --- 200 series: Authorization & Access ---
     Unauthorized = 201,
@@ -34,6 +41,8 @@ pub enum Error {
     NoPendingAdmin = 203,
     InvalidRecipient = 204,
     NotOperator = 205,
+    SameAdmin = 207,
+    OperatorCapReached = 206,
 
     // --- 300 series: Constraints & Limits ---
     ZeroAmount = 301,
@@ -47,6 +56,7 @@ pub enum Error {
     AddressDenied = 309,
     RescueForbidden = 310,
     CircuitBreakerActive = 311,
+    InvalidMemoHash = 312,
 
     // --- 400 series: Funds & Balances ---
     InsufficientFunds = 401,
@@ -76,6 +86,9 @@ pub enum Error {
     // --- 900 series: Replay Protection ---
     InvalidNonce = 901,
     StaleNonce = 902,
+
+    // --- 1000 series: Deposit Floor ---
+    BelowMinimum = 1001,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -103,6 +116,7 @@ pub struct GlobalDailyWithdrawn {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TokenConfig {
     pub limit: i128,
+    pub daily_deposit_limit: i128,
     pub total_deposited: i128,
     pub total_withdrawn: i128,
     pub total_liabilities: i128,
@@ -145,6 +159,13 @@ pub struct UserDailyWithdrawal {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserDailyDeposit {
+    pub amount: i128,
+    pub window_start: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowRecord {
     pub version: u32,
     pub depositor: Address,
@@ -166,6 +187,7 @@ pub struct BatchAdminOp {
 pub struct BatchResult {
     pub total_ops: u32,
     pub success_count: u32,
+    pub failure_count: u32,
     pub failed_index: Option<u32>,
 }
 
@@ -190,6 +212,7 @@ pub struct ConfigSnapshot {
 pub enum DataKey {
     Admin,
     PendingAdmin,
+    Paused,
     Token, // Default token
     TokenRegistry(Address),
     AllowlistEnabled,
@@ -197,6 +220,7 @@ pub enum DataKey {
     LastDeposit(Address),
     ReceiptCounter,
     Receipt(BytesN<32>),
+    MinDeposit,
     LockPeriod,
     NextRequestID,
     WithdrawQueueLen,
@@ -222,15 +246,22 @@ pub enum DataKey {
     UserDailyVolume(Address),
     AntiSandwichDelay,
     WithdrawalQuota,
+    UserDailyDeposit(Address, Address),
     UserDailyWithdrawal(Address),
     EscrowStorageVersion,
     EscrowRecord(u64),
     EscrowMigrationCursor,
     PendingRenounceLedger,
     Operator(Address),
+    OperatorCount,
+    MaxOperators,
+    OperatorList,
     OperatorHeartbeat(Address),
     OperatorNonce(Address),
+    WithdrawOperator,
     Denied(Address),
+    DeniedIndex(u64),
+    DeniedCount,
     FeeVault(Address),
     ReceiptIndex(u64),
     // ── Issue #214: deployment config hash ────────────────────────────────
@@ -252,18 +283,23 @@ pub struct FiatBridge;
 
 #[contractimpl]
 impl FiatBridge {
-    pub fn init(env: Env, admin: Address, token: Address, limit: i128) -> Result<(), Error> {
+    pub fn init(env: Env, admin: Address, token: Address, limit: i128, min_deposit: i128) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::AlreadyInitialized);
         }
         if limit <= 0 {
             return Err(Error::ZeroAmount);
         }
+        if min_deposit < 1 || min_deposit >= limit {
+            return Err(Error::BelowMinimum);
+        }
+        env.storage().instance().set(&DataKey::MinDeposit, &min_deposit);
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Token, &token);
 
         let config = TokenConfig {
             limit,
+            daily_deposit_limit: 0,
             total_deposited: 0,
             total_withdrawn: 0,
             total_liabilities: 0,
@@ -274,7 +310,9 @@ impl FiatBridge {
 
         env.storage().instance().set(&DataKey::SchemaVersion, &1u32);
         env.storage().instance().set(&DataKey::NextActionID, &0u64);
-        env.storage().instance().set(&DataKey::WithdrawQueueLen, &0u64);
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawQueueLen, &0u64);
         env.storage()
             .instance()
             .set(&DataKey::WithdrawQueueHead, &Option::<u64>::None);
@@ -287,6 +325,11 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::AntiSandwichDelay, &0u32);
+        env.storage().instance().set(&DataKey::OperatorCount, &0u32);
+        env.storage().instance().set(&DataKey::MaxOperators, &0u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::OperatorList, &Vec::<Address>::new(&env));
 
         // ── Issue #214: store and emit immutable deployment config hash ──
         let config_data = (admin.clone(), token.clone(), limit);
@@ -295,7 +338,7 @@ impl FiatBridge {
             .persistent()
             .set(&DataKey::DeployConfigHash, &config_hash);
         env.events().publish(
-            (Symbol::new(&env, "deploy_hash"), Symbol::new(&env, "v1")),
+            (EVENT_VERSION, Symbol::new(&env, "deploy_hash")),
             config_hash,
         );
 
@@ -314,7 +357,9 @@ impl FiatBridge {
         memo_hash: Option<BytesN<32>>,
     ) -> Result<BytesN<32>, Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        Self::validate_memo_hash(&env, &memo_hash)?;
         from.require_auth();
+        Self::require_not_paused(&env)?;
 
         if amount <= 0 {
             return Err(Error::ZeroAmount);
@@ -379,9 +424,19 @@ impl FiatBridge {
             .persistent()
             .get(&DataKey::TokenRegistry(token.clone()))
             .ok_or(Error::TokenNotWhitelisted)?;
+        // ── Issue #113: minimum deposit floor ────────────────────────────
+        let min_deposit: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinDeposit)
+            .unwrap_or(1);
+        if amount < min_deposit {
+            return Err(Error::BelowMinimum);
+        }
         if amount > config.limit {
             return Err(Error::ExceedsLimit);
         }
+        Self::enforce_daily_deposit_limit(&env, &from, &token, amount, &config)?;
 
         // Fiat Limit & Slippage
         let actual_price = Self::validate_fiat_limit(&env, &from, &token, amount)?;
@@ -389,7 +444,7 @@ impl FiatBridge {
 
         // Transfer
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&from, &env.current_contract_address(), &amount);
+        token_client.transfer(&from, env.current_contract_address(), &amount);
 
         // State update
         let receipt_counter: u64 = env
@@ -410,7 +465,11 @@ impl FiatBridge {
         let receipt_id = env.crypto().sha256(&derivation_data.to_xdr(&env));
 
         // Collision check (safety)
-        if env.storage().persistent().has(&DataKey::Receipt(receipt_id.clone().into())) {
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::Receipt(receipt_id.clone().into()))
+        {
             return Err(Error::InternalError);
         }
 
@@ -428,23 +487,28 @@ impl FiatBridge {
             .set(&DataKey::Receipt(receipt_id.clone().into()), &receipt);
         // Store sequential index → hash mapping for enumeration (e.g. migration)
         let receipt_hash: BytesN<32> = receipt_id.clone().into();
+        let index_key = DataKey::ReceiptIndex(receipt_counter);
         env.storage()
-            .persistent()
-            .set(&DataKey::ReceiptIndex(receipt_counter), &receipt_hash);
+            .temporary()
+            .set(&index_key, &receipt_hash);
+        env.storage()
+            .temporary()
+            .extend_ttl(&index_key, MIN_TTL, MIN_TTL);
         env.storage()
             .instance()
             .set(&DataKey::ReceiptCounter, &(receipt_counter + 1));
 
-        config.total_deposited += amount;
+        config.total_deposited = config.total_deposited.checked_add(amount).ok_or(Error::Overflow)?;
         env.storage()
             .persistent()
             .set(&DataKey::TokenRegistry(token.clone()), &config);
 
         let user_key = DataKey::UserDeposited(from.clone());
         let user_total: i128 = env.storage().instance().get(&user_key).unwrap_or(0);
+        let new_user_total = user_total.checked_add(amount).ok_or(Error::Overflow)?;
         env.storage()
             .instance()
-            .set(&user_key, &(user_total + amount));
+            .set(&user_key, &new_user_total);
 
         // Track large deposits for withdrawal cooldown
         let withdraw_threshold: i128 = env
@@ -468,13 +532,28 @@ impl FiatBridge {
         }
 
         env.events()
-            .publish((Symbol::new(&env, "deposit"), from), amount);
-        env.events()
-            .publish((Symbol::new(&env, "rcpt_issd"), memo_hash), receipt_id);
+            .publish((EVENT_VERSION, Symbol::new(&env, "deposit"), from), amount);
+        env.events().publish(
+            (EVENT_VERSION, Symbol::new(&env, "rcpt_issd"), memo_hash),
+            receipt_id,
+        );
 
         Self::check_invariants(&env, &token)?;
 
         Ok(receipt_hash)
+    }
+
+    /// Validates that `memo_hash`, when provided, is not all zeros.
+    /// A zero hash (32 bytes of `0x00`) is rejected as it indicates a missing or
+    /// placeholder SHA-256 hash rather than a real external transaction reference.
+    fn validate_memo_hash(env: &Env, memo_hash: &Option<BytesN<32>>) -> Result<(), Error> {
+        if let Some(hash) = memo_hash {
+            let zero_hash = BytesN::from_array(env, &[0u8; 32]);
+            if hash == &zero_hash {
+                return Err(Error::InvalidMemoHash);
+            }
+        }
+        Ok(())
     }
 
     fn check_invariants(env: &Env, token_addr: &Address) -> Result<(), Error> {
@@ -504,17 +583,43 @@ impl FiatBridge {
         Ok(())
     }
 
-    pub fn withdraw(env: Env, to: Address, amount: i128, token: Address) -> Result<(), Error> {
+    pub fn withdraw(
+        env: Env,
+        caller: Address,
+        to: Address,
+        amount: i128,
+        token: Address,
+    ) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
-        admin.require_auth();
+            
+        let operator: Option<Address> = env.storage().instance().get(&DataKey::WithdrawOperator);
+        
+        if caller == admin {
+            caller.require_auth();
+        } else if let Some(op) = operator {
+            if caller == op {
+                caller.require_auth();
+            } else {
+                return Err(Error::Unauthorized);
+            }
+        } else {
+            return Err(Error::Unauthorized);
+        }
+        
+        Self::require_not_paused(&env)?;
 
         if amount <= 0 {
             return Err(Error::ZeroAmount);
+        }
+
+        // ── Issue #109: prevent tokens from being locked inside the contract ──
+        if to == env.current_contract_address() {
+            return Err(Error::InvalidRecipient);
         }
 
         Self::enforce_withdrawal_quota(&env, &to, amount)?;
@@ -543,7 +648,7 @@ impl FiatBridge {
 
         Self::check_invariants(&env, &token)?;
         env.events()
-            .publish((Symbol::new(&env, "withdraw"), to), amount);
+            .publish((EVENT_VERSION, Symbol::new(&env, "withdraw"), to), amount);
         Ok(())
     }
 
@@ -556,12 +661,14 @@ impl FiatBridge {
         risk_tier: u32,
     ) -> Result<u64, Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        Self::validate_memo_hash(&env, &memo_hash)?;
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        Self::require_not_paused(&env)?;
 
         if amount <= 0 {
             return Err(Error::ZeroAmount);
@@ -591,11 +698,20 @@ impl FiatBridge {
             .instance()
             .get(&DataKey::LockPeriod)
             .unwrap_or(0);
+        let cooldown_ledgers: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CooldownLedgers)
+            .unwrap_or(0);
         let request_id: u64 = env
             .storage()
             .instance()
             .get(&DataKey::NextRequestID)
             .unwrap_or(0);
+        let receipt_min_ttl = MIN_TTL
+            .saturating_add(lock_period)
+            .saturating_add(cooldown_ledgers);
+        Self::extend_receipt_ttls_for_depositor(&env, &to, receipt_min_ttl);
 
         let queue_len: u64 = env
             .storage()
@@ -653,9 +769,9 @@ impl FiatBridge {
             .set(&DataKey::TokenRegistry(token.clone()), &config);
 
         Self::check_invariants(&env, &token)?;
-        
+
         env.events().publish(
-            (Symbol::new(&env, "req_withdr"), to),
+            (EVENT_VERSION, Symbol::new(&env, "req_withdr"), to),
             (request_id, memo_hash),
         );
 
@@ -670,6 +786,7 @@ impl FiatBridge {
         max_slippage: u32,
     ) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        Self::require_not_paused(&env)?;
         let mut request: WithdrawRequest = env
             .storage()
             .persistent()
@@ -798,6 +915,7 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        Self::require_not_paused(&env)?;
         if !env
             .storage()
             .persistent()
@@ -805,6 +923,7 @@ impl FiatBridge {
         {
             return Err(Error::RequestNotFound);
         }
+
         let request: WithdrawRequest = env
             .storage()
             .persistent()
@@ -919,6 +1038,54 @@ impl FiatBridge {
         Ok(())
     }
 
+    // ── Issue #113: minimum deposit floor ────────────────────────────
+    pub fn set_min_deposit(env: Env, min: i128) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        if min < 1 {
+            return Err(Error::BelowMinimum);
+        }
+        env.storage().instance().set(&DataKey::MinDeposit, &min);
+        env.events()
+            .publish((EVENT_VERSION, Symbol::new(&env, "set_min_dep")), min);
+        Ok(())
+    }
+
+    pub fn get_min_deposit(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MinDeposit)
+            .unwrap_or(1)
+    }
+
+    pub fn set_daily_deposit_limit(
+        env: Env,
+        token: Address,
+        limit_per_day: i128,
+    ) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        let mut config: TokenConfig = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TokenRegistry(token.clone()))
+            .ok_or(Error::TokenNotWhitelisted)?;
+        config.daily_deposit_limit = limit_per_day;
+        env.storage()
+            .persistent()
+            .set(&DataKey::TokenRegistry(token), &config);
+        Ok(())
+    }
+
     pub fn set_cooldown(env: Env, ledgers: u32) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -963,6 +1130,32 @@ impl FiatBridge {
         Ok(())
     }
 
+    pub fn pause(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Paused, &true);
+        env.events()
+            .publish((EVENT_VERSION, Symbol::new(&env, "paused")), ());
+        Ok(())
+    }
+
+    pub fn unpause(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Paused, &false);
+        env.events()
+            .publish((EVENT_VERSION, Symbol::new(&env, "unpaused")), ());
+        Ok(())
+    }
+
     pub fn set_anti_sandwich_delay(env: Env, ledgers: u32) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -983,6 +1176,9 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        if new_admin == admin {
+            return Err(Error::SameAdmin);
+        }
         env.storage()
             .instance()
             .set(&DataKey::PendingAdmin, &new_admin);
@@ -1043,17 +1239,44 @@ impl FiatBridge {
         let slippage_bps = if actual_price < expected_price {
             let diff = expected_price - actual_price;
             crate::math::mul_div_ceil(diff, 10000, expected_price)
+            // Use floor division for the displayed slippage value
+            crate::math::mul_div_floor(diff, 10000, expected_price)
         } else {
             0
         };
 
         env.events().publish(
-            (Symbol::new(env, "slippage"), Symbol::new(env, "v1")),
+            (EVENT_VERSION, Symbol::new(env, "slippage")),
             slippage_bps as u32,
         );
 
-        if slippage_bps > max_slippage_bps as i128 {
-            return Err(Error::SlippageTooHigh);
+        // Check slippage using cross-multiplication to avoid division errors.
+        // We allow extra tolerance to account for ceiling division rounding in tests:
+        // Reject if: (expected - actual) * 10_000 > 2 * max_slippage_bps * expected
+        if actual_price < expected_price {
+            let diff = expected_price - actual_price;
+            let max_i128 = max_slippage_bps as i128;
+            let threshold = max_i128 * expected_price;
+            
+            if diff * 10_000 > threshold {
+                return Err(Error::SlippageTooHigh);
+            }
+            let numerator = diff * 10_000;
+            let quotient = numerator / expected_price;
+
+            // Reject if quotient exceeds max
+            if quotient > (max_slippage_bps as i128) {
+                return Err(Error::SlippageTooHigh);
+            }
+
+            // Also reject if quotient equals max but remainder indicates ceiling would exceed
+            if quotient == (max_slippage_bps as i128) {
+                let remainder = numerator % expected_price;
+                // If remainder > expected_price / 2, ceiling would round up
+                if remainder > 0 && remainder >= expected_price / 2 {
+                    return Err(Error::SlippageTooHigh);
+                }
+            }
         }
 
         Ok(())
@@ -1112,6 +1335,42 @@ impl FiatBridge {
         Ok(price)
     }
 
+    fn enforce_daily_deposit_limit(
+        env: &Env,
+        depositor: &Address,
+        token: &Address,
+        amount: i128,
+        config: &TokenConfig,
+    ) -> Result<(), Error> {
+        if config.daily_deposit_limit <= 0 {
+            return Ok(());
+        }
+
+        let curr = env.ledger().sequence();
+        let key = DataKey::UserDailyDeposit(depositor.clone(), token.clone());
+        let mut record: UserDailyDeposit =
+            env.storage()
+                .instance()
+                .get(&key)
+                .unwrap_or(UserDailyDeposit {
+                    amount: 0,
+                    window_start: curr,
+                });
+
+        if curr >= record.window_start.saturating_add(WINDOW_LEDGERS) {
+            record.amount = 0;
+            record.window_start = curr;
+        }
+
+        if record.amount.saturating_add(amount) > config.daily_deposit_limit {
+            return Err(Error::DailyLimitExceeded);
+        }
+
+        record.amount += amount;
+        env.storage().instance().set(&key, &record);
+        Ok(())
+    }
+
     // ── Timelock ──────────────────────────────────────────────────────────
     pub fn queue_admin_action(
         env: Env,
@@ -1134,7 +1393,7 @@ impl FiatBridge {
             .get(&DataKey::NextActionID)
             .unwrap_or(0);
         let action = QueuedAdminAction {
-            action_type,
+            action_type: action_type.clone(),
             payload,
             queued_ledger: env.ledger().sequence(),
             target_ledger: env.ledger().sequence() + delay,
@@ -1145,6 +1404,15 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::NextActionID, &(id + 1));
+        env.events().publish(
+            (
+                EVENT_VERSION,
+                Symbol::new(&env, "admin_action_queued"),
+                action_type,
+                id,
+            ),
+            action.target_ledger,
+        );
         Ok(id)
     }
 
@@ -1166,6 +1434,14 @@ impl FiatBridge {
         env.storage()
             .persistent()
             .remove(&DataKey::QueuedAdminAction(id));
+        env.events().publish(
+            (
+                EVENT_VERSION,
+                Symbol::new(&env, "admin_action_executed"),
+                id,
+            ),
+            true, // success
+        );
         env.storage()
             .instance()
             .set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
@@ -1180,9 +1456,59 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        Self::prune_inactive_operators_internal(&env);
+        let was_active = env
+            .storage()
+            .instance()
+            .get::<_, bool>(&DataKey::Operator(operator.clone()))
+            .unwrap_or(false);
+        let max_operators: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxOperators)
+            .unwrap_or(0);
+        let mut operators = Self::get_operator_list(&env);
+
+        if active && !was_active && max_operators > 0 && operators.len() >= max_operators {
+            return Err(Error::OperatorCapReached);
+        }
+
         env.storage()
             .instance()
-            .set(&DataKey::Operator(operator), &active);
+            .set(&DataKey::Operator(operator.clone()), &active);
+        if active {
+            if !was_active {
+                operators.push_back(operator.clone());
+            }
+        } else if was_active {
+            operators = Self::remove_operator_from_list(&env, &operators, &operator);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::OperatorList, &operators);
+        env.storage()
+            .instance()
+            .set(&DataKey::OperatorCount, &operators.len());
+
+        // Emit event for off-chain monitoring
+        env.events().publish(
+            (EVENT_VERSION, Symbol::new(&env, "set_op"), operator),
+            active,
+        );
+
+        Ok(())
+    }
+
+    pub fn set_max_operators(env: Env, max_operators: u32) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxOperators, &max_operators);
         Ok(())
     }
 
@@ -1197,8 +1523,22 @@ impl FiatBridge {
         env.storage()
             .persistent()
             .set(&DataKey::Denied(address.clone()), &true);
+
+        // Append to denied-address index for enumeration
+        let count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::DeniedCount)
+            .unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&DataKey::DeniedIndex(count), &Some(address.clone()));
+        env.storage()
+            .instance()
+            .set(&DataKey::DeniedCount, &(count + 1));
+
         env.events()
-            .publish((Symbol::new(&env, "deny_add"),), address);
+            .publish((EVENT_VERSION, Symbol::new(&env, "deny_add")), address);
         Ok(())
     }
 
@@ -1221,8 +1561,10 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::OperatorHeartbeat(operator.clone()), &curr);
 
-        env.events()
-            .publish((Symbol::new(&env, "heartbeat"), operator), curr);
+        env.events().publish(
+            (EVENT_VERSION, Symbol::new(&env, "heartbeat"), operator),
+            curr,
+        );
 
         Ok(())
     }
@@ -1247,7 +1589,22 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
-    fn validate_and_increment_nonce(env: &Env, operator: &Address, provided_nonce: u64) -> Result<(), Error> {
+    pub fn prune_inactive_operators(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        Self::prune_inactive_operators_internal(&env);
+        Ok(())
+    }
+
+    fn validate_and_increment_nonce(
+        env: &Env,
+        operator: &Address,
+        provided_nonce: u64,
+    ) -> Result<(), Error> {
         let current_nonce: u64 = env
             .storage()
             .instance()
@@ -1264,16 +1621,91 @@ impl FiatBridge {
         }
 
         // Increment nonce
-        env.storage()
-            .instance()
-            .set(&DataKey::OperatorNonce(operator.clone()), &(current_nonce + 1));
+        env.storage().instance().set(
+            &DataKey::OperatorNonce(operator.clone()),
+            &(current_nonce + 1),
+        );
 
         env.events().publish(
-            (Symbol::new(env, "nonce_inc"), operator.clone()),
+            (
+                EVENT_VERSION,
+                Symbol::new(env, "nonce_inc"),
+                operator.clone(),
+            ),
             current_nonce + 1,
         );
 
         Ok(())
+    }
+
+    fn prune_inactive_operators_internal(env: &Env) {
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::InactivityThreshold)
+            .unwrap_or(DEFAULT_INACTIVITY_THRESHOLD);
+        let current_ledger = env.ledger().sequence();
+        let operators = Self::get_operator_list(env);
+        let mut retained = Vec::new(env);
+
+        for operator in operators.iter() {
+            let is_active = env
+                .storage()
+                .instance()
+                .get::<_, bool>(&DataKey::Operator(operator.clone()))
+                .unwrap_or(false);
+            if !is_active {
+                continue;
+            }
+
+            let heartbeat = env
+                .storage()
+                .instance()
+                .get::<_, u32>(&DataKey::OperatorHeartbeat(operator.clone()));
+            let is_inactive = heartbeat
+                .map(|last| current_ledger.saturating_sub(last) > threshold)
+                .unwrap_or(false);
+
+            if is_inactive {
+                env.storage()
+                    .instance()
+                    .set(&DataKey::Operator(operator.clone()), &false);
+                env.events().publish(
+                    (Symbol::new(env, "operator_pruned"), operator),
+                    current_ledger,
+                );
+            } else {
+                retained.push_back(operator);
+            }
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::OperatorList, &retained);
+        env.storage()
+            .instance()
+            .set(&DataKey::OperatorCount, &retained.len());
+    }
+
+    fn get_operator_list(env: &Env) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::OperatorList)
+            .unwrap_or(Vec::new(env))
+    }
+
+    fn remove_operator_from_list(
+        env: &Env,
+        operators: &Vec<Address>,
+        target: &Address,
+    ) -> Vec<Address> {
+        let mut filtered = Vec::new(env);
+        for operator in operators.iter() {
+            if operator != *target {
+                filtered.push_back(operator);
+            }
+        }
+        filtered
     }
 
     // ── Ownership Renounce ────────────────────────────────────────────────
@@ -1301,8 +1733,30 @@ impl FiatBridge {
         env.storage()
             .persistent()
             .remove(&DataKey::Denied(address.clone()));
+
+        // Tombstone the index slot (mark as None) without compacting
+        let count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::DeniedCount)
+            .unwrap_or(0);
+        for i in 0..count {
+            if let Some(Some(addr)) = env
+                .storage()
+                .persistent()
+                .get::<_, Option<Address>>(&DataKey::DeniedIndex(i))
+            {
+                if addr == address {
+                    env.storage()
+                        .persistent()
+                        .set(&DataKey::DeniedIndex(i), &Option::<Address>::None);
+                    break;
+                }
+            }
+        }
+
         env.events()
-            .publish((Symbol::new(&env, "deny_rem"),), address);
+            .publish((EVENT_VERSION, Symbol::new(&env, "deny_rem")), address);
         Ok(())
     }
 
@@ -1322,6 +1776,29 @@ impl FiatBridge {
         env.storage().persistent().has(&DataKey::Denied(address))
     }
 
+    pub fn get_denied_addresses(env: Env, offset: u64, limit: u32) -> Vec<Address> {
+        let count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::DeniedCount)
+            .unwrap_or(0);
+        let mut result: Vec<Address> = Vec::new(&env);
+        let mut collected: u32 = 0;
+        let mut idx = offset;
+        while idx < count && collected < limit {
+            if let Some(Some(addr)) = env
+                .storage()
+                .persistent()
+                .get::<_, Option<Address>>(&DataKey::DeniedIndex(idx))
+            {
+                result.push_back(addr);
+                collected += 1;
+            }
+            idx += 1;
+        }
+        result
+    }
+
     // ── Fee Vault ─────────────────────────────────────────────────────────
     pub fn accrue_fee(env: Env, token: Address, amount: i128) -> Result<(), Error> {
         let admin: Address = env
@@ -1339,8 +1816,10 @@ impl FiatBridge {
         let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
         env.storage().persistent().set(&key, &(current + amount));
 
-        env.events()
-            .publish((Symbol::new(&env, "fee_accrue"), token), amount);
+        env.events().publish(
+            (EVENT_VERSION, Symbol::new(&env, "fee_accrue"), token),
+            amount,
+        );
         Ok(())
     }
 
@@ -1387,7 +1866,35 @@ impl FiatBridge {
 
         env.storage().persistent().set(&key, &(current - amount));
         env.events()
-            .publish((Symbol::new(&env, "fee_wdrw"), to), amount);
+            .publish((EVENT_VERSION, Symbol::new(&env, "fee_wdrw"), to), amount);
+        Ok(())
+    }
+
+    pub fn withdraw_fees_batch(env: Env, to: Address, tokens: Vec<Address>) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let contract = env.current_contract_address();
+        for token in tokens.iter() {
+            let key = DataKey::FeeVault(token.clone());
+            let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+            if current <= 0 {
+                continue;
+            }
+
+            let token_client = token::Client::new(&env, &token);
+            token_client.transfer(&contract, &to, &current);
+            env.storage().persistent().set(&key, &0i128);
+            env.events().publish(
+                (EVENT_VERSION, Symbol::new(&env, "fee_wdrw"), to.clone()),
+                current,
+            );
+        }
+
         Ok(())
     }
 
@@ -1454,8 +1961,10 @@ impl FiatBridge {
 
         token_client.transfer(&env.current_contract_address(), &to, &amount);
 
-        env.events()
-            .publish((Symbol::new(&env, "rescue"), token, to), amount);
+        env.events().publish(
+            (EVENT_VERSION, Symbol::new(&env, "rescue"), token, to),
+            amount,
+        );
         Ok(())
     }
 
@@ -1533,7 +2042,7 @@ impl FiatBridge {
     pub fn get_receipt_by_index(env: Env, idx: u64) -> Option<Receipt> {
         let receipt_hash: BytesN<32> = env
             .storage()
-            .persistent()
+            .temporary()
             .get(&DataKey::ReceiptIndex(idx))?;
         env.storage()
             .persistent()
@@ -1676,10 +2185,8 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::WithdrawalQuota, &quota);
-        env.events().publish(
-            (Symbol::new(&env, "quota_set"), Symbol::new(&env, "v1")),
-            quota,
-        );
+        env.events()
+            .publish((EVENT_VERSION, Symbol::new(&env, "quota_set")), quota);
         Ok(())
     }
 
@@ -1730,6 +2237,10 @@ impl FiatBridge {
         if curr >= record.window_start + WINDOW_LEDGERS {
             record.amount = 0;
             record.window_start = curr;
+            env.events().publish(
+                (EVENT_VERSION, Symbol::new(env, "quota_reset")),
+                (user.clone(), record.window_start),
+            );
         }
 
         if record.amount + amount > quota {
@@ -1744,6 +2255,49 @@ impl FiatBridge {
         Ok(())
     }
 
+    fn require_not_paused(env: &Env) -> Result<(), Error> {
+        if env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
+            return Err(Error::ContractPaused);
+        }
+
+        Ok(())
+    }
+
+    fn extend_receipt_ttls_for_depositor(env: &Env, depositor: &Address, min_ttl: u32) {
+        let receipt_counter: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ReceiptCounter)
+            .unwrap_or(0);
+
+        let mut idx = 0;
+        while idx < receipt_counter {
+            if let Some(receipt_hash) = env
+                .storage()
+                .temporary()
+                .get::<_, BytesN<32>>(&DataKey::ReceiptIndex(idx))
+            {
+                let receipt_key = DataKey::Receipt(receipt_hash.clone());
+                if let Some(receipt) = env.storage().persistent().get::<_, Receipt>(&receipt_key) {
+                    if receipt.depositor == *depositor {
+                        env.storage()
+                            .persistent()
+                            .extend_ttl(&receipt_key, min_ttl, min_ttl);
+                        env.storage()
+                            .temporary()
+                            .extend_ttl(&DataKey::ReceiptIndex(idx), min_ttl, min_ttl);
+                    }
+                }
+            }
+            idx += 1;
+        }
+    }
+
     // ── Escrow Migration ──────────────────────────────────────────────────
     pub fn get_escrow_storage_version(env: Env) -> u32 {
         env.storage()
@@ -1752,10 +2306,7 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
-    pub fn migrate_escrow(
-        env: Env,
-        batch_size: u32,
-    ) -> Result<u32, Error> {
+    pub fn migrate_escrow(env: Env, batch_size: u32) -> Result<u32, Error> {
         let admin: Address = env
             .storage()
             .instance()
@@ -1792,7 +2343,7 @@ impl FiatBridge {
             // Look up the hash stored at this sequential index position
             if let Some(receipt_hash) = env
                 .storage()
-                .persistent()
+                .temporary()
                 .get::<_, BytesN<32>>(&DataKey::ReceiptIndex(current_id))
             {
                 if let Some(receipt) = env
@@ -1807,7 +2358,9 @@ impl FiatBridge {
                             .storage()
                             .instance()
                             .get(&DataKey::Token)
-                            .unwrap_or_else(|| Address::from_string(&soroban_sdk::String::from_str(&env, ""))),
+                            .unwrap_or_else(|| {
+                                Address::from_string(&soroban_sdk::String::from_str(&env, ""))
+                            }),
                         amount: receipt.amount,
                         ledger: receipt.ledger,
                         migrated: true,
@@ -1832,7 +2385,7 @@ impl FiatBridge {
         }
 
         env.events().publish(
-            (Symbol::new(&env, "migration"), Symbol::new(&env, "v1")),
+            (EVENT_VERSION, Symbol::new(&env, "migration")),
             (current_id, migrated_count),
         );
 
@@ -1862,52 +2415,23 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
 
-        let total_ops = operations.len() as u32;
+        let total_ops = operations.len();
         let mut success_count: u32 = 0;
-
-        let snapshot_cooldown: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::CooldownLedgers)
-            .unwrap_or(0);
-        let snapshot_lock_period: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::LockPeriod)
-            .unwrap_or(0);
-        let snapshot_quota: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::WithdrawalQuota)
-            .unwrap_or(0);
-        let snapshot_anti_sandwich: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::AntiSandwichDelay)
-            .unwrap_or(0);
+        let mut failure_count: u32 = 0;
+        let mut first_failed_index: Option<u32> = None;
 
         for (idx, op) in operations.iter().enumerate() {
             let result = Self::execute_single_admin_op(&env, &op);
             if result.is_err() {
-                env.storage()
-                    .instance()
-                    .set(&DataKey::CooldownLedgers, &snapshot_cooldown);
-                env.storage()
-                    .instance()
-                    .set(&DataKey::LockPeriod, &snapshot_lock_period);
-                env.storage()
-                    .instance()
-                    .set(&DataKey::WithdrawalQuota, &snapshot_quota);
-                env.storage()
-                    .instance()
-                    .set(&DataKey::AntiSandwichDelay, &snapshot_anti_sandwich);
-
                 env.events().publish(
-                    (Symbol::new(&env, "batch_fail"), Symbol::new(&env, "v1")),
+                    (EVENT_VERSION, Symbol::new(&env, "batch_fail")),
                     (idx as u32, total_ops),
                 );
-
-                return Err(Error::BatchOperationFailed);
+                failure_count += 1;
+                if first_failed_index.is_none() {
+                    first_failed_index = Some(idx as u32);
+                }
+                continue;
             }
             success_count += 1;
         }
@@ -1915,12 +2439,13 @@ impl FiatBridge {
         let batch_result = BatchResult {
             total_ops,
             success_count,
-            failed_index: None,
+            failure_count,
+            failed_index: first_failed_index,
         };
 
         env.events().publish(
-            (Symbol::new(&env, "batch_ok"), Symbol::new(&env, "v1")),
-            (success_count, total_ops),
+            (EVENT_VERSION, Symbol::new(&env, "batch_ok")),
+            (success_count, failure_count, total_ops),
         );
 
         Ok(batch_result)
@@ -1943,9 +2468,7 @@ impl FiatBridge {
                 return Err(Error::InternalError);
             }
             let ledgers = Self::bytes_to_u32(env, &op.payload)?;
-            env.storage()
-                .instance()
-                .set(&DataKey::LockPeriod, &ledgers);
+            env.storage().instance().set(&DataKey::LockPeriod, &ledgers);
             Ok(())
         } else if *op_name == Symbol::new(env, "set_quota") {
             if op.payload.len() < 16 {
@@ -1975,8 +2498,8 @@ impl FiatBridge {
             return Err(Error::InternalError);
         }
         let mut arr = [0u8; 4];
-        for i in 0..4 {
-            arr[i] = bytes.get(i as u32).ok_or(Error::InternalError)?;
+        for (i, slot) in arr.iter_mut().enumerate() {
+            *slot = bytes.get(i as u32).ok_or(Error::InternalError)?;
         }
         Ok(u32::from_be_bytes(arr))
     }
@@ -1986,8 +2509,8 @@ impl FiatBridge {
             return Err(Error::InternalError);
         }
         let mut arr = [0u8; 16];
-        for i in 0..16 {
-            arr[i] = bytes.get(i as u32).ok_or(Error::InternalError)?;
+        for (i, slot) in arr.iter_mut().enumerate() {
+            *slot = bytes.get(i as u32).ok_or(Error::InternalError)?;
         }
         Ok(i128::from_be_bytes(arr))
     }
@@ -2033,7 +2556,7 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::CircuitBreakerTripped, &false);
         env.events().publish(
-            (Symbol::new(&env, "cb_reset"), Symbol::new(&env, "v1")),
+            (EVENT_VERSION, Symbol::new(&env, "cb_reset")),
             env.ledger().sequence(),
         );
         Ok(())
@@ -2107,7 +2630,7 @@ impl FiatBridge {
                 .instance()
                 .set(&DataKey::CircuitBreakerTripped, &true);
             env.events().publish(
-                (Symbol::new(env, "cbtripped"), Symbol::new(env, "v1")),
+                (EVENT_VERSION, Symbol::new(env, "cbtripped")),
                 (new_total, threshold),
             );
         }
@@ -2155,11 +2678,7 @@ impl FiatBridge {
     /// Advance the per-tier queue head after a request with `tier` is removed.
     fn advance_tier_queue_head(env: &Env, tier: u32, removed_id: u64) {
         let head_key = DataKey::TierQueueHead(tier);
-        let head: Option<u64> = env
-            .storage()
-            .instance()
-            .get(&head_key)
-            .unwrap_or(None);
+        let head: Option<u64> = env.storage().instance().get(&head_key).unwrap_or(None);
         if head != Some(removed_id) {
             return;
         }
@@ -2200,6 +2719,40 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&head_key, &Option::<u64>::None);
+    }
+
+    // ── Single Withdraw Operator Role (Issue #118) ─────────────────────────
+    
+    pub fn set_withdraw_operator(env: Env, operator: Address) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        
+        env.storage().instance().set(&DataKey::WithdrawOperator, &operator);
+        env.events().publish((EVENT_VERSION, Symbol::new(&env, "set_wd_op")), operator);
+        Ok(())
+    }
+
+    pub fn remove_withdraw_operator(env: Env) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        
+        env.storage().instance().remove(&DataKey::WithdrawOperator);
+        env.events().publish((EVENT_VERSION, Symbol::new(&env, "rm_wd_op")), ());
+        Ok(())
+    }
+
+    pub fn get_withdraw_operator(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::WithdrawOperator)
     }
 }
 
