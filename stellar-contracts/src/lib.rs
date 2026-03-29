@@ -26,6 +26,8 @@ pub const ESCROW_STORAGE_VERSION: u32 = 1;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
+    Overflow = 8,
+
     // --- 100 series: Initialization & State ---
     NotInitialized = 101,
     AlreadyInitialized = 102,
@@ -480,16 +482,17 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::ReceiptCounter, &(receipt_counter + 1));
 
-        config.total_deposited += amount;
+        config.total_deposited = config.total_deposited.checked_add(amount).ok_or(Error::Overflow)?;
         env.storage()
             .persistent()
             .set(&DataKey::TokenRegistry(token.clone()), &config);
 
         let user_key = DataKey::UserDeposited(from.clone());
         let user_total: i128 = env.storage().instance().get(&user_key).unwrap_or(0);
+        let new_user_total = user_total.checked_add(amount).ok_or(Error::Overflow)?;
         env.storage()
             .instance()
-            .set(&user_key, &(user_total + amount));
+            .set(&user_key, &new_user_total);
 
         // Track large deposits for withdrawal cooldown
         let withdraw_threshold: i128 = env
