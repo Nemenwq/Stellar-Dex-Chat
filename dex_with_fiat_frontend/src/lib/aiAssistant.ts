@@ -17,6 +17,10 @@ type GuardrailMatch = {
   reason: string;
 };
 
+/**
+ * A helper utility class managing AI message analysis and guardrail protection
+ * for the Stellar FiatBridge frontend assistant.
+ */
 export class AIAssistant {
   private static guardrailCounts: Record<GuardrailCategory, number> = {
     unsupported_request: 0,
@@ -29,6 +33,15 @@ export class AIAssistant {
   private model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
   static readonly LOW_CONFIDENCE_THRESHOLD = 0.7;
 
+  /**
+   * Analyze the user message and produce a structured AI analysis result.
+   * Includes guardrail checks, FAQ matching, deterministic parsing, AI model
+   * generation, and merged extracted data.
+   *
+   * @param message - Incoming user query or request text.
+   * @param context - Optional context values to include in the AI prompt.
+   * @returns AIAnalysisResult with determined intent and suggested response.
+   */
   async analyzeUserMessage(
     message: string,
     context?: Record<string, unknown>,
@@ -83,6 +96,13 @@ export class AIAssistant {
     }
   }
 
+  /**
+   * Build the prompt text that is sent to the AI model for analysis.
+   *
+   * @param message - Raw user message for analysis.
+   * @param context - Optional additional context values.
+   * @returns A fully composed prompt string for the AI model.
+   */
   private buildAnalysisPrompt(
     message: string,
     context?: Record<string, unknown>,
@@ -191,6 +211,12 @@ Be conversational and helpful. Ask clarifying questions when information is miss
 `;
   }
 
+  /**
+   * Classify a message against guardrail categories to prevent unsafe AI responses.
+   *
+   * @param message - The user-provided message to evaluate.
+   * @returns GuardrailMatch when a guardrail-category trigger is matched, otherwise null.
+   */
   private classifyGuardrail(message: string): GuardrailMatch | null {
     const normalized = message.toLowerCase();
     const mentionsSupportedDomain =
@@ -261,6 +287,13 @@ Be conversational and helpful. Ask clarifying questions when information is miss
     return null;
   }
 
+  /**
+   * Build an AIAnalysisResult payload when a guardrail has been triggered.
+   *
+   * @param match - The guardrail match details.
+   * @param message - The original user message that triggered guardrails.
+   * @returns AIAnalysisResult object intended for safe guardrail reply flow.
+   */
   private buildGuardrailResponse(
     match: GuardrailMatch,
     message: string,
@@ -277,6 +310,13 @@ Be conversational and helpful. Ask clarifying questions when information is miss
     };
   }
 
+  /**
+   * Record a guardrail trigger event and emit telemetry for auditing and stats.
+   *
+   * @param match - Guardrail match details including category and reason.
+   * @param message - Original user message contents.
+   * @returns GuardrailResult including trigger and total counts.
+   */
   private recordGuardrailTrigger(
     match: GuardrailMatch,
     message: string,
@@ -308,6 +348,12 @@ Be conversational and helpful. Ask clarifying questions when information is miss
     };
   }
 
+  /**
+   * Build the user-facing guardrail response template based on category.
+   *
+   * @param category - The guardrail category that triggered.
+   * @returns A formatted guardrail response string.
+   */
   private buildSafeGuardrailTemplate(category: GuardrailCategory): string {
     const categoryLine = {
       unsupported_request:
@@ -335,6 +381,13 @@ ${categoryLine}
 Choose one of the next actions below and I'll keep it moving.`;
   }
 
+  /**
+   * Parse the AI model string response into AIAnalysisResult with normalized fields.
+   * Falls back to safe unknown result when parsing fails.
+   *
+   * @param response - Raw response text from AI generation service.
+   * @returns AIAnalysisResult parsed or fallback message.
+   */
   private parseAIResponse(response: string): AIAnalysisResult {
     try {
       const jsonMatch = response.match(/\{[\s\S]*\}/);
@@ -378,6 +431,13 @@ Choose one of the next actions below and I'll keep it moving.`;
     };
   }
 
+  /**
+   * Generate a conversational follow-up question when required information is missing.
+   *
+   * @param intent - The inferred intent from analysis.
+   * @param missingData - Array of missing data keys.
+   * @returns A single conversational question string.
+   */
   async generateFollowUpQuestion(
     intent: string,
     missingData: string[],
@@ -401,6 +461,12 @@ Be helpful and specific about what you need.
     }
   }
 
+  /**
+   * Determine the single best clarification question for user follow-up.
+   *
+   * @param analysis - AIAnalysisResult from the current analysis run.
+   * @returns A clarification question string.
+   */
   getClarificationQuestion(analysis: AIAnalysisResult): string {
     return (
       analysis.requiredQuestions[0] ||
@@ -408,6 +474,13 @@ Be helpful and specific about what you need.
     );
   }
 
+  /**
+   * Create a follow-up question from extracted data and intent for missing fields.
+   *
+   * @param extractedData - Parsed data fields from AI parsing + deterministic parser.
+   * @param intent - Currently assigned intent category.
+   * @returns A user-friendly question for missing data.
+   */
   private buildClarificationQuestion(
     extractedData: Partial<TransactionData>,
     intent: AIAnalysisResult['intent'],
@@ -431,6 +504,12 @@ Be helpful and specific about what you need.
     return 'Could you confirm the last missing detail so I can prepare the correct transaction?';
   }
 
+  /**
+   * Validate transaction object fields and produce errors and suggestions.
+   *
+   * @param data - TransactionData payload to check for required parameters.
+   * @returns Validation result with isValid, errors, and suggestions.
+   */
   async validateTransactionData(data: TransactionData): Promise<{
     isValid: boolean;
     errors: string[];
@@ -458,6 +537,12 @@ Be helpful and specific about what you need.
     };
   }
 
+  /**
+   * Generate a user-facing receipt string for a transaction.
+   *
+   * @param transactionData - Optional transaction details used in receipt output.
+   * @returns A textual receipt templated string.
+   */
   async generateConversionReceipt(transactionData: {
     transactionId?: string;
     txHash?: string;
@@ -514,6 +599,12 @@ Your financial freedom is our priority.
         `.trim();
   }
 
+  /**
+   * Generate a mock market update message (used in assistant responses).
+   *
+   * @param tokenSymbol - Optional token symbol, defaults to XLM.
+   * @returns A market update string including mock prices.
+   */
   async generateMarketUpdate(tokenSymbol: string = 'XLM'): Promise<string> {
     const mockPrice = tokenSymbol === 'ETH' ? 2850 : 1850;
     const mockChange = Math.random() > 0.5 ? '+' : '-';
