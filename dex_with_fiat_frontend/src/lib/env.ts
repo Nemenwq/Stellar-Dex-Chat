@@ -4,6 +4,12 @@ const serverSchema = z.object({
   PAYSTACK_SECRET_KEY: z.string().optional(),
   PAYOUT_PROVIDER: z.string().default('paystack'),
   ADMIN_API_TOKEN: z.string().optional(),
+  ADMIN_IP_ALLOWLIST: z.string().optional(),
+  ADMIN_IP_ALLOWLIST_BYPASS_LOCAL: z.preprocess((value: unknown) => {
+    if (typeof value !== 'string') return false;
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1';
+  }, z.boolean().default(false)),
 });
 
 const clientSchema = z.object({
@@ -58,6 +64,9 @@ const processEnvVars = () => {
       PAYSTACK_SECRET_KEY: process.env.PAYSTACK_SECRET_KEY,
       PAYOUT_PROVIDER: process.env.PAYOUT_PROVIDER,
       ADMIN_API_TOKEN: process.env.ADMIN_API_TOKEN,
+      ADMIN_IP_ALLOWLIST: process.env.ADMIN_IP_ALLOWLIST,
+      ADMIN_IP_ALLOWLIST_BYPASS_LOCAL:
+        process.env.ADMIN_IP_ALLOWLIST_BYPASS_LOCAL,
     };
 
     const parsedServer = serverSchema.safeParse(serverVars);
