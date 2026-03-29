@@ -3045,6 +3045,7 @@ fn test_withdraw_operator_role() {
     let result = bridge.try_withdraw(&operator, &user, &100, &token_addr);
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
+
 // ── Issue #109: withdraw self-address guard tests ─────────────────────────
 
 #[test]
@@ -3102,6 +3103,7 @@ fn test_deposit_overflow_guard() {
     let result = bridge.try_deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
     assert_eq!(result, Err(Ok(Error::Overflow)));
 }
+
 // ── Issue #113: minimum deposit floor tests ───────────────────────────────
 
 #[test]
