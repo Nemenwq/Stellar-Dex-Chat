@@ -502,8 +502,10 @@ impl FiatBridge {
 
         env.events()
             .publish((EVENT_VERSION, Symbol::new(&env, "deposit"), from), amount);
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "rcpt_issd"), memo_hash), receipt_id);
+        env.events().publish(
+            (EVENT_VERSION, Symbol::new(&env, "rcpt_issd"), memo_hash),
+            receipt_id,
+        );
 
         Self::check_invariants(&env, &token)?;
 
@@ -1253,10 +1255,14 @@ impl FiatBridge {
 
         let curr = env.ledger().sequence();
         let key = DataKey::UserDailyDeposit(depositor.clone(), token.clone());
-        let mut record: UserDailyDeposit = env.storage().instance().get(&key).unwrap_or(UserDailyDeposit {
-            amount: 0,
-            window_start: curr,
-        });
+        let mut record: UserDailyDeposit =
+            env.storage()
+                .instance()
+                .get(&key)
+                .unwrap_or(UserDailyDeposit {
+                    amount: 0,
+                    window_start: curr,
+                });
 
         if curr >= record.window_start.saturating_add(WINDOW_LEDGERS) {
             record.amount = 0;
@@ -1306,7 +1312,12 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::NextActionID, &(id + 1));
         env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "admin_action_queued"), action_type, id),
+            (
+                EVENT_VERSION,
+                Symbol::new(&env, "admin_action_queued"),
+                action_type,
+                id,
+            ),
             action.target_ledger,
         );
         Ok(id)
@@ -1331,7 +1342,11 @@ impl FiatBridge {
             .persistent()
             .remove(&DataKey::QueuedAdminAction(id));
         env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "admin_action_executed"), id),
+            (
+                EVENT_VERSION,
+                Symbol::new(&env, "admin_action_executed"),
+                id,
+            ),
             true, // success
         );
         env.storage()
@@ -1432,8 +1447,10 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::OperatorHeartbeat(operator.clone()), &curr);
 
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "heartbeat"), operator), curr);
+        env.events().publish(
+            (EVENT_VERSION, Symbol::new(&env, "heartbeat"), operator),
+            curr,
+        );
 
         Ok(())
     }
@@ -1496,7 +1513,11 @@ impl FiatBridge {
         );
 
         env.events().publish(
-            (EVENT_VERSION, Symbol::new(env, "nonce_inc"), operator.clone()),
+            (
+                EVENT_VERSION,
+                Symbol::new(env, "nonce_inc"),
+                operator.clone(),
+            ),
             current_nonce + 1,
         );
 
@@ -1559,7 +1580,11 @@ impl FiatBridge {
             .unwrap_or(Vec::new(env))
     }
 
-    fn remove_operator_from_list(env: &Env, operators: &Vec<Address>, target: &Address) -> Vec<Address> {
+    fn remove_operator_from_list(
+        env: &Env,
+        operators: &Vec<Address>,
+        target: &Address,
+    ) -> Vec<Address> {
         let mut filtered = Vec::new(env);
         for operator in operators.iter() {
             if operator != *target {
@@ -1632,8 +1657,10 @@ impl FiatBridge {
         let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
         env.storage().persistent().set(&key, &(current + amount));
 
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "fee_accrue"), token), amount);
+        env.events().publish(
+            (EVENT_VERSION, Symbol::new(&env, "fee_accrue"), token),
+            amount,
+        );
         Ok(())
     }
 
@@ -1703,8 +1730,10 @@ impl FiatBridge {
             let token_client = token::Client::new(&env, &token);
             token_client.transfer(&contract, &to, &current);
             env.storage().persistent().set(&key, &0i128);
-            env.events()
-                .publish((EVENT_VERSION, Symbol::new(&env, "fee_wdrw"), to.clone()), current);
+            env.events().publish(
+                (EVENT_VERSION, Symbol::new(&env, "fee_wdrw"), to.clone()),
+                current,
+            );
         }
 
         Ok(())
@@ -1773,8 +1802,10 @@ impl FiatBridge {
 
         token_client.transfer(&env.current_contract_address(), &to, &amount);
 
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "rescue"), token, to), amount);
+        env.events().publish(
+            (EVENT_VERSION, Symbol::new(&env, "rescue"), token, to),
+            amount,
+        );
         Ok(())
     }
 
@@ -1995,10 +2026,8 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::WithdrawalQuota, &quota);
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "quota_set")),
-            quota,
-        );
+        env.events()
+            .publish((EVENT_VERSION, Symbol::new(&env, "quota_set")), quota);
         Ok(())
     }
 
@@ -2095,11 +2124,7 @@ impl FiatBridge {
                 .get::<_, BytesN<32>>(&DataKey::ReceiptIndex(idx))
             {
                 let receipt_key = DataKey::Receipt(receipt_hash.clone());
-                if let Some(receipt) = env
-                    .storage()
-                    .persistent()
-                    .get::<_, Receipt>(&receipt_key)
-                {
+                if let Some(receipt) = env.storage().persistent().get::<_, Receipt>(&receipt_key) {
                     if receipt.depositor == *depositor {
                         env.storage()
                             .persistent()
