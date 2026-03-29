@@ -486,7 +486,7 @@ impl FiatBridge {
         // Store sequential index → hash mapping for enumeration (e.g. migration)
         let receipt_hash: BytesN<32> = receipt_id.clone().into();
         env.storage()
-            .persistent()
+            .temporary()
             .set(&DataKey::ReceiptIndex(receipt_counter), &receipt_hash);
         env.storage()
             .instance()
@@ -2020,7 +2020,7 @@ impl FiatBridge {
     pub fn get_receipt_by_index(env: Env, idx: u64) -> Option<Receipt> {
         let receipt_hash: BytesN<32> = env
             .storage()
-            .persistent()
+            .temporary()
             .get(&DataKey::ReceiptIndex(idx))?;
         env.storage()
             .persistent()
@@ -2257,7 +2257,7 @@ impl FiatBridge {
         while idx < receipt_counter {
             if let Some(receipt_hash) = env
                 .storage()
-                .persistent()
+                .temporary()
                 .get::<_, BytesN<32>>(&DataKey::ReceiptIndex(idx))
             {
                 let receipt_key = DataKey::Receipt(receipt_hash.clone());
@@ -2318,7 +2318,7 @@ impl FiatBridge {
             // Look up the hash stored at this sequential index position
             if let Some(receipt_hash) = env
                 .storage()
-                .persistent()
+                .temporary()
                 .get::<_, BytesN<32>>(&DataKey::ReceiptIndex(current_id))
             {
                 if let Some(receipt) = env
