@@ -54,14 +54,7 @@ export default function UserSettings({ isOpen, onClose }: UserSettingsProps) {
         renameBeneficiary(editingBeneficiary.id, newBeneficiaryName);
         setEditingBeneficiary(null);
       } else {
-        addBeneficiary({
-          name: newBeneficiaryName,
-          accountName: newBeneficiaryAddress,
-          bankId: 0,
-          bankName: 'Unknown Bank',
-          bankCode: '000',
-          accountNumber: newBeneficiaryAddress,
-        });
+        addBeneficiary(0, 'Unknown Bank', '000', newBeneficiaryAddress, newBeneficiaryAddress, newBeneficiaryName);
       }
       setNewBeneficiaryName('');
       setNewBeneficiaryAddress('');
