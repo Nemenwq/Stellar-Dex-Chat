@@ -20,20 +20,26 @@ import {
   Receipt,
 } from 'lucide-react';
 import {
-    EXPECTED_NETWORK,
-    useStellarWallet,
+  EXPECTED_NETWORK,
+  useStellarWallet,
 } from '@/contexts/StellarWalletContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useUserPreferences } from '@/contexts/UserPreferencesContext';
 import useBridgeStats from '@/hooks/useBridgeStats';
 import useChat from '@/hooks/useChat';
 import { getQueuedReadRequestsCount } from '@/lib/networkQueue';
-import { getAdmin, stroopsToDisplay } from '@/lib/stellarContract';
+import {
+  getAdmin,
+  getWithdrawalQueueDepth,
+  stroopsToDisplay,
+} from '@/lib/stellarContract';
+import { usePaystackWebhookStatus } from '@/hooks/usePaystackWebhookStatus';
 import { TransactionData } from '@/types';
 import BankDetailsModal from './BankDetailsModal';
 import ChatHistorySidebar from './ChatHistorySidebar';
 import ChatInput from './ChatInput';
 import ChatMessages from './ChatMessages';
+import ErrorBoundary from './ErrorBoundary';
 import NotificationsCenter from './NotificationsCenter';
 import StellarFiatModal from './StellarFiatModal';
 import UserSettings from './UserSettings';
@@ -42,10 +48,7 @@ import { clearExpiredDrafts } from '@/lib/draftUtils';
 import { useTranslation } from '@/contexts/TranslationContext';
 import ReceiptDrawer from './ReceiptDrawerWrapper';
 import { useTxHistory } from '@/hooks/useTxHistory';
-import {
-  subscribeToQueue,
-  processQueue,
-} from '@/lib/networkQueue';
+import { subscribeToQueue, processQueue } from '@/lib/networkQueue';
 
 export default function StellarChatInterface() {
   const { t } = useTranslation();
@@ -82,6 +85,9 @@ export default function StellarChatInterface() {
   const [queuedReadables, setQueuedReadables] = useState(
     getQueuedReadRequestsCount(),
   );
+  const [withdrawalQueueDepth, setWithdrawalQueueDepth] = useState<
+    number | null
+  >(null);
   const [isReceiptDrawerOpen, setIsReceiptDrawerOpen] = useState(false);
   const { entries: txHistory, clearEntries: clearTxHistory } = useTxHistory();
   const accountDropdownRef = useRef<HTMLDivElement>(null);
@@ -92,6 +98,8 @@ export default function StellarChatInterface() {
   const sheetRef = useRef<HTMLDivElement>(null);
 
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  usePaystackWebhookStatus();
 
   const {
     messages,
@@ -187,6 +195,39 @@ export default function StellarChatInterface() {
     checkAdmin();
   }, [connection.isConnected, connection.address]);
 
+  useEffect(() => {
+    if (!connection.isConnected) {
+      setWithdrawalQueueDepth(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollQueueDepth = async () => {
+      try {
+        const depth = await getWithdrawalQueueDepth();
+        if (!cancelled) {
+          setWithdrawalQueueDepth(depth);
+        }
+      } catch (error) {
+        console.error('Failed to fetch withdrawal queue depth:', error);
+        if (!cancelled) {
+          setWithdrawalQueueDepth(null);
+        }
+      }
+    };
+
+    void pollQueueDepth();
+    const intervalId = setInterval(() => {
+      void pollQueueDepth();
+    }, 30_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [connection.isConnected]);
+
   // Sync admin state to chat hook
   useEffect(() => {
     setChatIsAdmin(isAdmin);
@@ -267,8 +308,6 @@ export default function StellarChatInterface() {
     }, 300);
   }, []);
 
-
-
   // When the AI decides a transaction is ready, open the modal
   const handleTransactionReady = useCallback(
     (data: TransactionData) => {
@@ -333,11 +372,24 @@ export default function StellarChatInterface() {
     [connect, isNetworkMismatch, sendMessage],
   );
 
+  const withdrawalQueueTone =
+    withdrawalQueueDepth === null
+      ? isDarkMode
+        ? 'bg-gray-700 text-gray-200'
+        : 'bg-gray-200 text-gray-700'
+      : withdrawalQueueDepth <= 5
+        ? 'bg-green-500/15 text-green-400'
+        : withdrawalQueueDepth <= 20
+          ? 'bg-yellow-500/15 text-yellow-400'
+          : 'bg-red-500/15 text-red-400';
+
   return (
     <div className="theme-app flex h-screen w-screen overflow-hidden transition-colors duration-300">
       {/* Desktop sidebar - only rendered on lg+ viewports or when toggled */}
       {!isMobile && (
-        <div className={`shrink-0 transition-all duration-300 ${showSidebar ? 'w-72' : 'w-20'}`}>
+        <div
+          className={`shrink-0 transition-all duration-300 ${showSidebar ? 'w-72' : 'w-20'}`}
+        >
           {isLoading ? (
             <SkeletonSidebar />
           ) : (
@@ -547,7 +599,9 @@ export default function StellarChatInterface() {
           <div
             className={`flex-shrink-0 flex flex-col items-center gap-1 py-1.5 text-xs ${
               isNetworkMismatch
-                ? isDarkMode ? 'bg-red-900/40 text-red-400' : 'bg-red-100 text-red-700'
+                ? isDarkMode
+                  ? 'bg-red-900/40 text-red-400'
+                  : 'bg-red-100 text-red-700'
                 : isDarkMode
                   ? 'bg-gray-800/50 text-gray-400'
                   : 'bg-gray-50 text-gray-700'
@@ -564,7 +618,13 @@ export default function StellarChatInterface() {
               {t('common.network')}:{' '}
               <span
                 className={`font-medium ${
-                  isNetworkMismatch ? (isDarkMode ? 'text-red-400' : 'text-red-700') : (isDarkMode ? 'text-blue-400' : 'text-blue-700')
+                  isNetworkMismatch
+                    ? isDarkMode
+                      ? 'text-red-400'
+                      : 'text-red-700'
+                    : isDarkMode
+                      ? 'text-blue-400'
+                      : 'text-blue-700'
                 }`}
               >
                 {connection.network || t('common.unknown')}
@@ -584,9 +644,19 @@ export default function StellarChatInterface() {
                           setIsAdminMode(true);
                           setShowModal(true);
                         }}
-                        className="text-blue-400 hover:text-blue-300 underline"
+                        className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 underline"
                       >
                         {t('common.withdraw_xlm')}
+                        <span
+                          className={`inline-flex min-w-6 items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-semibold no-underline ${withdrawalQueueTone}`}
+                          title={
+                            withdrawalQueueDepth === null
+                              ? 'Withdrawal queue unavailable'
+                              : `Withdrawal queue depth: ${withdrawalQueueDepth}`
+                          }
+                        >
+                          {withdrawalQueueDepth ?? '--'}
+                        </span>
                       </button>
                       {' · '}
                     </>
@@ -606,7 +676,9 @@ export default function StellarChatInterface() {
             {isNetworkMismatch && (
               <span className="flex items-center gap-1 text-[11px]">
                 <AlertCircle className="w-3.5 h-3.5" />
-                {t('common.network_mismatch_warning', { expectedNetwork: EXPECTED_NETWORK })}
+                {t('common.network_mismatch_warning', {
+                  expectedNetwork: EXPECTED_NETWORK,
+                })}
               </span>
             )}
           </div>
@@ -631,19 +703,25 @@ export default function StellarChatInterface() {
               <div className="flex flex-col gap-1 sm:flex-row sm:gap-4 sm:items-center">
                 <span className="font-medium">
                   {t('common.bridge_balance')}:{' '}
-                  <span className={isDarkMode ? 'text-blue-400' : 'text-blue-700'}>
+                  <span
+                    className={isDarkMode ? 'text-blue-400' : 'text-blue-700'}
+                  >
                     {balance !== null ? stroopsToDisplay(balance) : '—'} XLM
                   </span>
                 </span>
                 <span className="font-medium">
                   {t('common.deposit_limit')}:{' '}
-                  <span className={isDarkMode ? 'text-blue-400' : 'text-blue-700'}>
+                  <span
+                    className={isDarkMode ? 'text-blue-400' : 'text-blue-700'}
+                  >
                     {limit !== null ? stroopsToDisplay(limit) : '—'} XLM
                   </span>
                 </span>
                 <span className="font-medium">
                   Total Deposited:{' '}
-                  <span className={isDarkMode ? 'text-blue-400' : 'text-blue-700'}>
+                  <span
+                    className={isDarkMode ? 'text-blue-400' : 'text-blue-700'}
+                  >
                     {totalDeposited !== null
                       ? stroopsToDisplay(totalDeposited)
                       : '—'}{' '}
@@ -660,11 +738,19 @@ export default function StellarChatInterface() {
           {isLoading && messages.length === 0 ? (
             <SkeletonChat />
           ) : (
-            <ChatMessages
-              messages={messages}
-              onActionClick={handleActionClick}
-              isLoading={isLoading}
-            />
+            <ErrorBoundary
+              isDarkMode={isDarkMode}
+              title="Chat unavailable. Please refresh."
+              message="Something went wrong while loading the conversation."
+              retryLabel="Retry"
+              onRetry={() => window.location.reload()}
+            >
+              <ChatMessages
+                messages={messages}
+                onActionClick={handleActionClick}
+                isLoading={isLoading}
+              />
+            </ErrorBoundary>
           )}
           <ChatInput
             onSendMessage={sendMessage}
@@ -709,7 +795,9 @@ export default function StellarChatInterface() {
             aria-label="Chat history"
             tabIndex={-1}
             className={`fixed top-0 left-0 bottom-0 w-80 z-[70] flex flex-col will-change-transform focus:outline-none ${
-              isDarkMode ? 'bg-gray-900 border-r border-gray-800' : 'bg-white border-r border-gray-200'
+              isDarkMode
+                ? 'bg-gray-900 border-r border-gray-800'
+                : 'bg-white border-r border-gray-200'
             }`}
           >
             <ChatHistorySidebar
