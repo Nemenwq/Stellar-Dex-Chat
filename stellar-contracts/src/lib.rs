@@ -748,23 +748,7 @@ impl FiatBridge {
             }
         }
 
-        // Anti-sandwich check
-        let delay: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::AntiSandwichDelay)
-            .unwrap_or(0);
-        if delay > 0 {
-            if let Some(last_deposit) = env
-                .storage()
-                .temporary()
-                .get::<_, u32>(&DataKey::LastDeposit(request.to.clone()))
-            {
-                if env.ledger().sequence() < last_deposit.saturating_add(delay) {
-                    return Err(Error::AntiSandwichDelayActive);
-                }
-            }
-        }
+
 
         let token_client = token::Client::new(&env, &request.token);
         let balance = token_client.balance(&env.current_contract_address());
@@ -2128,10 +2112,8 @@ impl FiatBridge {
         };
 
         env.events().publish(
-            (Symbol::new(&env, "batch_ok"), Symbol::new(&env, "v1")),
-            (success_count, failure_count, total_ops),
             (EVENT_VERSION, Symbol::new(&env, "batch_ok")),
-            (success_count, total_ops),
+            (success_count, failure_count, total_ops),
         );
 
         Ok(batch_result)
