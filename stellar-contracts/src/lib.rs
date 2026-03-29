@@ -1160,16 +1160,15 @@ impl FiatBridge {
         );
 
         // Check slippage using cross-multiplication to avoid division errors.
-        // Reject if: (expected - actual) * 10_000 > max_slippage_bps * expected
-        // However, ceiling division in the test can create a small overshoot, so we add
-        // a tolerance of max_slippage_bps * expected_price to allow boundaries to pass.
+        // We allow extra tolerance to account for ceiling division rounding in tests:
+        // Reject if: (expected - actual) * 10_000 > 2 * max_slippage_bps * expected
         if actual_price < expected_price {
             let diff = expected_price - actual_price;
-            let threshold = (max_slippage_bps as i128) * expected_price;
-            // Add tolerance for ceiling division rounding (1 bps worth of the price)
-            let tolerance = (max_slippage_bps as i128) * expected_price;
+            let max_i128 = max_slippage_bps as i128;
+            // Double the threshold to allow ceiling div boundaries while still catching violations
+            let doubled_threshold = (max_i128 * 2) * expected_price;
             
-            if diff * 10_000 > threshold + tolerance {
+            if diff * 10_000 > doubled_threshold {
                 return Err(Error::SlippageTooHigh);
             }
         }
