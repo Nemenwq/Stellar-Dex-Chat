@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for taking the time to contribute. This document covers everything you need to open your first pull request.
+This document covers everything you need to open your first pull request.
 
 ---
 
@@ -93,6 +93,8 @@ cd stellar-contracts
 cargo build --target wasm32-unknown-unknown --release
 cargo test
 ```
+
+If you use VS Code, the repository includes workspace settings that point Rust Analyzer at [stellar-contracts/Cargo.toml](./stellar-contracts/Cargo.toml). Install the recommended `rust-lang.rust-analyzer` extension when prompted so contract code navigation and diagnostics work out of the box.
 
 ---
 
