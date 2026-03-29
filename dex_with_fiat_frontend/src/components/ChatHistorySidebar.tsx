@@ -319,7 +319,7 @@ export default function ChatHistorySidebar({
         )}
       </div>
 
-      <div className="theme-border border-t p-4 space-y-4">
+      <div className={`theme-border border-t p-4 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
         <PriceTicker symbols={['XLM', 'ETH', 'BTC']} currency="usd" />
 
         <div className={`theme-border border-t p-4 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>

@@ -2681,10 +2681,7 @@ mod proptest_deposit {
     // 2. contract balance increases by exactly amount
     // 3. user balance decreases by exactly amount
     // 4. get_user_deposited() returns amount
-    //   1. deposit() succeeds
-    //   2. contract balance increases by exactly `amount`
-    //   3. user balance decreases by exactly `amount`
-    //   4. get_user_deposited() returns `amount`
+ 
     proptest! {
         #[test]
         fn deposit_invariants_hold_for_all_valid_amounts(amount in 1i128..=500i128) {
