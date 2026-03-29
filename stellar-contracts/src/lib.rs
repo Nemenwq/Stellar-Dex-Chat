@@ -485,9 +485,13 @@ impl FiatBridge {
             .set(&DataKey::Receipt(receipt_id.clone().into()), &receipt);
         // Store sequential index → hash mapping for enumeration (e.g. migration)
         let receipt_hash: BytesN<32> = receipt_id.clone().into();
+        let index_key = DataKey::ReceiptIndex(receipt_counter);
         env.storage()
             .temporary()
-            .set(&DataKey::ReceiptIndex(receipt_counter), &receipt_hash);
+            .set(&index_key, &receipt_hash);
+        env.storage()
+            .temporary()
+            .extend_ttl(&index_key, MIN_TTL, MIN_TTL);
         env.storage()
             .instance()
             .set(&DataKey::ReceiptCounter, &(receipt_counter + 1));
@@ -2266,6 +2270,9 @@ impl FiatBridge {
                         env.storage()
                             .persistent()
                             .extend_ttl(&receipt_key, min_ttl, min_ttl);
+                        env.storage()
+                            .temporary()
+                            .extend_ttl(&DataKey::ReceiptIndex(idx), min_ttl, min_ttl);
                     }
                 }
             }
