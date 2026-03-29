@@ -1142,10 +1142,10 @@ impl FiatBridge {
         // Computed slippage in BPS: (Expected - Actual) / Expected * 10,000
         // We only care about downward slippage for these paths.
         // ── Issue #220: use precision-safe fixed-point math ───────────────
-        // Use floor division to allow exact boundary matches while catching violations
+        // Compute slippage_bps with ceiling to be conservative about violations
         let slippage_bps = if actual_price < expected_price {
             let diff = expected_price - actual_price;
-            crate::math::mul_div_floor(diff, 10000, expected_price)
+            crate::math::mul_div_ceil(diff, 10000, expected_price)
         } else {
             0
         };
@@ -1155,8 +1155,14 @@ impl FiatBridge {
             slippage_bps as u32,
         );
 
-        if slippage_bps > max_slippage_bps as i128 {
-            return Err(Error::SlippageTooHigh);
+        // Compare without final division to avoid rounding errors:
+        // Allow if: (expected - actual) * 10_000 <= max_slippage_bps * expected
+        // Reject if: (expected - actual) * 10_000 > max_slippage_bps * expected
+        if actual_price < expected_price {
+            let diff = expected_price - actual_price;
+            if diff * 10_000 > (max_slippage_bps as i128) * expected_price {
+                return Err(Error::SlippageTooHigh);
+            }
         }
 
         Ok(())
