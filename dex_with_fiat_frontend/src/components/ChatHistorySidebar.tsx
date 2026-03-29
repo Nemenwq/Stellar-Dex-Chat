@@ -14,6 +14,8 @@ import {
   Coins,
   Pin,
   PinOff,
+  FileJson,
+  FileText,
 } from 'lucide-react';
 import SkeletonSidebar from '@/components/ui/skeleton/SkeletonSidebar';
 import EmptyState from '@/components/ui/EmptyState';
@@ -25,7 +27,8 @@ interface SessionRowProps {
   session: ChatSession;
   isActive: boolean;
   onLoad: (id: string) => void;
-  onExport: (id: string) => void;
+  onExportJSON: (id: string) => void;
+  onExportTXT: (id: string) => void;
   onDelete: (id: string) => void;
   onTogglePin: (id: string) => void;
   formatDate: (d: Date) => string;
@@ -35,11 +38,14 @@ function SessionRow({
   session,
   isActive,
   onLoad,
-  onExport,
+  onExportJSON,
+  onExportTXT,
   onDelete,
   onTogglePin,
   formatDate,
 }: SessionRowProps) {
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
   return (
     <div
       className={`group relative p-3 mb-2 rounded-lg cursor-pointer transition-all duration-200 border ${
@@ -76,13 +82,44 @@ function SessionRow({
           >
             {session.pinned ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
           </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onExport(session.id); }}
-            className="theme-text-muted hover:bg-[var(--color-primary-soft)] p-1 rounded transition-all hover:scale-110"
-            title="Export conversation"
-          >
-            <Download className="w-3 h-3" />
-          </button>
+          
+          {/* Export Menu */}
+          <div className="relative">
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowExportMenu(!showExportMenu); }}
+              className="theme-text-muted hover:bg-[var(--color-primary-soft)] p-1 rounded transition-all hover:scale-110"
+              title="Export conversation"
+            >
+              <Download className="w-3 h-3" />
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 mt-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-lg z-50 min-w-max">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onExportJSON(session.id);
+                    setShowExportMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-xs font-medium theme-text-primary hover:bg-[var(--color-surface-muted)] flex items-center gap-2 transition-colors rounded-t-lg"
+                >
+                  <FileJson className="w-3 h-3" />
+                  Export JSON
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onExportTXT(session.id);
+                    setShowExportMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-xs font-medium theme-text-primary hover:bg-[var(--color-surface-muted)] flex items-center gap-2 transition-colors rounded-b-lg"
+                >
+                  <FileText className="w-3 h-3" />
+                  Export TXT
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(session.id); }}
             className="theme-text-muted hover:bg-[var(--color-danger-soft)] p-1 rounded transition-all hover:scale-110"
@@ -113,7 +150,8 @@ export default function ChatHistorySidebar({
     currentSessionId,
     deleteSession,
     clearAllHistory,
-    exportSession,
+    exportSessionAsJSON,
+    exportSessionAsTXT,
     searchSessions,
     togglePin,
     hasHistory,
@@ -141,21 +179,48 @@ export default function ChatHistorySidebar({
     setShowDeleteConfirm(null);
   };
 
-  const handleExportSession = (sessionId: string) => {
-    const exportData = exportSession(sessionId);
-    if (!exportData) {
+  const handleExportSessionJSON = (sessionId: string) => {
+    const exportResult = exportSessionAsJSON(sessionId);
+    if (!exportResult) {
+      console.warn('Session not found or export failed');
       return;
     }
 
-    const blob = new Blob([exportData], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `chat-session-${sessionId}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      const blob = new Blob([exportResult.data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = exportResult.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to export session as JSON:', error);
+    }
+  };
+
+  const handleExportSessionTXT = (sessionId: string) => {
+    const exportResult = exportSessionAsTXT(sessionId);
+    if (!exportResult) {
+      console.warn('Session not found or export failed');
+      return;
+    }
+
+    try {
+      const blob = new Blob([exportResult.data], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = exportResult.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to export session as TXT:', error);
+    }
   };
 
   const handleExportTransactions = () => {
@@ -269,7 +334,8 @@ export default function ChatHistorySidebar({
                     session={session}
                     isActive={currentSessionId === session.id}
                     onLoad={onLoadSession}
-                    onExport={handleExportSession}
+                    onExportJSON={handleExportSessionJSON}
+                    onExportTXT={handleExportSessionTXT}
                     onDelete={(id) => setShowDeleteConfirm(id)}
                     onTogglePin={togglePin}
                     formatDate={formatDate}
@@ -288,7 +354,8 @@ export default function ChatHistorySidebar({
                 session={session}
                 isActive={currentSessionId === session.id}
                 onLoad={onLoadSession}
-                onExport={handleExportSession}
+                onExportJSON={handleExportSessionJSON}
+                onExportTXT={handleExportSessionTXT}
                 onDelete={(id) => setShowDeleteConfirm(id)}
                 onTogglePin={togglePin}
                 formatDate={formatDate}
@@ -301,54 +368,53 @@ export default function ChatHistorySidebar({
       <div className="theme-border border-t p-4 space-y-4">
         <PriceTicker symbols={['XLM', 'ETH', 'BTC']} currency="usd" />
 
-        <div className="flex items-center justify-between mb-3">
-      <div className={`theme-border border-t p-4 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
-        <div className={`flex items-center justify-between mb-3 w-full ${isCollapsed ? 'flex-col gap-3' : ''}`}>
-          <div className="flex items-center gap-2">
-            <Coins className="w-4 h-4 text-[var(--color-primary)]" />
+        <div className={`theme-border border-t p-4 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
+          <div className={`flex items-center justify-between mb-3 w-full ${isCollapsed ? 'flex-col gap-3' : ''}`}>
+            <div className="flex items-center gap-2">
+              <Coins className="w-4 h-4 text-[var(--color-primary)]" />
+              {!isCollapsed && (
+                <h3 className="theme-text-primary text-sm font-semibold">
+                  Transaction History
+                </h3>
+              )}
+            </div>
             {!isCollapsed && (
-              <h3 className="theme-text-primary text-sm font-semibold">
-                Transaction History
-              </h3>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleExportTransactions}
+                  className="theme-text-muted hover:bg-[var(--color-surface-muted)] p-1.5 rounded-md transition-colors"
+                  title="Export transaction history"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={clearEntries}
+                  className="theme-text-muted hover:bg-[var(--color-danger-soft)] p-1.5 rounded-md transition-colors"
+                  title="Clear transaction history"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             )}
           </div>
-          {!isCollapsed && (
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={handleExportTransactions}
-                className="theme-text-muted hover:bg-[var(--color-surface-muted)] p-1.5 rounded-md transition-colors"
-                title="Export transaction history"
-              >
-                <Download className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={clearEntries}
-                className="theme-text-muted hover:bg-[var(--color-danger-soft)] p-1.5 rounded-md transition-colors"
-                title="Clear transaction history"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-        </div>
 
-        {isCollapsed ? (
-          <div className="flex justify-center">
-             <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs">
-               {entries.length}
-             </div>
-          </div>
-        ) : entries.length === 0 ? (
-          <EmptyState
-            icon={Coins}
-            title="No transactions yet"
-            description="Deposits, payouts, risk checks, and notes will appear here."
-            className="py-3"
-          />
-        ) : (
-          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+          {isCollapsed ? (
+            <div className="flex justify-center">
+              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs">
+                {entries.length}
+              </div>
+            </div>
+          ) : entries.length === 0 ? (
+            <EmptyState
+              icon={Coins}
+              title="No transactions yet"
+              description="Deposits, payouts, risk checks, and notes will appear here."
+              className="py-3"
+            />
+          ) : (
+            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
             {entries.slice(0, 8).map((entry) => (
               <div
                 key={entry.id}
@@ -418,8 +484,9 @@ export default function ChatHistorySidebar({
           </div>
         )}
       </div>
+    </div>
 
-      <div className="theme-border p-4 border-t transition-colors duration-300">
+    <div className="theme-border p-4 border-t transition-colors duration-300">
         <button
           onClick={() => window.location.reload()}
           className={`theme-primary-button w-full flex items-center justify-center rounded-lg transition-all duration-200 font-medium hover:scale-[1.02] ${isCollapsed ? 'p-2' : 'px-4 py-3'}`}
