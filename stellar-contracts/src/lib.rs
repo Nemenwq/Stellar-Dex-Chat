@@ -1766,9 +1766,9 @@ impl FiatBridge {
         // Computed slippage in BPS: (Expected - Actual) / Expected * 10,000
         // We only care about downward slippage for these paths.
         // ── Issue #220: use precision-safe fixed-point math ───────────────
+        // Use floor division for the displayed slippage value
         let slippage_bps = if actual_price < expected_price {
             let diff = expected_price - actual_price;
-            // Use floor division for the displayed slippage value
             crate::math::mul_div_floor(diff, 10000, expected_price)
         } else {
             0
