@@ -10,6 +10,8 @@ const serverSchema = z.object({
     const normalized = value.trim().toLowerCase();
     return normalized === 'true' || normalized === '1';
   }, z.boolean().default(false)),
+  ADMIN_SECRET: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
 });
 
 const clientSchema = z.object({
@@ -67,6 +69,8 @@ const processEnvVars = () => {
       ADMIN_IP_ALLOWLIST: process.env.ADMIN_IP_ALLOWLIST,
       ADMIN_IP_ALLOWLIST_BYPASS_LOCAL:
         process.env.ADMIN_IP_ALLOWLIST_BYPASS_LOCAL,
+      ADMIN_SECRET: process.env.ADMIN_SECRET,
+      GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     };
 
     const parsedServer = serverSchema.safeParse(serverVars);
