@@ -107,7 +107,7 @@ describe('ChatHistoryManager - Export Functionality', () => {
   describe('exportSessionAsTXT', () => {
     it('should export session as readable text', () => {
       const txt = ChatHistoryManager.exportSessionAsTXT(mockSession);
-      
+
       expect(txt).toContain('CHAT SESSION EXPORT');
       expect(txt).toContain('SESSION METADATA');
       expect(txt).toContain('CONVERSATION');
@@ -133,9 +133,8 @@ describe('ChatHistoryManager - Export Functionality', () => {
     it('should include timestamps', () => {
       const txt = ChatHistoryManager.exportSessionAsTXT(mockSession);
 
-      // Should contain at least one timestamp in readable format
-      expect(txt).toMatch(/\d+\/\d+\/\d+/); // Date format
-      expect(txt).toMatch(/\d+:\d+:\d+/); // Time format
+      expect(txt).toMatch(/\d+\/\d+\/\d+/);
+      expect(txt).toMatch(/\d+:\d+:\d+/);
     });
 
     it('should include transaction metadata', () => {
@@ -174,15 +173,12 @@ describe('ChatHistoryManager - Export Functionality', () => {
       const json = JSON.parse(ChatHistoryManager.exportSessionAsJSON(mockSession));
       const txt = ChatHistoryManager.exportSessionAsTXT(mockSession);
 
-      // Both should have session ID
       expect(json.metadata.sessionId).toBe(mockSession.id);
       expect(txt).toContain(mockSession.id);
 
-      // Both should have message count
       expect(json.metadata.totalMessages).toBe(mockMessages.length);
       expect(txt).toContain(`Total Messages: ${mockMessages.length}`);
 
-      // Both should have all messages
       expect(json.messages.length).toBe(mockMessages.length);
       mockMessages.forEach(msg => {
         expect(txt).toContain(msg.content);
@@ -191,3 +187,59 @@ describe('ChatHistoryManager - Export Functionality', () => {
   });
 });
 
+describe('ChatHistoryManager - Deduplication', () => {
+  describe('deduplicateSessions', () => {
+    it('should remove duplicate sessions by ID', () => {
+      const now = new Date();
+      const earlier = new Date(now.getTime() - 1000);
+
+      const sessions: ChatSession[] = [
+        { id: 'session_1', title: 'Chat 1', messages: [], createdAt: earlier, lastUpdated: earlier },
+        { id: 'session_1', title: 'Chat 1 Updated', messages: [], createdAt: earlier, lastUpdated: now },
+        { id: 'session_2', title: 'Chat 2', messages: [], createdAt: now, lastUpdated: now },
+      ];
+
+      const result = ChatHistoryManager.deduplicateSessions(sessions);
+
+      expect(result).toHaveLength(2);
+      expect(result.find((s) => s.id === 'session_1')?.title).toBe('Chat 1 Updated');
+      expect(result.find((s) => s.id === 'session_2')).toBeDefined();
+    });
+
+    it('should keep the most recently updated session when duplicates exist', () => {
+      const now = new Date();
+      const earlier = new Date(now.getTime() - 5000);
+      const middle = new Date(now.getTime() - 2000);
+
+      const sessions: ChatSession[] = [
+        { id: 'session_1', title: 'Version 1', messages: [], createdAt: earlier, lastUpdated: earlier },
+        { id: 'session_1', title: 'Version 2', messages: [], createdAt: earlier, lastUpdated: middle },
+        { id: 'session_1', title: 'Version 3', messages: [], createdAt: earlier, lastUpdated: now },
+      ];
+
+      const result = ChatHistoryManager.deduplicateSessions(sessions);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].title).toBe('Version 3');
+      expect(result[0].lastUpdated).toEqual(now);
+    });
+
+    it('should handle empty array', () => {
+      const result = ChatHistoryManager.deduplicateSessions([]);
+      expect(result).toHaveLength(0);
+    });
+
+    it('should handle array with no duplicates', () => {
+      const now = new Date();
+      const sessions: ChatSession[] = [
+        { id: 'session_1', title: 'Chat 1', messages: [], createdAt: now, lastUpdated: now },
+        { id: 'session_2', title: 'Chat 2', messages: [], createdAt: now, lastUpdated: now },
+      ];
+
+      const result = ChatHistoryManager.deduplicateSessions(sessions);
+
+      expect(result).toHaveLength(2);
+      expect(result).toEqual(sessions);
+    });
+  });
+});
