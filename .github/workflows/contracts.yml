@@ -51,5 +51,15 @@ jobs:
       - name: Build WASM release
         run: cargo build --target wasm32-unknown-unknown --release
 
+      - name: Check WASM size
+        run: |
+          ls -la target/wasm32-unknown-unknown/release/*.wasm
+          SIZE=$(ls -la target/wasm32-unknown-unknown/release/*.wasm | awk '{print $5}')
+          echo "Current WASM size: $SIZE bytes"
+          if [ $SIZE -gt 55000 ]; then
+            echo "Error: WASM size $SIZE bytes exceeds 55 KB limit"
+            exit 1
+          fi
+
       - name: Run clippy (deny warnings)
         run: cargo clippy --all-targets --all-features -- -D warnings
