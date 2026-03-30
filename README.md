@@ -182,5 +182,9 @@ npm run precommit:clippy
 npm run precommit:eslint
 ```
 
+## Documentation
+
+- **[TypeScript SDK Examples](docs/typescript-sdk-examples.md)** - Complete guide for calling new contract functions (`heartbeat`, `deny_address`, `migrate_escrow`, `execute_batch_admin`) from the TypeScript SDK with error handling patterns and code examples.
+
 ## Contributing!!
 Contributions and feature reviews are welcome. Please open up an issue to raise bugs or feature requests!
