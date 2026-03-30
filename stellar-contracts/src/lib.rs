@@ -1,9 +1,8 @@
 #![no_std]
-#![allow(deprecated)]
 #![allow(clippy::too_many_arguments)]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, xdr::ToXdr, Address, Bytes, BytesN,
-    Env, Symbol, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, token, xdr::ToXdr,
+    Address, Bytes, BytesN, Env, Symbol, Vec,
 };
 
 pub mod math;
@@ -206,6 +205,266 @@ pub struct ConfigSnapshot {
     pub anti_sandwich_delay: u32,
 }
 
+// ── Events ────────────────────────────────────────────────────────────────
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct DeployHashEvent {
+    pub version: u32,
+    pub config_hash: BytesN<32>,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct DepositEvent {
+    pub version: u32,
+    pub from: Address,
+    pub token: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct ReceiptIssuedEvent {
+    pub version: u32,
+    pub receipt_id: BytesN<32>,
+    pub memo_hash: Option<BytesN<32>>,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct WithdrawEvent {
+    pub version: u32,
+    pub to: Address,
+    pub token: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct WithdrawalRequestedEvent {
+    pub version: u32,
+    pub to: Address,
+    pub request_id: u64,
+    pub memo_hash: Option<BytesN<32>>,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct WithdrawalExecutedEvent {
+    pub version: u32,
+    pub request_id: u64,
+    pub to: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct WithdrawalCancelledEvent {
+    pub version: u32,
+    pub request_id: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct FeeAccruedEvent {
+    pub version: u32,
+    pub token: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct RefundEvent {
+    pub version: u32,
+    pub receipt_id: BytesN<32>,
+    pub to: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct PausedEvent {
+    pub version: u32,
+    pub by: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct UnpausedEvent {
+    pub version: u32,
+    pub by: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct AdminTransferEvent {
+    pub version: u32,
+    pub old_admin: Address,
+    pub new_admin: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct SetMinDepositEvent {
+    pub version: u32,
+    pub min: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct SlippageEvent {
+    pub version: u32,
+    pub slippage_bps: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct AdminActionQueuedEvent {
+    pub version: u32,
+    pub action_type: Symbol,
+    pub action_id: u64,
+    pub target_ledger: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct AdminActionExecutedEvent {
+    pub version: u32,
+    pub action_id: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct SetOperatorEvent {
+    pub version: u32,
+    pub operator: Address,
+    pub active: bool,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct DenyAddressEvent {
+    pub version: u32,
+    pub address: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct HeartbeatEvent {
+    pub version: u32,
+    pub operator: Address,
+    pub ledger: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct NonceIncrementedEvent {
+    pub version: u32,
+    pub operator: Address,
+    pub new_nonce: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct OperatorPrunedEvent {
+    pub version: u32,
+    pub operator: Address,
+    pub ledger: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct FeeWithdrawnEvent {
+    pub version: u32,
+    pub to: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct RescueEvent {
+    pub version: u32,
+    pub token: Address,
+    pub to: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct QuotaSetEvent {
+    pub version: u32,
+    pub quota: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct QuotaResetEvent {
+    pub version: u32,
+    pub user: Address,
+    pub window_start: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct MigrationEvent {
+    pub version: u32,
+    pub cursor: u64,
+    pub migrated_count: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct BatchFailEvent {
+    pub version: u32,
+    pub index: u32,
+    pub total_ops: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct BatchOkEvent {
+    pub version: u32,
+    pub success_count: u32,
+    pub failure_count: u32,
+    pub total_ops: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct CircuitBreakerResetEvent {
+    pub version: u32,
+    pub ledger: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct CircuitBreakerTrippedEvent {
+    pub version: u32,
+    pub new_total: i128,
+    pub threshold: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct SetWithdrawOperatorEvent {
+    pub version: u32,
+    pub operator: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct RemoveWithdrawOperatorEvent {
+    pub version: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct DenyRemovedEvent {
+    pub version: u32,
+    pub address: Address,
+}
+
 // ── Storage keys ──────────────────────────────────────────────────────────
 #[contracttype]
 pub enum DataKey {
@@ -336,10 +595,11 @@ impl FiatBridge {
         env.storage()
             .persistent()
             .set(&DataKey::DeployConfigHash, &config_hash);
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "deploy_hash")),
+        DeployHashEvent {
+            version: EVENT_VERSION,
             config_hash,
-        );
+        }
+        .publish(&env);
 
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         Ok(())
@@ -530,12 +790,20 @@ impl FiatBridge {
             env.storage().temporary().extend_ttl(&large_key, ttl, ttl);
         }
 
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "deposit"), from), amount);
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "rcpt_issd"), memo_hash),
-            receipt_id,
-        );
+        DepositEvent {
+            version: EVENT_VERSION,
+            from: from.clone(),
+            token: token.clone(),
+            amount,
+        }
+        .publish(&env);
+
+        ReceiptIssuedEvent {
+            version: EVENT_VERSION,
+            receipt_id: receipt_hash.clone(),
+            memo_hash,
+        }
+        .publish(&env);
 
         Self::check_invariants(&env, &token)?;
 
@@ -595,9 +863,9 @@ impl FiatBridge {
             .instance()
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
-            
+
         let operator: Option<Address> = env.storage().instance().get(&DataKey::WithdrawOperator);
-        
+
         if caller == admin {
             caller.require_auth();
         } else if let Some(op) = operator {
@@ -609,7 +877,7 @@ impl FiatBridge {
         } else {
             return Err(Error::Unauthorized);
         }
-        
+
         Self::require_not_paused(&env)?;
 
         if amount <= 0 {
@@ -646,8 +914,13 @@ impl FiatBridge {
             .set(&DataKey::TokenRegistry(token.clone()), &config);
 
         Self::check_invariants(&env, &token)?;
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "withdraw"), to), amount);
+        WithdrawEvent {
+            version: EVENT_VERSION,
+            to: to.clone(),
+            token: token.clone(),
+            amount,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -769,10 +1042,13 @@ impl FiatBridge {
 
         Self::check_invariants(&env, &token)?;
 
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "req_withdr"), to),
-            (request_id, memo_hash),
-        );
+        WithdrawalRequestedEvent {
+            version: EVENT_VERSION,
+            to: to.clone(),
+            request_id,
+            memo_hash,
+        }
+        .publish(&env);
 
         Ok(request_id)
     }
@@ -904,6 +1180,14 @@ impl FiatBridge {
 
         Self::check_invariants(&env, &request.token)?;
 
+        WithdrawalExecutedEvent {
+            version: EVENT_VERSION,
+            request_id,
+            to: request.to.clone(),
+            amount: execute_amount,
+        }
+        .publish(&env);
+
         Ok(())
     }
 
@@ -971,6 +1255,9 @@ impl FiatBridge {
         Self::advance_tier_queue_head(&env, tier, request_id);
 
         Self::check_invariants(&env, &request.token)?;
+
+        WithdrawalCancelledEvent { version: EVENT_VERSION, request_id }.publish(&env);
+
         Ok(())
     }
 
@@ -1050,8 +1337,7 @@ impl FiatBridge {
             return Err(Error::BelowMinimum);
         }
         env.storage().instance().set(&DataKey::MinDeposit, &min);
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "set_min_dep")), min);
+        SetMinDepositEvent { version: EVENT_VERSION, min }.publish(&env);
         Ok(())
     }
 
@@ -1137,8 +1423,7 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
         env.storage().instance().set(&DataKey::Paused, &true);
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "paused")), ());
+        PausedEvent { version: EVENT_VERSION, by: admin.clone() }.publish(&env);
         Ok(())
     }
 
@@ -1150,8 +1435,7 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
         env.storage().instance().set(&DataKey::Paused, &false);
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "unpaused")), ());
+        UnpausedEvent { version: EVENT_VERSION, by: admin.clone() }.publish(&env);
         Ok(())
     }
 
@@ -1242,10 +1526,7 @@ impl FiatBridge {
             0
         };
 
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(env, "slippage")),
-            slippage_bps as u32,
-        );
+        SlippageEvent { version: EVENT_VERSION, slippage_bps: slippage_bps as u32 }.publish(env);
 
         // Check slippage using cross-multiplication to avoid division errors.
         // We allow extra tolerance to account for ceiling division rounding in tests:
@@ -1254,7 +1535,7 @@ impl FiatBridge {
             let diff = expected_price - actual_price;
             let max_i128 = max_slippage_bps as i128;
             let threshold = max_i128 * expected_price;
-            
+
             if diff * 10_000 > threshold {
                 return Err(Error::SlippageTooHigh);
             }
@@ -1401,15 +1682,13 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::NextActionID, &(id + 1));
-        env.events().publish(
-            (
-                EVENT_VERSION,
-                Symbol::new(&env, "admin_action_queued"),
-                action_type,
-                id,
-            ),
-            action.target_ledger,
-        );
+        AdminActionQueuedEvent {
+            version: EVENT_VERSION,
+            action_type: action_type.clone(),
+            action_id: id,
+            target_ledger: action.target_ledger,
+        }
+        .publish(&env);
         Ok(id)
     }
 
@@ -1431,14 +1710,7 @@ impl FiatBridge {
         env.storage()
             .persistent()
             .remove(&DataKey::QueuedAdminAction(id));
-        env.events().publish(
-            (
-                EVENT_VERSION,
-                Symbol::new(&env, "admin_action_executed"),
-                id,
-            ),
-            true, // success
-        );
+        AdminActionExecutedEvent { version: EVENT_VERSION, action_id: id }.publish(&env);
         env.storage()
             .instance()
             .set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
@@ -1487,11 +1759,7 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::OperatorCount, &operators.len());
 
-        // Emit event for off-chain monitoring
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "set_op"), operator),
-            active,
-        );
+        SetOperatorEvent { version: EVENT_VERSION, operator: operator.clone(), active }.publish(&env);
 
         Ok(())
     }
@@ -1534,8 +1802,7 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::DeniedCount, &(count + 1));
 
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "deny_add")), address);
+        DenyAddressEvent { version: EVENT_VERSION, address: address.clone() }.publish(&env);
         Ok(())
     }
 
@@ -1558,10 +1825,7 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::OperatorHeartbeat(operator.clone()), &curr);
 
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "heartbeat"), operator),
-            curr,
-        );
+        HeartbeatEvent { version: EVENT_VERSION, operator: operator.clone(), ledger: curr }.publish(&env);
 
         Ok(())
     }
@@ -1623,14 +1887,12 @@ impl FiatBridge {
             &(current_nonce + 1),
         );
 
-        env.events().publish(
-            (
-                EVENT_VERSION,
-                Symbol::new(env, "nonce_inc"),
-                operator.clone(),
-            ),
-            current_nonce + 1,
-        );
+        NonceIncrementedEvent {
+            version: EVENT_VERSION,
+            operator: operator.clone(),
+            new_nonce: current_nonce + 1,
+        }
+        .publish(env);
 
         Ok(())
     }
@@ -1667,10 +1929,12 @@ impl FiatBridge {
                 env.storage()
                     .instance()
                     .set(&DataKey::Operator(operator.clone()), &false);
-                env.events().publish(
-                    (Symbol::new(env, "operator_pruned"), operator),
-                    current_ledger,
-                );
+                OperatorPrunedEvent {
+                    version: EVENT_VERSION,
+                    operator: operator.clone(),
+                    ledger: current_ledger,
+                }
+                .publish(env);
             } else {
                 retained.push_back(operator);
             }
@@ -1752,8 +2016,7 @@ impl FiatBridge {
             }
         }
 
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "deny_rem")), address);
+        DenyRemovedEvent { version: EVENT_VERSION, address: address.clone() }.publish(&env);
         Ok(())
     }
 
@@ -1813,10 +2076,7 @@ impl FiatBridge {
         let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
         env.storage().persistent().set(&key, &(current + amount));
 
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "fee_accrue"), token),
-            amount,
-        );
+        FeeAccruedEvent { version: EVENT_VERSION, token: token.clone(), amount }.publish(&env);
         Ok(())
     }
 
@@ -1862,8 +2122,7 @@ impl FiatBridge {
         token_client.transfer(&env.current_contract_address(), &to, &amount);
 
         env.storage().persistent().set(&key, &(current - amount));
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "fee_wdrw"), to), amount);
+        FeeWithdrawnEvent { version: EVENT_VERSION, to: to.clone(), amount }.publish(&env);
         Ok(())
     }
 
@@ -1886,10 +2145,7 @@ impl FiatBridge {
             let token_client = token::Client::new(&env, &token);
             token_client.transfer(&contract, &to, &current);
             env.storage().persistent().set(&key, &0i128);
-            env.events().publish(
-                (EVENT_VERSION, Symbol::new(&env, "fee_wdrw"), to.clone()),
-                current,
-            );
+            FeeWithdrawnEvent { version: EVENT_VERSION, to: to.clone(), amount: current }.publish(&env);
         }
 
         Ok(())
@@ -1958,10 +2214,7 @@ impl FiatBridge {
 
         token_client.transfer(&env.current_contract_address(), &to, &amount);
 
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "rescue"), token, to),
-            amount,
-        );
+        RescueEvent { version: EVENT_VERSION, token: token.clone(), to: to.clone(), amount }.publish(&env);
         Ok(())
     }
 
@@ -2182,8 +2435,7 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::WithdrawalQuota, &quota);
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "quota_set")), quota);
+        QuotaSetEvent { version: EVENT_VERSION, quota }.publish(&env);
         Ok(())
     }
 
@@ -2234,10 +2486,12 @@ impl FiatBridge {
         if curr >= record.window_start + WINDOW_LEDGERS {
             record.amount = 0;
             record.window_start = curr;
-            env.events().publish(
-                (EVENT_VERSION, Symbol::new(env, "quota_reset")),
-                (user.clone(), record.window_start),
-            );
+            QuotaResetEvent {
+                version: EVENT_VERSION,
+                user: user.clone(),
+                window_start: record.window_start,
+            }
+            .publish(env);
         }
 
         if record.amount + amount > quota {
@@ -2381,10 +2635,12 @@ impl FiatBridge {
                 .set(&DataKey::EscrowStorageVersion, &ESCROW_STORAGE_VERSION);
         }
 
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "migration")),
-            (current_id, migrated_count),
-        );
+        MigrationEvent {
+            version: EVENT_VERSION,
+            cursor: current_id,
+            migrated_count,
+        }
+        .publish(&env);
 
         Ok(migrated_count)
     }
@@ -2420,10 +2676,7 @@ impl FiatBridge {
         for (idx, op) in operations.iter().enumerate() {
             let result = Self::execute_single_admin_op(&env, &op);
             if result.is_err() {
-                env.events().publish(
-                    (EVENT_VERSION, Symbol::new(&env, "batch_fail")),
-                    (idx as u32, total_ops),
-                );
+                BatchFailEvent { version: EVENT_VERSION, index: idx as u32, total_ops }.publish(&env);
                 failure_count += 1;
                 if first_failed_index.is_none() {
                     first_failed_index = Some(idx as u32);
@@ -2440,10 +2693,7 @@ impl FiatBridge {
             failed_index: first_failed_index,
         };
 
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "batch_ok")),
-            (success_count, failure_count, total_ops),
-        );
+        BatchOkEvent { version: EVENT_VERSION, success_count, failure_count, total_ops }.publish(&env);
 
         Ok(batch_result)
     }
@@ -2552,10 +2802,7 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::CircuitBreakerTripped, &false);
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "cb_reset")),
-            env.ledger().sequence(),
-        );
+        CircuitBreakerResetEvent { version: EVENT_VERSION, ledger: env.ledger().sequence() }.publish(&env);
         Ok(())
     }
 
@@ -2626,10 +2873,7 @@ impl FiatBridge {
             env.storage()
                 .instance()
                 .set(&DataKey::CircuitBreakerTripped, &true);
-            env.events().publish(
-                (EVENT_VERSION, Symbol::new(env, "cbtripped")),
-                (new_total, threshold),
-            );
+            CircuitBreakerTrippedEvent { version: EVENT_VERSION, new_total, threshold }.publish(env);
         }
 
         Ok(())
@@ -2719,7 +2963,7 @@ impl FiatBridge {
     }
 
     // ── Single Withdraw Operator Role (Issue #118) ─────────────────────────
-    
+
     pub fn set_withdraw_operator(env: Env, operator: Address) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
@@ -2728,9 +2972,9 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
-        
+
         env.storage().instance().set(&DataKey::WithdrawOperator, &operator);
-        env.events().publish((EVENT_VERSION, Symbol::new(&env, "set_wd_op")), operator);
+        SetWithdrawOperatorEvent { version: EVENT_VERSION, operator: operator.clone() }.publish(&env);
         Ok(())
     }
 
@@ -2742,9 +2986,9 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
-        
+
         env.storage().instance().remove(&DataKey::WithdrawOperator);
-        env.events().publish((EVENT_VERSION, Symbol::new(&env, "rm_wd_op")), ());
+        RemoveWithdrawOperatorEvent { version: EVENT_VERSION }.publish(&env);
         Ok(())
     }
 
