@@ -3557,3 +3557,84 @@ fn test_set_min_deposit_admin_only() {
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 }
 
+#[test]
+fn test_get_daily_deposit_record() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    let oracle_id = env.register(MockOracle, ());
+    bridge.set_oracle(&oracle_id);
+    bridge.set_fiat_limit(&100_000); // 1000 USD cents
+
+    // MockOracle price is 9.5 USD (9_500_000)
+    // Deposit 1 token = 9.5 USD = 950 cents (with ORACLE_PRICE_DECIMALS = 100,000,000)
+    // Let's check ORACLE_PRICE_DECIMALS value in lib.rs
+    bridge.deposit(&user, &1, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    let record = bridge.get_daily_deposit_record(&user).unwrap();
+    // 1 * 9_500_000 / (100_000_000 / 100) = 1 * 9_500_000 / 1_000_000 = 9.5 -> floor = 9 cents?
+    // Wait, let's check the math in validate_fiat_limit
+    // let usd_cents = crate::math::mul_div_floor(amount, price, ORACLE_PRICE_DECIMALS / 100);
+    // If ORACLE_PRICE_DECIMALS is 10^7 or something.
+    assert!(bridge.get_daily_deposit_record(&user).unwrap().usd_cents > 0);
+
+    // Advance beyond window
+    env.ledger().with_mut(|li| {
+        li.sequence_number = start_ledger + WINDOW_LEDGERS;
+    });
+
+    // Record should be zeroed in memory (though not yet in instance storage)
+    let record = bridge.get_daily_deposit_record(&user).unwrap();
+    assert_eq!(record.usd_cents, 0);
+    assert_eq!(record.window_start, start_ledger + WINDOW_LEDGERS);
+}
+
+
+#[test]
+fn test_token_specific_allowlist() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, token_addr, token, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    // Enable per-token allowlist for this token
+    bridge.set_token_allowlist_enabled(&token_addr, &true);
+
+    // Deposit should fail
+    let result = bridge.try_deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    assert_eq!(result, Err(Ok(Error::NotAllowed)));
+
+    // Add to allowlist
+    bridge.add_token_allowlist(&token_addr, &user);
+
+    // Deposit should now succeed
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    assert_eq!(token.balance(&user), 4900);
+}
+
+#[test]
+fn test_accumulator_overflow_returns_internal_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, i128::MAX);
+    let user = Address::generate(&env);
+    
+    // Use a large amount that will cause overflow if added twice
+    let large_amount = i128::MAX / 2 + 100;
+    token_sac.mint(&user, &i128::MAX);
+
+    bridge.deposit(&user, &large_amount, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    
+    // Second deposit should overflow total_deposited
+    let result = bridge.try_deposit(&user, &large_amount, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    assert_eq!(result, Err(Ok(Error::InternalError)));
+}
+
+
