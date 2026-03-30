@@ -3582,6 +3582,9 @@ fn test_get_daily_deposit_record() {
     // If ORACLE_PRICE_DECIMALS is 10^7 or something.
     assert!(bridge.get_daily_deposit_record(&user).unwrap().usd_cents > 0);
 
+    // Capture current ledger sequence before advancing
+    let start_ledger = env.ledger().sequence();
+
     // Advance beyond window
     env.ledger().with_mut(|li| {
         li.sequence_number = start_ledger + WINDOW_LEDGERS;
