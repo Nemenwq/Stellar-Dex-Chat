@@ -3,6 +3,13 @@ import { z } from 'zod';
 const serverSchema = z.object({
   PAYSTACK_SECRET_KEY: z.string().optional(),
   PAYOUT_PROVIDER: z.string().default('paystack'),
+  ADMIN_API_TOKEN: z.string().optional(),
+  ADMIN_IP_ALLOWLIST: z.string().optional(),
+  ADMIN_IP_ALLOWLIST_BYPASS_LOCAL: z.preprocess((value: unknown) => {
+    if (typeof value !== 'string') return false;
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1';
+  }, z.boolean().default(false)),
   ADMIN_SECRET: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
 });
@@ -58,6 +65,10 @@ const processEnvVars = () => {
     const serverVars = {
       PAYSTACK_SECRET_KEY: process.env.PAYSTACK_SECRET_KEY,
       PAYOUT_PROVIDER: process.env.PAYOUT_PROVIDER,
+      ADMIN_API_TOKEN: process.env.ADMIN_API_TOKEN,
+      ADMIN_IP_ALLOWLIST: process.env.ADMIN_IP_ALLOWLIST,
+      ADMIN_IP_ALLOWLIST_BYPASS_LOCAL:
+        process.env.ADMIN_IP_ALLOWLIST_BYPASS_LOCAL,
       ADMIN_SECRET: process.env.ADMIN_SECRET,
       GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     };
