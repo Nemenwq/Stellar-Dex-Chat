@@ -43,7 +43,8 @@ fn setup_bridge(
     let admin = Address::generate(env);
     let token_admin = Address::generate(env);
     let (token_addr, token, token_sac) = create_token(env, &token_admin);
-    bridge.init(&admin, &token_addr, &limit, &1);
+    let signers = vec![env, admin.clone()];
+    bridge.init(&admin, &token_addr, &limit, &1, &signers, &1);
     (contract_id, bridge, admin, token_addr, token, token_sac)
 }
 
@@ -64,8 +65,34 @@ fn setup_bridge_with_min(
     let admin = Address::generate(env);
     let token_admin = Address::generate(env);
     let (token_addr, token, token_sac) = create_token(env, &token_admin);
-    bridge.init(&admin, &token_addr, &limit, &min_deposit);
+    let signers = vec![env, admin.clone()];    bridge.init(&admin, &token_addr, &limit, &min_deposit, &signers, &1);
     (contract_id, bridge, admin, token_addr, token, token_sac)
+}
+
+fn load_valid_contract_wasm_fixture() -> std::vec::Vec<u8> {
+    let cargo_home = std::env::var("CARGO_HOME").unwrap_or_else(|_| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| std::string::String::from("."));
+        let mut path = home;
+        path.push_str("/.cargo");
+        path
+    });
+
+    let registry_src = std::path::Path::new(&cargo_home).join("registry/src");
+    let entries = std::fs::read_dir(&registry_src).expect("unable to read cargo registry/src");
+
+    for entry in entries.flatten() {
+        let registry_path = entry.path();
+        if !registry_path.is_dir() {
+            continue;
+        }
+
+        let candidate = registry_path.join("soroban-sdk-25.3.0/doctest_fixtures/contract.wasm");
+        if candidate.exists() {
+            return std::fs::read(candidate).expect("unable to read fixture wasm");
+        }
+    }
+
+    panic!("soroban-sdk doctest wasm fixture not found")
 }
 
 struct SnapshotEvent {
@@ -520,7 +547,7 @@ fn test_double_init() {
     env.mock_all_auths();
 
     let (_, bridge, admin, token_addr, _, _) = setup_bridge(&env, 500);
-    let result = bridge.try_init(&admin, &token_addr, &500, &1);
+    let signers = vec![&env, admin.clone()];    let result = bridge.try_init(&admin, &token_addr, &500, &1, &signers, &1);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
@@ -3533,18 +3560,21 @@ fn test_init_rejects_invalid_min_deposit() {
     let (token_addr, _, _) = create_token(&env, &token_admin);
 
     // Reject 0
-    let result = bridge.try_init(&admin, &token_addr, &1000, &0);
+    let signers = vec![&env, admin.clone()];
+
+    // Reject 0
+    let result = bridge.try_init(&admin, &token_addr, &1000, &0, &signers, &1);
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 
     // Reject negative
-    let result = bridge.try_init(&admin, &token_addr, &1000, &-5);
+    let result = bridge.try_init(&admin, &token_addr, &1000, &-5, &signers, &1);
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 
     // Reject min_deposit >= limit
-    let result = bridge.try_init(&admin, &token_addr, &1000, &1000);
+    let result = bridge.try_init(&admin, &token_addr, &1000, &1000, &signers, &1);
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 
-    let result = bridge.try_init(&admin, &token_addr, &1000, &2000);
+    let result = bridge.try_init(&admin, &token_addr, &1000, &2000, &signers, &1);
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 }
 
@@ -3622,6 +3652,11 @@ fn test_reclaim_expired_withdrawal_succeeds_after_window() {
 
     // Request should be gone
     assert!(bridge.get_withdrawal_request(&req_id).is_none());
+    // MockOracle price is 9.5 USD (9_500_000)
+    // Deposit 1 token = 9.5 USD = 950 cents (with ORACLE_PRICE_DECIMALS = 100,000,000)
+    // Let's check ORACLE_PRICE_DECIMALS value in lib.rs
+    let start_ledger = env.ledger().sequence();
+    bridge.deposit(&user, &1, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     // Queue depth back to 0
     assert_eq!(bridge.get_wq_depth(), 0);
@@ -3972,4 +4007,83 @@ fn test_queue_renounce_succeeds_when_not_paused() {
     // Normal flow — not paused, should work fine
     bridge.queue_renounce_admin();
     assert!(bridge.get_pending_renounce_ledger().is_some());
+    bridge.deposit(&user, &large_amount, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    
+    // Second deposit should overflow total_deposited
+    let result = bridge.try_deposit(&user, &large_amount, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    assert_eq!(result, Err(Ok(Error::Overflow)));
+}
+
+// ── upgrade mechanism tests ───────────────────────────────────────────────
+
+#[test]
+fn test_execute_upgrade_before_delay_fails_with_upgrade_not_ready() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 500);
+
+    let proposed_wasm_hash = BytesN::from_array(&env, &[7u8; 32]);
+    bridge.propose_upgrade(&proposed_wasm_hash);
+
+    let result = bridge.try_execute_upgrade();
+    assert_eq!(result, Err(Ok(Error::UpgradeNotReady)));
+}
+
+#[test]
+fn test_cancel_upgrade_removes_pending_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 500);
+
+    let proposed_wasm_hash = BytesN::from_array(&env, &[9u8; 32]);
+    bridge.propose_upgrade(&proposed_wasm_hash);
+    assert!(bridge.get_upgrade_proposal().is_some());
+
+    bridge.cancel_upgrade();
+    assert!(bridge.get_upgrade_proposal().is_none());
+
+    let result = bridge.try_execute_upgrade();
+    assert_eq!(result, Err(Ok(Error::UpgradeProposalMissing)));
+}
+
+#[test]
+fn test_upgrade_delay_cannot_be_below_minimum() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 500);
+
+    let zero_delay = bridge.try_set_upgrade_delay(&0);
+    assert_eq!(zero_delay, Err(Ok(Error::UpgradeDelayTooShort)));
+
+    let below_min = bridge.try_set_upgrade_delay(&999);
+    assert_eq!(below_min, Err(Ok(Error::UpgradeDelayTooShort)));
+
+    bridge.set_upgrade_delay(&1000);
+    assert_eq!(bridge.get_upgrade_delay(), 1000);
+}
+
+#[test]
+fn test_execute_upgrade_after_delay_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 500);
+    bridge.set_upgrade_delay(&1000);
+
+    let fixture_wasm = load_valid_contract_wasm_fixture();
+    let wasm_hash = env
+        .deployer()
+        .upload_contract_wasm(Bytes::from_slice(&env, fixture_wasm.as_slice()));
+    bridge.propose_upgrade(&wasm_hash);
+
+    let start = env.ledger().sequence();
+    env.ledger().with_mut(|li| {
+        li.sequence_number = start + 1000;
+    });
+
+    let result = bridge.try_execute_upgrade();
+    assert_eq!(result, Ok(Ok(())));
 }

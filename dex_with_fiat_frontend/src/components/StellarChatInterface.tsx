@@ -50,6 +50,8 @@ import { clearExpiredDrafts } from '@/lib/draftUtils';
 import { useTranslation } from '@/contexts/TranslationContext';
 import ReceiptDrawer from './ReceiptDrawerWrapper';
 import { useTxHistory } from '@/hooks/useTxHistory';
+import { useChatHistory } from '@/hooks/useChatHistory';
+import { useSplitView } from '@/hooks/useSplitView';
 import { subscribeToQueue, processQueue } from '@/lib/networkQueue';
 import CopyButton from '@/components/ui/CopyButton';
 import SplitViewComparison from './SplitViewComparison';
@@ -873,7 +875,7 @@ export default function StellarChatInterface() {
         <div className="fixed inset-y-0 right-0 z-40 w-80 shadow-2xl flex flex-col">
           <ChatSearchPanel
             sessions={sessions}
-            onSelectResult={(sessionId) => {
+            onSelectResult={(sessionId: string) => {
               loadChatSession(sessionId);
               setShowSearch(false);
             }}
