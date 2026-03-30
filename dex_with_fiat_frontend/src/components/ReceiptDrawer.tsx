@@ -14,6 +14,7 @@ import { useTranslation } from '@/contexts/TranslationContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useTransactionFilters } from '@/hooks/useTransactionFilters';
 import { FilterChipBar } from './filters/FilterChipBar';
+import CopyButton from '@/components/ui/CopyButton';
 import { TransactionAmountDisplay } from './TransactionAmountDisplay';
 
 interface ReceiptDrawerProps {
@@ -244,22 +245,35 @@ export default function ReceiptDrawer({
                     )}
                     {tx.txHash && (
                       <div className="flex justify-between items-center gap-2">
-                        <span className="text-gray-500">
-                          {t('receipt.hash')}
+                        <span className="text-gray-500">{t('receipt.hash')}</span>
+                        <div className="flex items-center gap-1">
+                          <a
+                            href={`https://stellar.expert/explorer/testnet/tx/${tx.txHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-blue-500 hover:underline font-mono text-[10px]"
+                          >
+                            {tx.txHash.substring(0, 8)}...
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                          <CopyButton value={tx.txHash} iconClassName="w-3 h-3" />
+                        </div>
+                      </div>
+                    )}
+                    {tx.reference && (
+                      <div className="flex justify-between items-center gap-2">
+                        <span className="text-gray-500">Reference</span>
+                        <span className="flex items-center gap-1 font-mono text-[10px] dark:text-gray-300">
+                          {tx.reference}
+                          <CopyButton value={tx.reference} iconClassName="w-3 h-3" />
                         </span>
-                        <a
-                          href={`https://stellar.expert/explorer/testnet/tx/${tx.txHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-blue-500 hover:underline font-mono text-[10px]"
-                        >
-                          {tx.txHash.substring(0, 8)}...
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
                       </div>
                     )}
                     <div className="flex justify-between text-[10px] text-gray-500 pt-2 border-t dark:border-gray-700">
-                      <span>{tx.id}</span>
+                      <span className="flex items-center gap-1">
+                        <span>{tx.id}</span>
+                        <CopyButton value={tx.id} iconClassName="w-3 h-3" />
+                      </span>
                       <span>{new Date(tx.createdAt).toLocaleString()}</span>
                     </div>
                   </div>
