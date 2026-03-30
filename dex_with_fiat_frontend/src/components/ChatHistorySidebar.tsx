@@ -16,18 +16,25 @@ import {
   Coins,
   Pin,
   PinOff,
+  FileJson,
+  FileText,
+  Activity,
+  ArrowUpRight,
+  ArrowDownLeft,
 } from 'lucide-react';
 import SkeletonSidebar from '@/components/ui/skeleton/SkeletonSidebar';
 import EmptyState from '@/components/ui/EmptyState';
 import PriceTicker from '@/components/PriceTicker';
 
 import { ChatSession } from '@/types';
+import { ContractEvent } from '@/types/events';
 
 interface SessionRowProps {
   session: ChatSession;
   isActive: boolean;
   onLoad: (id: string) => void;
-  onExport: (id: string) => void;
+  onExportJSON: (id: string) => void;
+  onExportTXT: (id: string) => void;
   onDelete: (id: string) => void;
   onTogglePin: (id: string) => void;
   formatDate: (d: Date) => string;
@@ -37,11 +44,14 @@ function SessionRow({
   session,
   isActive,
   onLoad,
-  onExport,
+  onExportJSON,
+  onExportTXT,
   onDelete,
   onTogglePin,
   formatDate,
 }: SessionRowProps) {
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
   return (
     <div
       className={`group relative p-3 mb-2 rounded-lg cursor-pointer transition-all duration-200 border ${
@@ -92,16 +102,44 @@ function SessionRow({
               <Pin className="w-3 h-3" />
             )}
           </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onExport(session.id);
-            }}
-            className="theme-text-muted hover:bg-[var(--color-primary-soft)] p-1 rounded transition-all hover:scale-110"
-            title="Export conversation"
-          >
-            <Download className="w-3 h-3" />
-          </button>
+
+          {/* Export Menu */}
+          <div className="relative">
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowExportMenu(!showExportMenu); }}
+              className="theme-text-muted hover:bg-[var(--color-primary-soft)] p-1 rounded transition-all hover:scale-110"
+              title="Export conversation"
+            >
+              <Download className="w-3 h-3" />
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 mt-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-lg z-50 min-w-max">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onExportJSON(session.id);
+                    setShowExportMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-xs font-medium theme-text-primary hover:bg-[var(--color-surface-muted)] flex items-center gap-2 transition-colors rounded-t-lg"
+                >
+                  <FileJson className="w-3 h-3" />
+                  Export JSON
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onExportTXT(session.id);
+                    setShowExportMenu(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-xs font-medium theme-text-primary hover:bg-[var(--color-surface-muted)] flex items-center gap-2 transition-colors rounded-b-lg"
+                >
+                  <FileText className="w-3 h-3" />
+                  Export TXT
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -135,7 +173,8 @@ export default function ChatHistorySidebar({
     currentSessionId,
     deleteSession,
     clearAllHistory,
-    exportSession,
+    exportSessionAsJSON,
+    exportSessionAsTXT,
     searchSessions,
     togglePin,
     hasHistory,
@@ -148,6 +187,29 @@ export default function ChatHistorySidebar({
     null,
   );
   const [isLoading, setIsLoading] = useState(true);
+  const [contractEvents, setContractEvents] = useState<ContractEvent[]>([]);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(false);
+
+  useEffect(() => {
+    const fetchEvents = async () => {
+      setIsLoadingEvents(true);
+      try {
+        const res = await fetch('/api/events?limit=5');
+        if (res.ok) {
+          const data = await res.json();
+          setContractEvents(data.events);
+        }
+      } catch (err) {
+        console.error('Failed to fetch contract events:', err);
+      } finally {
+        setIsLoadingEvents(false);
+      }
+    };
+
+    fetchEvents();
+    const interval = setInterval(fetchEvents, 60000); // Refresh every minute
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => setIsLoading(false), 800);
@@ -166,21 +228,48 @@ export default function ChatHistorySidebar({
     setShowDeleteConfirm(null);
   };
 
-  const handleExportSession = (sessionId: string) => {
-    const exportData = exportSession(sessionId);
-    if (!exportData) {
+  const handleExportSessionJSON = (sessionId: string) => {
+    const exportResult = exportSessionAsJSON(sessionId);
+    if (!exportResult) {
+      console.warn('Session not found or export failed');
       return;
     }
 
-    const blob = new Blob([exportData], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `chat-session-${sessionId}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      const blob = new Blob([exportResult.data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = exportResult.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to export session as JSON:', error);
+    }
+  };
+
+  const handleExportSessionTXT = (sessionId: string) => {
+    const exportResult = exportSessionAsTXT(sessionId);
+    if (!exportResult) {
+      console.warn('Session not found or export failed');
+      return;
+    }
+
+    try {
+      const blob = new Blob([exportResult.data], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = exportResult.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to export session as TXT:', error);
+    }
   };
 
   const handleExportTransactions = () => {
@@ -282,7 +371,6 @@ export default function ChatHistorySidebar({
             isCollapsed ? 'flex-col gap-4' : ''
           }`}
         >
-
           {!isCollapsed && (
             <h2 className="theme-text-primary text-lg font-semibold">
               Activity
@@ -338,23 +426,6 @@ export default function ChatHistorySidebar({
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <SkeletonSidebar />
-        ) : !hasHistory ? (
-          <EmptyState
-            icon={MessageSquare}
-            title="No conversations yet"
-            description="Start chatting to see your history here"
-            cta={{
-              label: 'New Conversation',
-              onClick: () => window.location.reload(),
-            }}
-          />
-        ) : filteredSessions.length === 0 ? (
-          <EmptyState
-            icon={Search}
-            title="No conversations found"
-            description={`No results for "${searchQuery}"`}
-            cta={{ label: 'Clear search', onClick: () => setSearchQuery('') }}
-          />
         ) : (
           <div
             className={`p-2 ${isCollapsed ? 'flex flex-col items-center' : ''}`}
@@ -372,7 +443,8 @@ export default function ChatHistorySidebar({
                     session={session}
                     isActive={currentSessionId === session.id}
                     onLoad={onLoadSession}
-                    onExport={handleExportSession}
+                    onExportJSON={handleExportSessionJSON}
+                    onExportTXT={handleExportSessionTXT}
                     onDelete={(id) => setShowDeleteConfirm(id)}
                     onTogglePin={togglePin}
                     formatDate={formatDate}
@@ -382,8 +454,52 @@ export default function ChatHistorySidebar({
                   <p className="theme-text-muted text-xs font-semibold uppercase tracking-wider px-1 py-1 mt-3">
                     Recent
                   </p>
+          <div className="flex flex-col h-full">
+            {/* Contract Activity Section */}
+            {!isCollapsed && (
+              <div className="px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface-muted)]">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--color-text-primary)] uppercase tracking-wider">
+                    <Activity className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Bridge Activity</span>
+                  </div>
+                  {isLoadingEvents && (
+                    <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  )}
+                </div>
+                {contractEvents.length > 0 ? (
+                  <div className="space-y-2">
+                    {contractEvents.map((event) => (
+                      <div key={event.id} className="flex items-center justify-between text-[11px] group">
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          {event.type === 'deposit' ? (
+                            <div className="p-1 rounded bg-green-500/10 text-green-500">
+                              <ArrowDownLeft className="w-3 h-3" />
+                            </div>
+                          ) : (
+                            <div className="p-1 rounded bg-orange-500/10 text-orange-500">
+                              <ArrowUpRight className="w-3 h-3" />
+                            </div>
+                          )}
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-medium truncate text-[var(--color-text-secondary)]">
+                              {event.actor.slice(0, 4)}...{event.actor.slice(-4)}
+                            </span>
+                            <span className="text-[10px] text-[var(--color-text-muted)]">
+                              {new Date(event.ledgerClosedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`font-bold ${event.type === 'deposit' ? 'text-green-500' : 'text-orange-500'}`}>
+                          {event.type === 'deposit' ? '+' : '-'}{(parseFloat(event.amount) / 10000000).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-[var(--color-text-muted)] text-center py-2">No recent bridge activity</p>
                 )}
-              </>
+              </div>
             )}
             {filteredUnpinned.map((session) => (
               <SessionRow
@@ -391,12 +507,77 @@ export default function ChatHistorySidebar({
                 session={session}
                 isActive={currentSessionId === session.id}
                 onLoad={onLoadSession}
-                onExport={handleExportSession}
+                onExportJSON={handleExportSessionJSON}
+                onExportTXT={handleExportSessionTXT}
                 onDelete={(id) => setShowDeleteConfirm(id)}
                 onTogglePin={togglePin}
                 formatDate={formatDate}
               />
             ))}
+
+            <div className="flex-1 overflow-y-auto">
+              {!hasHistory ? (
+                <EmptyState
+                  icon={MessageSquare}
+                  title="No conversations yet"
+                  description="Start chatting to see your history here"
+                  cta={{
+                    label: 'New Conversation',
+                    onClick: () => window.location.reload(),
+                  }}
+                />
+              ) : filteredSessions.length === 0 ? (
+                <EmptyState
+                  icon={Search}
+                  title="No conversations found"
+                  description={`No results for "${searchQuery}"`}
+                  cta={{ label: 'Clear search', onClick: () => setSearchQuery('') }}
+                />
+              ) : (
+                <div
+                  className={`p-2 ${isCollapsed ? 'flex flex-col items-center' : ''}`}
+                >
+                  {filteredPinned.length > 0 && (
+                    <>
+                      {!isCollapsed && (
+                        <p className="theme-text-muted text-xs font-semibold uppercase tracking-wider px-1 py-1 mt-1">
+                          Pinned
+                        </p>
+                      )}
+                      {filteredPinned.map((session) => (
+                        <SessionRow
+                          key={session.id}
+                          session={session}
+                          isActive={currentSessionId === session.id}
+                          onLoad={onLoadSession}
+                          onExport={handleExportSession}
+                          onDelete={(id) => setShowDeleteConfirm(id)}
+                          onTogglePin={togglePin}
+                          formatDate={formatDate}
+                        />
+                      ))}
+                      {!isCollapsed && filteredUnpinned.length > 0 && (
+                        <p className="theme-text-muted text-xs font-semibold uppercase tracking-wider px-1 py-1 mt-3">
+                          Recent
+                        </p>
+                      )}
+                    </>
+                  )}
+                  {filteredUnpinned.map((session) => (
+                    <SessionRow
+                      key={session.id}
+                      session={session}
+                      isActive={currentSessionId === session.id}
+                      onLoad={onLoadSession}
+                      onExport={handleExportSession}
+                      onDelete={(id) => setShowDeleteConfirm(id)}
+                      onTogglePin={togglePin}
+                      formatDate={formatDate}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -404,9 +585,16 @@ export default function ChatHistorySidebar({
       <div className={`theme-border border-t p-4 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
         <PriceTicker symbols={['XLM', 'ETH', 'BTC']} currency="usd" />
 
-        <div className={`flex items-center justify-between mb-3 w-full ${isCollapsed ? 'flex-col gap-3' : ''}`}>
-          <div className="flex items-center gap-2">
-            <Coins className="w-4 h-4 text-[var(--color-primary)]" />
+        <div className={`theme-border border-t p-4 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
+          <div className={`flex items-center justify-between mb-3 w-full ${isCollapsed ? 'flex-col gap-3' : ''}`}>
+            <div className="flex items-center gap-2">
+              <Coins className="w-4 h-4 text-[var(--color-primary)]" />
+              {!isCollapsed && (
+                <h3 className="theme-text-primary text-sm font-semibold">
+                  Transaction History
+                </h3>
+              )}
+            </div>
             {!isCollapsed && (
               <div className="flex items-center gap-1">
                 <button
@@ -482,7 +670,7 @@ export default function ChatHistorySidebar({
                   {entry.kind === 'payout' &&
                     entry.status !== 'cancelled' &&
                     entry.reference &&
-                    Date.now() - new Date(entry.createdAt).getTime() <
+                    Date.now() - new Date(entry.createdAt).getTime() 
                       2 * 60 * 1000 && (
                       <button
                         type="button"

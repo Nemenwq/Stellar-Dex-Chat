@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ReconciliationRecord } from '../../../../types';
 import { requireAdminAuth } from '../_utils/requireAdminAuth';
+import { enforceAdminIpAllowlist } from '@/lib/security';
 
 export async function GET(request: NextRequest) {
   try {
+    const blockedResponse = enforceAdminIpAllowlist(request);
+    if (blockedResponse) return blockedResponse;
+
+    // For now, return mock data
     const authError = requireAdminAuth(request);
     if (authError) {
       return authError;
