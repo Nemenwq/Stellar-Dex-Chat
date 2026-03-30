@@ -43,7 +43,8 @@ fn setup_bridge(
     let admin = Address::generate(env);
     let token_admin = Address::generate(env);
     let (token_addr, token, token_sac) = create_token(env, &token_admin);
-    bridge.init(&admin, &token_addr, &limit, &1);
+    let signers = vec![env, admin.clone()];
+    bridge.init(&admin, &token_addr, &limit, &1, &signers, &1);
     (contract_id, bridge, admin, token_addr, token, token_sac)
 }
 
@@ -64,7 +65,7 @@ fn setup_bridge_with_min(
     let admin = Address::generate(env);
     let token_admin = Address::generate(env);
     let (token_addr, token, token_sac) = create_token(env, &token_admin);
-    bridge.init(&admin, &token_addr, &limit, &min_deposit);
+    let signers = vec![env, admin.clone()];    bridge.init(&admin, &token_addr, &limit, &min_deposit, &signers, &1);
     (contract_id, bridge, admin, token_addr, token, token_sac)
 }
 
@@ -546,7 +547,7 @@ fn test_double_init() {
     env.mock_all_auths();
 
     let (_, bridge, admin, token_addr, _, _) = setup_bridge(&env, 500);
-    let result = bridge.try_init(&admin, &token_addr, &500, &1);
+    let signers = vec![&env, admin.clone()];    let result = bridge.try_init(&admin, &token_addr, &500, &1, &signers, &1);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
 }
 
@@ -3519,18 +3520,21 @@ fn test_init_rejects_invalid_min_deposit() {
     let (token_addr, _, _) = create_token(&env, &token_admin);
 
     // Reject 0
-    let result = bridge.try_init(&admin, &token_addr, &1000, &0);
+    let signers = vec![&env, admin.clone()];
+
+    // Reject 0
+    let result = bridge.try_init(&admin, &token_addr, &1000, &0, &signers, &1);
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 
     // Reject negative
-    let result = bridge.try_init(&admin, &token_addr, &1000, &-5);
+    let result = bridge.try_init(&admin, &token_addr, &1000, &-5, &signers, &1);
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 
     // Reject min_deposit >= limit
-    let result = bridge.try_init(&admin, &token_addr, &1000, &1000);
+    let result = bridge.try_init(&admin, &token_addr, &1000, &1000, &signers, &1);
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 
-    let result = bridge.try_init(&admin, &token_addr, &1000, &2000);
+    let result = bridge.try_init(&admin, &token_addr, &1000, &2000, &signers, &1);
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 }
 

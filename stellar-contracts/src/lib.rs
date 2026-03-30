@@ -92,9 +92,35 @@ pub enum Error {
 
     // --- 1000 series: Deposit Floor ---
     BelowMinimum = 1001,
+
+    // --- 1100 series: Multi-sig ---
+    InvalidThreshold = 1101,
+    DuplicateSigner = 1102,
+    SignerNotFound = 1103,
+    ProposalNotFound = 1104,
+    AlreadyApproved = 1105,
+    ProposalAlreadyExecuted = 1106,
+    ThresholdNotMet = 1107,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WithdrawalProposal {
+    pub to: Address,
+    pub token: Address,
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultisigProposal {
+    pub creator: Address,
+    pub action: BatchAdminOp,
+    pub approvals: Vec<Address>,
+    pub executed: bool,
+    pub created_at: u32,
+}
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WithdrawRequest {
@@ -288,6 +314,11 @@ pub enum DataKey {
     // ── Issue #107: governed upgrade mechanism ───────────────────────────
     UpgradeProposal,
     UpgradeDelay,
+    // ── Issue #100: M-of-N multi-signature admin control ─────────────────
+    Signers,
+    Threshold,
+    MultisigProposal(u64),
+    NextMultisigID,
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -298,7 +329,15 @@ pub struct FiatBridge;
 
 #[contractimpl]
 impl FiatBridge {
-    pub fn init(env: Env, admin: Address, token: Address, limit: i128, min_deposit: i128) -> Result<(), Error> {
+    pub fn init(
+        env: Env,
+        admin: Address,
+        token: Address,
+        limit: i128,
+        min_deposit: i128,
+        signers: Vec<Address>,
+        threshold: u32,
+    ) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::AlreadyInitialized);
         }
@@ -308,9 +347,26 @@ impl FiatBridge {
         if min_deposit < 1 || min_deposit >= limit {
             return Err(Error::BelowMinimum);
         }
+
+        // Validate multisig config
+        if threshold == 0 || threshold > signers.len() {
+            return Err(Error::InvalidThreshold);
+        }
+        // Ensure no duplicate signers
+        let mut seen = Vec::<Address>::new(&env);
+        for s in signers.iter() {
+            if seen.contains(&s) {
+                return Err(Error::DuplicateSigner);
+            }
+            seen.push_back(s);
+        }
+
         env.storage().instance().set(&DataKey::MinDeposit, &min_deposit);
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Token, &token);
+        env.storage().instance().set(&DataKey::Signers, &signers);
+        env.storage().instance().set(&DataKey::Threshold, &threshold);
+        env.storage().instance().set(&DataKey::NextMultisigID, &0u64);
 
         let config = TokenConfig {
             limit,
@@ -2545,39 +2601,43 @@ impl FiatBridge {
         let op_name = &op.op_type;
 
         if *op_name == Symbol::new(env, "set_cooldown") {
-            if op.payload.len() < 4 {
-                return Err(Error::InternalError);
-            }
             let ledgers = Self::bytes_to_u32(env, &op.payload)?;
             env.storage()
                 .instance()
                 .set(&DataKey::CooldownLedgers, &ledgers);
             Ok(())
         } else if *op_name == Symbol::new(env, "set_lock") {
-            if op.payload.len() < 4 {
-                return Err(Error::InternalError);
-            }
             let ledgers = Self::bytes_to_u32(env, &op.payload)?;
             env.storage().instance().set(&DataKey::LockPeriod, &ledgers);
             Ok(())
         } else if *op_name == Symbol::new(env, "set_quota") {
-            if op.payload.len() < 16 {
-                return Err(Error::InternalError);
-            }
             let quota = Self::bytes_to_i128(env, &op.payload)?;
             env.storage()
                 .instance()
                 .set(&DataKey::WithdrawalQuota, &quota);
             Ok(())
         } else if *op_name == Symbol::new(env, "set_sandwich") {
-            if op.payload.len() < 4 {
-                return Err(Error::InternalError);
-            }
             let ledgers = Self::bytes_to_u32(env, &op.payload)?;
             env.storage()
                 .instance()
                 .set(&DataKey::AntiSandwichDelay, &ledgers);
             Ok(())
+        } else if *op_name == Symbol::new(env, "set_limit") {
+            // Payload: [Address(token), i128(limit)]
+            // For simplicity in multisig mockup, we might need a better encoding or specialized ops.
+            // But let's add the basic admin ones first.
+            Err(Error::InternalError)
+        } else if *op_name == Symbol::new(env, "pause") {
+            env.storage().instance().set(&DataKey::Paused, &true);
+            Ok(())
+        } else if *op_name == Symbol::new(env, "unpause") {
+            env.storage().instance().set(&DataKey::Paused, &false);
+            Ok(())
+        } else if *op_name == Symbol::new(env, "update_multisig") {
+            // Special op to update signers and threshold
+            // Payload: [threshold(u32), signers(Vec<Address>)]
+            // This needs custom decoding.
+            Err(Error::InternalError)
         } else {
             Err(Error::InternalError)
         }
@@ -2936,6 +2996,158 @@ impl FiatBridge {
 
     pub fn get_upgrade_proposal(env: Env) -> Option<UpgradeProposal> {
         env.storage().instance().get(&DataKey::UpgradeProposal)
+    }
+
+    // ── Issue #100: Multi-sig Logic ──────────────────────────────────────────
+
+    pub fn propose_multisig_action(
+        env: Env,
+        proposer: Address,
+        action: BatchAdminOp,
+    ) -> Result<u64, Error> {
+        proposer.require_auth();
+
+        let signers: Vec<Address> = env.storage().instance().get(&DataKey::Signers).unwrap();
+        if !signers.contains(&proposer) {
+            return Err(Error::Unauthorized);
+        }
+
+        let id: u64 = env.storage().instance().get(&DataKey::NextMultisigID).unwrap();
+        env.storage().instance().set(&DataKey::NextMultisigID, &(id + 1));
+
+        let mut approvals = Vec::<Address>::new(&env);
+        approvals.push_back(proposer.clone());
+
+        let proposal = MultisigProposal {
+            creator: proposer.clone(),
+            action,
+            approvals,
+            executed: false,
+            created_at: env.ledger().sequence(),
+        };
+
+        env.storage()
+            .instance()
+            .set(&DataKey::MultisigProposal(id), &proposal);
+
+        env.events().publish(
+            (EVENT_VERSION, Symbol::new(&env, "multisig_proposed")),
+            (id, proposer),
+        );
+
+        Ok(id)
+    }
+
+    pub fn approve_multisig_action(env: Env, signer: Address, id: u64) -> Result<(), Error> {
+        signer.require_auth();
+
+        let signers: Vec<Address> = env.storage().instance().get(&DataKey::Signers).unwrap();
+        if !signers.contains(&signer) {
+            return Err(Error::Unauthorized);
+        }
+
+        let mut proposal: MultisigProposal = env
+            .storage()
+            .instance()
+            .get(&DataKey::MultisigProposal(id))
+            .ok_or(Error::ProposalNotFound)?;
+
+        if proposal.executed {
+            return Err(Error::ProposalAlreadyExecuted);
+        }
+
+        if proposal.approvals.contains(&signer) {
+            return Err(Error::AlreadyApproved);
+        }
+
+        proposal.approvals.push_back(signer.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::MultisigProposal(id), &proposal);
+
+        env.events().publish(
+            (EVENT_VERSION, Symbol::new(&env, "multisig_approved")),
+            (id, signer),
+        );
+
+        Ok(())
+    }
+
+    pub fn revoke_multisig_approval(env: Env, signer: Address, id: u64) -> Result<(), Error> {
+        signer.require_auth();
+
+        let mut proposal: MultisigProposal = env
+            .storage()
+            .instance()
+            .get(&DataKey::MultisigProposal(id))
+            .ok_or(Error::ProposalNotFound)?;
+
+        if proposal.executed {
+            return Err(Error::ProposalAlreadyExecuted);
+        }
+
+        let mut index = None;
+        for (i, a) in proposal.approvals.iter().enumerate() {
+            if a == signer {
+                index = Some(i as u32);
+                break;
+            }
+        }
+
+        match index {
+            Some(i) => {
+                proposal.approvals.remove(i);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::MultisigProposal(id), &proposal);
+                Ok(())
+            }
+            None => Err(Error::SignerNotFound),
+        }
+    }
+
+    pub fn execute_multisig_action(env: Env, id: u64) -> Result<(), Error> {
+        let mut proposal: MultisigProposal = env
+            .storage()
+            .instance()
+            .get(&DataKey::MultisigProposal(id))
+            .ok_or(Error::ProposalNotFound)?;
+
+        if proposal.executed {
+            return Err(Error::ProposalAlreadyExecuted);
+        }
+
+        let threshold: u32 = env.storage().instance().get(&DataKey::Threshold).unwrap();
+        if proposal.approvals.len() < threshold {
+            return Err(Error::ThresholdNotMet);
+        }
+
+        // Execute the action
+        Self::execute_single_admin_op(&env, &proposal.action)?;
+
+        proposal.executed = true;
+        env.storage()
+            .instance()
+            .set(&DataKey::MultisigProposal(id), &proposal);
+
+        env.events().publish(
+            (EVENT_VERSION, Symbol::new(&env, "multisig_executed")),
+            id,
+        );
+
+        Ok(())
+    }
+
+    pub fn get_multisig_proposal(env: Env, id: u64) -> Option<MultisigProposal> {
+        env.storage().instance().get(&DataKey::MultisigProposal(id))
+    }
+
+    pub fn get_multisig_signers(env: Env) -> Vec<Address> {
+        env.storage().instance().get(&DataKey::Signers).unwrap_or_else(|| Vec::new(&env))
+    }
+
+    pub fn get_multisig_threshold(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::Threshold).unwrap_or(0)
     }
 }
 
