@@ -59,6 +59,11 @@ import ChatSearchPanel from './ChatSearchPanel';
 import { useChatHistory } from '@/hooks/useChatHistory';
 import { useSplitView } from '@/hooks/useSplitView';
 
+/** Possible states for the API health badge */
+type HealthStatus = 'checking' | 'ok' | 'degraded';
+
+const HEALTH_POLL_INTERVAL_MS = 60_000;
+
 export default function StellarChatInterface() {
   const { t } = useTranslation();
   const {
@@ -90,6 +95,13 @@ export default function StellarChatInterface() {
   const [isOnline, setIsOnline] = useState(
     typeof window !== 'undefined' ? window.navigator.onLine : true,
   );
+  const [queuedReadables, setQueuedReadables] = useState(0);
+
+  // ── Health badge state ──────────────────────────────────────────────────────
+  const [healthStatus, setHealthStatus] = useState<HealthStatus>('checking');
+  const healthIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // ───────────────────────────────────────────────────────────────────────────
+
   const [showReconnectedNotice, setShowReconnectedNotice] = useState(false);
   const [queuedReadables, setQueuedReadables] = useState(
     getQueuedReadRequestsCount(),
@@ -183,10 +195,24 @@ export default function StellarChatInterface() {
     };
   }, []);
 
-  // Clear expired drafts on initial mount
-  useEffect(() => {
-    clearExpiredDrafts();
+  // ── Health endpoint polling ─────────────────────────────────────────────────
+  const pollHealth = useCallback(async () => {
+    try {
+      const res = await fetch('/api/health');
+      setHealthStatus(res.ok ? 'ok' : 'degraded');
+    } catch {
+      setHealthStatus('degraded');
+    }
   }, []);
+
+  useEffect(() => {
+    pollHealth();
+    healthIntervalRef.current = setInterval(pollHealth, HEALTH_POLL_INTERVAL_MS);
+    return () => {
+      if (healthIntervalRef.current) clearInterval(healthIntervalRef.current);
+    };
+  }, [pollHealth]);
+  // ───────────────────────────────────────────────────────────────────────────
 
   // Check if current user is admin
   useEffect(() => {
@@ -386,6 +412,26 @@ export default function StellarChatInterface() {
     [connect, isNetworkMismatch, sendMessage],
   );
 
+  // ── Health badge helper ─────────────────────────────────────────────────────
+  const healthBadge = {
+    checking: {
+      dot: 'bg-yellow-400 animate-pulse',
+      label: 'Checking…',
+      title: 'Verifying API health',
+    },
+    ok: {
+      dot: 'bg-green-400',
+      label: 'API Healthy',
+      title: 'API is operational',
+    },
+    degraded: {
+      dot: 'bg-red-500',
+      label: 'API Degraded',
+      title: 'API health check failed',
+    },
+  }[healthStatus];
+  // ───────────────────────────────────────────────────────────────────────────
+//fhj
   const withdrawalQueueTone =
     withdrawalQueueDepth === null
       ? isDarkMode
@@ -447,6 +493,22 @@ export default function StellarChatInterface() {
                 </p>
               </div>
             </div>
+
+            {/* ── Health badge ─────────────────────────────────────────────── */}
+            <div
+              title={healthBadge.title}
+              aria-label={healthBadge.title}
+              role="status"
+              className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium select-none ${
+                isDarkMode
+                  ? 'bg-gray-800 text-gray-300'
+                  : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${healthBadge.dot}`} />
+              {healthBadge.label}
+            </div>
+            {/* ─────────────────────────────────────────────────────────────── */}
           </div>
 
           <div className="flex items-center gap-2">
