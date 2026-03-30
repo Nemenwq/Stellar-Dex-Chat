@@ -3784,6 +3784,10 @@ fn test_reclaim_expired_withdrawal_at_exact_boundary_fails() {
 
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
+    // Capture current ledger sequence before advancing
+    let start_ledger = env.ledger().sequence();
+
+    // Advance beyond window
     let queued_ledger = env.ledger().sequence();
     let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
 
