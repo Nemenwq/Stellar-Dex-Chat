@@ -3204,3 +3204,131 @@ fn test_set_min_deposit_admin_only() {
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 }
 
+// ── get_denied_addresses tests ────────────────────────────────────────────
+
+#[test]
+fn test_get_denied_addresses_empty() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+
+    let result = bridge.get_denied_addresses(&0, &10);
+    assert_eq!(result.len(), 0);
+}
+
+#[test]
+fn test_get_denied_addresses_basic() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let user3 = Address::generate(&env);
+
+    bridge.deny_address(&user1);
+    bridge.deny_address(&user2);
+    bridge.deny_address(&user3);
+
+    let result = bridge.get_denied_addresses(&0, &10);
+    assert_eq!(result.len(), 3);
+    assert!(result.contains(&user1));
+    assert!(result.contains(&user2));
+    assert!(result.contains(&user3));
+}
+
+#[test]
+fn test_get_denied_addresses_pagination_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let user3 = Address::generate(&env);
+
+    bridge.deny_address(&user1);
+    bridge.deny_address(&user2);
+    bridge.deny_address(&user3);
+
+    let page = bridge.get_denied_addresses(&0, &2);
+    assert_eq!(page.len(), 2);
+}
+
+#[test]
+fn test_get_denied_addresses_pagination_offset() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let user3 = Address::generate(&env);
+
+    bridge.deny_address(&user1);
+    bridge.deny_address(&user2);
+    bridge.deny_address(&user3);
+
+    let page = bridge.get_denied_addresses(&2, &10);
+    assert_eq!(page.len(), 1);
+    assert!(page.contains(&user3));
+}
+
+#[test]
+fn test_get_denied_addresses_sparse_after_remove() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let user3 = Address::generate(&env);
+
+    bridge.deny_address(&user1);
+    bridge.deny_address(&user2);
+    bridge.deny_address(&user3);
+
+    bridge.remove_denied_address(&user2);
+
+    let result = bridge.get_denied_addresses(&0, &10);
+    assert_eq!(result.len(), 2);
+    assert!(result.contains(&user1));
+    assert!(!result.contains(&user2));
+    assert!(result.contains(&user3));
+}
+
+#[test]
+fn test_get_denied_addresses_persists_across_window() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+
+    bridge.deny_address(&user);
+
+    let start_ledger = env.ledger().sequence();
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number = start_ledger + WINDOW_LEDGERS;
+    });
+
+    let result = bridge.get_denied_addresses(&0, &10);
+    assert_eq!(result.len(), 1);
+    assert!(result.contains(&user));
+    assert!(bridge.is_denied(&user));
+}
+
+#[test]
+fn test_get_denied_addresses_offset_beyond_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    bridge.deny_address(&user);
+
+    let result = bridge.get_denied_addresses(&100, &10);
+    assert_eq!(result.len(), 0);
+}
