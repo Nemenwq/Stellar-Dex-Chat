@@ -2090,6 +2090,15 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+
+        // Design decision: block renounce while paused.
+        // If we allowed queuing while paused, the timelock could elapse and
+        // execute_renounce_admin would leave the contract permanently paused
+        // with no admin able to unpause it. Requiring an explicit unpause first
+        // forces the admin to consciously restore normal operations before
+        // giving up control.
+        Self::require_not_paused(&env)?;
+
         let target_ledger: u32 = env.ledger().sequence() + MIN_TIMELOCK_DELAY;
         env.storage()
             .instance()

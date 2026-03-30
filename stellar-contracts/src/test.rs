@@ -3571,3 +3571,52 @@ fn test_manual_reset_still_works_after_feature_added() {
 
     bridge.withdraw(&admin, &user, &100, &token_addr);
 }
+// ── Admin renounce while paused tests ────────────────────────────────────
+
+#[test]
+fn test_queue_renounce_blocked_while_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    bridge.pause();
+
+    // Attempting to queue renounce while paused must fail
+    let result = bridge.try_queue_renounce_admin();
+    assert_eq!(result, Err(Ok(Error::ContractPaused)));
+
+    // No pending renounce should have been set
+    assert_eq!(bridge.get_pending_renounce_ledger(), None);
+}
+
+#[test]
+fn test_queue_renounce_succeeds_after_unpause() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    bridge.pause();
+
+    // Blocked while paused
+    let result = bridge.try_queue_renounce_admin();
+    assert_eq!(result, Err(Ok(Error::ContractPaused)));
+
+    // Unpausing should allow queuing
+    bridge.unpause();
+    bridge.queue_renounce_admin();
+    assert!(bridge.get_pending_renounce_ledger().is_some());
+}
+
+#[test]
+fn test_queue_renounce_succeeds_when_not_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Normal flow — not paused, should work fine
+    bridge.queue_renounce_admin();
+    assert!(bridge.get_pending_renounce_ledger().is_some());
+}
