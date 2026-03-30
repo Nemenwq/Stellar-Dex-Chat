@@ -928,31 +928,62 @@ fn test_withdrawal_quota_resets_after_window() {
 
     bridge.withdraw(&admin, &user, &500, &token_addr);
 
-    assert_eq!(
-        env.events().all().filter_by_contract(&contract_id),
-        vec![
-            &env,
-            (
-                contract_id.clone(),
-                vec![
-                    &env,
-                    EVENT_VERSION.into_val(&env),
-                    Symbol::new(&env, "quota_reset").into_val(&env)
-                ],
-                (user.clone(), start_ledger + 17_280).into_val(&env)
-            ),
-            (
-                contract_id,
-                vec![
-                    &env,
-                    EVENT_VERSION.into_val(&env),
-                    Symbol::new(&env, "withdraw").into_val(&env),
-                    user.into_val(&env)
-                ],
-                500i128.into_val(&env)
-            )
-        ]
-    );
+    // With #[contractevent], events are emitted as named structs.
+    // Check quota_reset and withdraw events were emitted with correct data.
+    let all_events = env.events().all().filter_by_contract(&contract_id);
+    let raw = all_events.events();
+
+    // Two events: quota_reset then withdraw
+    assert_eq!(raw.len(), 2, "expected 2 events, got {}", raw.len());
+
+    // First event: QuotaResetEvent
+    {
+        use soroban_sdk::xdr::{ContractEventBody, ScVal, ScSymbol, StringM};
+        let ContractEventBody::V0(body) = &raw[0].body;
+        // Topic is the struct name
+        assert_eq!(
+            body.topics.first().unwrap(),
+            &ScVal::Symbol(ScSymbol(StringM::try_from("quota_reset_event").unwrap())),
+            "first event should be quota_reset_event"
+        );
+        // Data map contains version, user, window_start
+        if let ScVal::Map(Some(map)) = &body.data {
+            let window_start = map.iter()
+                .find(|e| e.key == ScVal::Symbol(ScSymbol(StringM::try_from("window_start").unwrap())))
+                .map(|e| &e.val);
+            assert_eq!(
+                window_start,
+                Some(&ScVal::U32(start_ledger + 17_280)),
+                "quota_reset_event window_start mismatch"
+            );
+        } else {
+            panic!("quota_reset_event data is not a map");
+        }
+    }
+
+    // Second event: WithdrawEvent
+    {
+        use soroban_sdk::xdr::{ContractEventBody, ScVal, ScSymbol, StringM, Int128Parts};
+        let ContractEventBody::V0(body) = &raw[1].body;
+        assert_eq!(
+            body.topics.first().unwrap(),
+            &ScVal::Symbol(ScSymbol(StringM::try_from("withdraw_event").unwrap())),
+            "second event should be withdraw_event"
+        );
+        if let ScVal::Map(Some(map)) = &body.data {
+            let amount = map.iter()
+                .find(|e| e.key == ScVal::Symbol(ScSymbol(StringM::try_from("amount").unwrap())))
+                .map(|e| &e.val);
+            assert_eq!(
+                amount,
+                Some(&ScVal::I128(Int128Parts { hi: 0, lo: 500 })),
+                "withdraw_event amount mismatch"
+            );
+        } else {
+            panic!("withdraw_event data is not a map");
+        }
+    }
+
     assert_eq!(bridge.get_user_daily_withdrawal(&user), 500);
 }
 
@@ -2749,7 +2780,7 @@ fn test_memo_hash_zero_rejected() {
 /// Assert that every event emitted by the bridge contract in `f` has `EVENT_VERSION` (u32)
 /// as its first XDR topic.
 fn assert_bridge_events_have_version(env: &Env, contract_addr: &Address, f: impl FnOnce()) {
-    use soroban_sdk::xdr::{ContractEventBody, ScVal};
+    use soroban_sdk::xdr::{ContractEventBody, ScVal, ScMapEntry, ScSymbol, StringM};
 
     f();
     let bridge_events = env.events().all().filter_by_contract(contract_addr);
@@ -2757,11 +2788,20 @@ fn assert_bridge_events_have_version(env: &Env, contract_addr: &Address, f: impl
     assert!(!raw.is_empty(), "no bridge events were emitted");
     for event in raw {
         let ContractEventBody::V0(body) = &event.body;
-        let first = body.topics.first().expect("bridge event has no topics");
-        assert_eq!(
-            *first,
-            ScVal::U32(EVENT_VERSION),
-            "bridge event first topic is not EVENT_VERSION: {:?}",
+        // With #[contractevent], the struct name is the topic and all fields
+        // including `version` are in the data map. Find `version` in the map.
+        let version_found = match &body.data {
+            ScVal::Map(Some(map)) => map.iter().any(|entry| {
+                entry.key == ScVal::Symbol(ScSymbol(
+                    StringM::try_from("version").expect("valid symbol")
+                )) && entry.val == ScVal::U32(EVENT_VERSION)
+            }),
+            _ => false,
+        };
+        assert!(
+            version_found,
+            "bridge event data map does not contain version={}: {:?}",
+            EVENT_VERSION,
             body
         );
     }
@@ -3204,3 +3244,165 @@ fn test_set_min_deposit_admin_only() {
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 }
 
+// ── withdrawal expiry tests ───────────────────────────────────────────────
+#[test]
+fn test_reclaim_expired_withdrawal_succeeds_after_window() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    let queued_ledger = env.ledger().sequence();
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
+
+    // Advance past the default expiry window
+    env.ledger().with_mut(|li| {
+        li.sequence_number = queued_ledger + WITHDRAWAL_EXPIRY_WINDOW_LEDGERS + 1;
+    });
+
+    // Should succeed — request is expired
+    bridge.reclaim_expired_withdrawal(&req_id);
+
+    // Request should be gone
+    assert!(bridge.get_withdrawal_request(&req_id).is_none());
+
+    // Queue depth back to 0
+    assert_eq!(bridge.get_wq_depth(), 0);
+
+    // Liabilities released
+    assert_eq!(bridge.get_total_liabilities(), 0);
+}
+
+#[test]
+fn test_reclaim_expired_withdrawal_fails_before_window() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
+
+    // Not expired yet — should fail with WithdrawalLocked
+    let result = bridge.try_reclaim_expired_withdrawal(&req_id);
+    assert_eq!(result, Err(Ok(Error::WithdrawalLocked)));
+
+    // Request still present
+    assert!(bridge.get_withdrawal_request(&req_id).is_some());
+}
+
+#[test]
+fn test_reclaim_expired_withdrawal_at_exact_boundary_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    let queued_ledger = env.ledger().sequence();
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
+
+    // Advance to exactly the boundary — must NOT be reclaimable (strict >)
+    env.ledger().with_mut(|li| {
+        li.sequence_number = queued_ledger + WITHDRAWAL_EXPIRY_WINDOW_LEDGERS;
+    });
+
+    let result = bridge.try_reclaim_expired_withdrawal(&req_id);
+    assert_eq!(result, Err(Ok(Error::WithdrawalLocked)));
+}
+
+#[test]
+fn test_set_and_get_withdrawal_expiry() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Default is the compile-time constant
+    assert_eq!(bridge.get_withdrawal_expiry(), WITHDRAWAL_EXPIRY_WINDOW_LEDGERS);
+
+    // Set a custom window
+    bridge.set_withdrawal_expiry(&500);
+    assert_eq!(bridge.get_withdrawal_expiry(), 500);
+}
+
+#[test]
+fn test_reclaim_uses_configured_expiry_window() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    // Set a short custom expiry window of 50 ledgers
+    bridge.set_withdrawal_expiry(&50);
+
+    let queued_ledger = env.ledger().sequence();
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
+
+    // Still locked at ledger 50
+    env.ledger().with_mut(|li| {
+        li.sequence_number = queued_ledger + 50;
+    });
+    let result = bridge.try_reclaim_expired_withdrawal(&req_id);
+    assert_eq!(result, Err(Ok(Error::WithdrawalLocked)));
+
+    // Expired at ledger 51
+    env.ledger().with_mut(|li| {
+        li.sequence_number = queued_ledger + 51;
+    });
+    bridge.reclaim_expired_withdrawal(&req_id);
+    assert!(bridge.get_withdrawal_request(&req_id).is_none());
+}
+
+#[test]
+fn test_reclaim_nonexistent_request_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    let result = bridge.try_reclaim_expired_withdrawal(&999u64);
+    assert_eq!(result, Err(Ok(Error::RequestNotFound)));
+}
+
+#[test]
+fn test_reclaim_does_not_transfer_funds() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, token_addr, token, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    let contract_balance_before = token.balance(&contract_id);
+
+    let queued_ledger = env.ledger().sequence();
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number = queued_ledger + WITHDRAWAL_EXPIRY_WINDOW_LEDGERS + 1;
+    });
+
+    bridge.reclaim_expired_withdrawal(&req_id);
+
+    // Contract balance unchanged — funds stay in escrow
+    assert_eq!(token.balance(&contract_id), contract_balance_before);
+    // User balance unchanged — nothing returned
+    assert_eq!(token.balance(&user), 4_500);
+}

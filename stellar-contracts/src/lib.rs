@@ -13,7 +13,6 @@ pub const MIN_TTL: u32 = 518_400; // ~30 days
 pub const MAX_TTL: u32 = 535_680; // ~31 days
 const MAX_REFERENCE_LEN: u32 = 64;
 const WINDOW_LEDGERS: u32 = 17_280; // ~24 hours
-#[allow(dead_code)]
 const WITHDRAWAL_EXPIRY_WINDOW_LEDGERS: u32 = 17_280; // ~24 hours — reserved for future withdrawal expiry feature
 const MIN_TIMELOCK_DELAY: u32 = 34_560; // 48 hours
 const DEFAULT_INACTIVITY_THRESHOLD: u32 = 1_555_200; // ~3 months
@@ -465,6 +464,17 @@ pub struct DenyRemovedEvent {
     pub address: Address,
 }
 
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WithdrawalExpiredEvent {
+    #[topic]
+    pub version: u32,
+    pub request_id: u64,
+    pub to: Address,
+    pub amount: i128,
+    pub queued_ledger: u32,
+}
+
 // ── Storage keys ──────────────────────────────────────────────────────────
 #[contracttype]
 pub enum DataKey {
@@ -491,6 +501,7 @@ pub enum DataKey {
     // Withdrawal cooldown after large deposit
     WithdrawCooldownLedgers,
     WithdrawCooldownThreshold,
+    WithdrawalExpiryWindow,
     LastLargeDeposit(Address),
     UserDeposited(Address),
     NextActionID,
@@ -1257,6 +1268,96 @@ impl FiatBridge {
         Self::check_invariants(&env, &request.token)?;
 
         WithdrawalCancelledEvent { version: EVENT_VERSION, request_id }.publish(&env);
+
+        Ok(())
+    }
+
+    /// Reclaim an expired withdrawal request.
+    ///
+    /// An admin may call this when a queued withdrawal has not been executed
+    /// within the expiry window. The request is removed from the queue and
+    /// the reserved liability is released back to the pool. Funds stay in
+    /// escrow — they are NOT returned to the depositor. Use `rescue_token`
+    /// or a manual `withdraw` if repatriation is needed.
+    pub fn reclaim_expired_withdrawal(env: Env, request_id: u64) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let request: WithdrawRequest = env
+            .storage()
+            .persistent()
+            .get(&DataKey::WithdrawQueue(request_id))
+            .ok_or(Error::RequestNotFound)?;
+
+        // Resolve the configured expiry window (fallback to compile-time default).
+        let expiry_window: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawalExpiryWindow)
+            .unwrap_or(WITHDRAWAL_EXPIRY_WINDOW_LEDGERS);
+
+        // Reject if the request has not yet passed the expiry window.
+        if env.ledger().sequence() <= request.queued_ledger.saturating_add(expiry_window) {
+            return Err(Error::WithdrawalLocked);
+        }
+
+        let tier = request.risk_tier;
+
+        // Release the liability.
+        let mut config: TokenConfig = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TokenRegistry(request.token.clone()))
+            .ok_or(Error::TokenNotWhitelisted)?;
+        config.total_liabilities -= request.amount;
+        env.storage()
+            .persistent()
+            .set(&DataKey::TokenRegistry(request.token.clone()), &config);
+
+        // Remove from queue.
+        env.storage()
+            .persistent()
+            .remove(&DataKey::WithdrawQueue(request_id));
+
+        let queue_len: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawQueueLen)
+            .unwrap_or(0);
+        if queue_len > 0 {
+            env.storage()
+                .instance()
+                .set(&DataKey::WithdrawQueueLen, &(queue_len - 1));
+        }
+        Self::advance_withdraw_queue_head(&env, request_id);
+
+        // Per-tier bookkeeping.
+        let tier_len: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TierQueueLen(tier))
+            .unwrap_or(0);
+        if tier_len > 0 {
+            env.storage()
+                .instance()
+                .set(&DataKey::TierQueueLen(tier), &(tier_len - 1));
+        }
+        Self::advance_tier_queue_head(&env, tier, request_id);
+
+        WithdrawalExpiredEvent {
+            version: EVENT_VERSION,
+            request_id,
+            to: request.to.clone(),
+            amount: request.amount,
+            queued_ledger: request.queued_ledger,
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -2444,6 +2545,29 @@ impl FiatBridge {
             .instance()
             .get(&DataKey::WithdrawalQuota)
             .unwrap_or(0)
+    }
+
+    /// Set the number of ledgers after which an unexecuted withdrawal request
+    /// can be reclaimed by the admin. Pass `0` to use the compile-time default
+    /// (`WITHDRAWAL_EXPIRY_WINDOW_LEDGERS`).
+    pub fn set_withdrawal_expiry(env: Env, ledgers: u32) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawalExpiryWindow, &ledgers);
+        Ok(())
+    }
+
+    pub fn get_withdrawal_expiry(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::WithdrawalExpiryWindow)
+            .unwrap_or(WITHDRAWAL_EXPIRY_WINDOW_LEDGERS)
     }
 
     pub fn get_user_daily_withdrawal(env: Env, user: Address) -> i128 {
