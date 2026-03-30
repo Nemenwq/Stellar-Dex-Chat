@@ -2062,9 +2062,17 @@ impl FiatBridge {
     }
 
     pub fn get_daily_deposit_record(env: Env, user: Address) -> Option<UserDailyVolume> {
-        env.storage()
+        let mut vol: UserDailyVolume = env
+            .storage()
             .instance()
-            .get(&DataKey::UserDailyVolume(user))
+            .get(&DataKey::UserDailyVolume(user))?;
+        
+        let curr = env.ledger().sequence();
+        if curr >= vol.window_start.saturating_add(WINDOW_LEDGERS) {
+            vol.usd_cents = 0;
+            vol.window_start = curr;
+        }
+        Some(vol)
     }
 
     pub fn get_total_deposited(env: Env) -> Result<i128, Error> {

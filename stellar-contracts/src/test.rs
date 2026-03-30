@@ -3227,8 +3227,19 @@ fn test_get_daily_deposit_record() {
     // Wait, let's check the math in validate_fiat_limit
     // let usd_cents = crate::math::mul_div_floor(amount, price, ORACLE_PRICE_DECIMALS / 100);
     // If ORACLE_PRICE_DECIMALS is 10^7 or something.
-    assert!(record.usd_cents > 0);
+    assert!(bridge.get_daily_deposit_record(&user).unwrap().usd_cents > 0);
+
+    // Advance beyond window
+    env.ledger().with_mut(|li| {
+        li.sequence_number = start_ledger + WINDOW_LEDGERS;
+    });
+
+    // Record should be zeroed in memory (though not yet in instance storage)
+    let record = bridge.get_daily_deposit_record(&user).unwrap();
+    assert_eq!(record.usd_cents, 0);
+    assert_eq!(record.window_start, start_ledger + WINDOW_LEDGERS);
 }
+
 
 #[test]
 fn test_token_specific_allowlist() {
