@@ -1,5 +1,7 @@
 'use client';
 
+import { toastStore } from './toastStore';
+
 type QueuedRequest = {
   id: number;
   name?: string;
@@ -54,6 +56,8 @@ async function processQueue(): Promise<void> {
     try {
       const result = await request.task();
       request.resolve(result as never);
+      // Notify user of successful retry
+      toastStore.addToast('Message sent!', 'success');
     } catch (error) {
       if (request.attempts < MAX_RETRY && isNetworkError(error)) {
         request.attempts += 1;
@@ -61,6 +65,8 @@ async function processQueue(): Promise<void> {
         notifyListeners();
         break;
       } else {
+        // Notify user of final failure
+        toastStore.addToast('Could not send. Please try again.', 'error');
         request.reject(error);
       }
     }

@@ -4,8 +4,7 @@ import { ReactNode } from 'react';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { StellarWalletProvider } from '@/contexts/StellarWalletContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreferencesContext';
-import { TranslationProvider } from '@/contexts/TranslationContext';
-import { ToastProvider } from '@/components/ToastProvider';
+import { ToastProvider } from './ToastProvider';
 
 interface ProvidersProps {
   children: ReactNode;
@@ -13,14 +12,13 @@ interface ProvidersProps {
 
 export function Providers({ children }: ProvidersProps) {
   return (
-    <TranslationProvider>
-      <ThemeProvider>
-        <UserPreferencesProvider>
-          <StellarWalletProvider>
-            <ToastProvider>{children}</ToastProvider>
-          </StellarWalletProvider>
-        </UserPreferencesProvider>
-      </ThemeProvider>
-    </TranslationProvider>
+    <ThemeProvider>
+      <UserPreferencesProvider>
+        <StellarWalletProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </StellarWalletProvider>
+      </UserPreferencesProvider>
+    </ThemeProvider>
   );
 }
+
