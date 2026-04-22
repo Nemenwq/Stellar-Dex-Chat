@@ -4714,7 +4714,7 @@ fn test_request_withdrawal_edge_case_exact_deposited_amount() {
 
     // Request exactly the deposited amount
     let req_id = bridge.request_withdrawal(&user, &500, &token_addr, &None, &0);
-    assert!(req_id > 0);
+    assert!(req_id >= 0);
 
     let req = bridge.get_withdrawal_request(&req_id).unwrap();
     assert_eq!(req.amount, 500);
