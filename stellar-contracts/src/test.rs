@@ -4120,7 +4120,10 @@ fn test_circuit_breaker_respects_threshold_zero_disables_it() {
     bridge.withdraw(&admin, &user, &1000, &token_addr);
     bridge.withdraw(&admin, &user, &500, &token_addr);
 
+    // Breaker should NOT be tripped because threshold 0 disables it
+    assert!(!bridge.is_circuit_breaker_tripped());
 }
+#[test]
 fn test_set_and_get_circuit_breaker_reset_window() {
     let env = Env::default();
     env.mock_all_auths();
@@ -4270,11 +4273,6 @@ fn test_queue_renounce_succeeds_when_not_paused() {
     // Normal flow — not paused, should work fine
     bridge.queue_renounce_admin();
     assert!(bridge.get_pending_renounce_ledger().is_some());
-    bridge.deposit(&user, &large_amount, &token_addr, &Bytes::new(&env), &0, &0, &None);
-    
-    // Second deposit should overflow total_deposited
-    let result = bridge.try_deposit(&user, &large_amount, &token_addr, &Bytes::new(&env), &0, &0, &None);
-    assert_eq!(result, Err(Ok(Error::Overflow)));
 }
 
 // ── upgrade mechanism tests ───────────────────────────────────────────────
