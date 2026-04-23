@@ -1118,6 +1118,44 @@ fn test_pause_blocks_state_changing_user_operations_until_unpaused() {
 }
 
 #[test]
+fn test_pause_invariant_preserves_state_on_rejected_user_calls() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_contract_id, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &2_000);
+
+    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
+
+    let deposited_before = bridge.get_total_deposited().unwrap();
+    let queue_depth_before = bridge.get_wq_depth();
+
+    bridge.pause();
+
+    assert_eq!(
+        bridge.try_deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None),
+        Err(Ok(Error::ContractPaused))
+    );
+    assert_eq!(
+        bridge.try_request_withdrawal(&user, &50, &token_addr, &None, &0),
+        Err(Ok(Error::ContractPaused))
+    );
+    assert_eq!(
+        bridge.try_withdraw(&admin, &user, &50, &token_addr),
+        Err(Ok(Error::ContractPaused))
+    );
+    assert_eq!(
+        bridge.try_execute_withdrawal(&req_id, &None, &0, &0),
+        Err(Ok(Error::ContractPaused))
+    );
+
+    assert_eq!(bridge.get_total_deposited().unwrap(), deposited_before);
+    assert_eq!(bridge.get_wq_depth(), queue_depth_before);
+}
+
+#[test]
 fn test_request_withdrawal_extends_matching_receipt_ttl() {
     let env = Env::default();
     env.mock_all_auths();
@@ -1370,6 +1408,51 @@ fn test_operator_heartbeat() {
     // Heartbeat should fail now
     let res = bridge.try_heartbeat(&operator, &1);
     assert_eq!(res, Err(Ok(Error::NotOperator)));
+}
+
+#[test]
+fn test_heartbeat_nonce_overflow_returns_explicit_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    let operator = Address::generate(&env);
+    bridge.set_operator(&operator, &true);
+
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::OperatorNonce(operator.clone()), &u64::MAX);
+    });
+
+    let result = bridge.try_heartbeat(&operator, &u64::MAX);
+    assert_eq!(result, Err(Ok(Error::Overflow)));
+}
+
+#[test]
+fn test_set_emergency_recovery_with_cap_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+    let recovery = Address::generate(&env);
+
+    bridge.set_emergency_recovery(&recovery, &750);
+
+    let snapshot = bridge.get_config_snapshot().unwrap();
+    assert_eq!(snapshot.emergency_recovery, Some(recovery.clone()));
+    assert_eq!(bridge.get_emergency_recovery_cap(), Some(750));
+}
+
+#[test]
+fn test_set_emergency_recovery_rejects_cap_above_token_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+    let recovery = Address::generate(&env);
+
+    let result = bridge.try_set_emergency_recovery(&recovery, &1_001);
+    assert_eq!(result, Err(Ok(Error::ExceedsLimit)));
+    assert_eq!(bridge.get_emergency_recovery_cap(), None);
 }
 
 #[test]
@@ -1902,6 +1985,35 @@ fn test_batch_admin_empty_batch() {
     assert_eq!(result.success_count, 0);
     assert_eq!(result.failure_count, 0);
     assert!(result.failed_index.is_none());
+}
+
+#[test]
+fn test_batch_admin_overflow_prevention_with_malformed_payload() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+    let starting_quota = bridge.get_withdrawal_quota();
+
+    let mut ops = soroban_sdk::Vec::new(&env);
+    // set_quota requires a 16-byte i128 payload; this malformed payload should
+    // fail safely and be counted, while other ops still execute.
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_quota"),
+        payload: Bytes::from_array(&env, &[1u8, 2, 3, 4]),
+    });
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_cooldown"),
+        payload: Bytes::from_array(&env, &120u32.to_be_bytes()),
+    });
+
+    let result = bridge.execute_batch_admin(&ops);
+    assert_eq!(result.total_ops, 2);
+    assert_eq!(result.success_count, 1);
+    assert_eq!(result.failure_count, 1);
+    assert_eq!(result.failed_index, Some(0));
+    assert_eq!(bridge.get_withdrawal_quota(), starting_quota);
+    assert_eq!(bridge.get_cooldown(), 120);
 }
 
 // ── fee vault tests ───────────────────────────────────────────────────────
