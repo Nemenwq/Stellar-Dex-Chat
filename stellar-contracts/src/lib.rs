@@ -462,6 +462,14 @@ pub struct QuotaSetEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
+pub struct EmergencyRecoverySetEvent {
+    pub version: u32,
+    pub recovery: Address,
+    pub cap_limit: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
 pub struct QuotaResetEvent {
     pub version: u32,
     pub user: Address,
@@ -582,6 +590,7 @@ pub enum DataKey {
     LastAdminActionLedger,
     InactivityThreshold,
     EmergencyRecoveryAddress,
+    EmergencyRecoveryCap,
     SchemaVersion,
     Oracle,
     FiatLimit,
@@ -1803,6 +1812,51 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Set the emergency recovery address and enforce a maximum cap.
+    ///
+    /// The cap is constrained by the token's configured deposit limit so a
+    /// compromised recovery key cannot bypass configured risk bounds.
+    pub fn set_emergency_recovery(
+        env: Env,
+        recovery: Address,
+        cap_limit: i128,
+    ) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        if cap_limit <= 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        let token: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .ok_or(Error::NotInitialized)?;
+        let config: TokenConfig = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TokenRegistry(token))
+            .ok_or(Error::TokenNotWhitelisted)?;
+        if cap_limit > config.limit {
+            return Err(Error::ExceedsLimit);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyRecoveryAddress, &recovery);
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyRecoveryCap, &cap_limit);
+
+        EmergencyRecoverySetEvent { version: EVENT_VERSION, recovery, cap_limit }.publish(&env);
+        Ok(())
+    }
+
     /// Initiates a transfer of the administrative role to a new address.
     /// 
     /// Follows a two-step transfer pattern:
@@ -2282,16 +2336,17 @@ impl FiatBridge {
             }
         }
 
-        // Increment nonce
+        // Increment nonce with explicit overflow handling.
+        let next_nonce = current_nonce.checked_add(1).ok_or(Error::Overflow)?;
         env.storage().instance().set(
             &DataKey::OperatorNonce(operator.clone()),
-            &(current_nonce + 1),
+            &next_nonce,
         );
 
         NonceIncrementedEvent {
             version: EVENT_VERSION,
             operator: operator.clone(),
-            new_nonce: current_nonce + 1,
+            new_nonce: next_nonce,
         }
         .publish(env);
 
@@ -2902,6 +2957,10 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
+    pub fn get_emergency_recovery_cap(env: Env) -> Option<i128> {
+        env.storage().instance().get(&DataKey::EmergencyRecoveryCap)
+    }
+
     /// Set the number of ledgers after which an unexecuted withdrawal request
     /// can be reclaimed by the admin. Pass `0` to use the compile-time default
     /// (`WITHDRAWAL_EXPIRY_WINDOW_LEDGERS`).
@@ -3184,16 +3243,17 @@ impl FiatBridge {
         let mut first_failed_index: Option<u32> = None;
 
         for (idx, op) in operations.iter().enumerate() {
+            let index = u32::try_from(idx).map_err(|_| Error::Overflow)?;
             let result = Self::execute_single_admin_op(&env, &op);
             if result.is_err() {
-                BatchFailEvent { version: EVENT_VERSION, index: idx as u32, total_ops }.publish(&env);
-                failure_count += 1;
+                BatchFailEvent { version: EVENT_VERSION, index, total_ops }.publish(&env);
+                failure_count = failure_count.checked_add(1).ok_or(Error::Overflow)?;
                 if first_failed_index.is_none() {
-                    first_failed_index = Some(idx as u32);
+                    first_failed_index = Some(index);
                 }
                 continue;
             }
-            success_count += 1;
+            success_count = success_count.checked_add(1).ok_or(Error::Overflow)?;
         }
 
         let batch_result = BatchResult {
