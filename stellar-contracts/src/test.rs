@@ -5066,3 +5066,161 @@ fn test_request_withdrawal_edge_case_risk_tier_tracking() {
     assert_eq!(req1.risk_tier, 1);
     assert_eq!(req2.risk_tier, 2);
 }
+
+// ── Issue #538: pause — additional Soroban invariant tests ───────────────
+
+#[test]
+fn test_pause_invariant_read_only_views_unchanged_after_rejected_mutations() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &1_000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.accrue_fee(&token_addr, &25);
+
+    let admin_before = bridge.get_admin();
+    let token_before = bridge.get_token();
+    let limit_before = bridge.get_limit();
+    let deposited_before = bridge.get_total_deposited();
+    let fees_before = bridge.get_accrued_fees(&token_addr);
+    let cooldown_before = bridge.get_cooldown();
+    let lock_before = bridge.get_lock_period();
+
+    bridge.pause();
+
+    assert_eq!(
+        bridge.try_deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None),
+        Err(Ok(Error::ContractPaused))
+    );
+
+    assert_eq!(bridge.get_admin(), admin_before);
+    assert_eq!(bridge.get_token(), token_before);
+    assert_eq!(bridge.get_limit(), limit_before);
+    assert_eq!(bridge.get_total_deposited(), deposited_before);
+    assert_eq!(bridge.get_accrued_fees(&token_addr), fees_before);
+    assert_eq!(bridge.get_cooldown(), cooldown_before);
+    assert_eq!(bridge.get_lock_period(), lock_before);
+
+    bridge.unpause();
+    bridge.deposit(&user, &50, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    assert_eq!(bridge.get_total_deposited(), deposited_before + 50);
+}
+
+#[test]
+fn test_pause_invariant_double_pause_still_blocks_users() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
+
+    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    bridge.pause();
+    bridge.pause();
+
+    assert_eq!(
+        bridge.try_deposit(&user, &50, &token_addr, &Bytes::new(&env), &0, &0, &None),
+        Err(Ok(Error::ContractPaused))
+    );
+}
+
+// ── Issue #554: execute_batch_admin — invariant tests ────────────────────
+
+#[test]
+fn test_execute_batch_admin_invariant_success_plus_failure_equals_total_ops() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+
+    let mut ops = soroban_sdk::Vec::new(&env);
+    for n in [10u32, 11, 12, 13] {
+        ops.push_back(BatchAdminOp {
+            op_type: Symbol::new(&env, "set_cooldown"),
+            payload: Bytes::from_array(&env, &n.to_be_bytes()),
+        });
+    }
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "not_a_real_op"),
+        payload: Bytes::new(&env),
+    });
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "set_lock"),
+        payload: Bytes::from_array(&env, &99u32.to_be_bytes()),
+    });
+
+    let r = bridge.execute_batch_admin(&ops);
+    assert_eq!(r.total_ops, 6);
+    assert_eq!(
+        r.success_count.saturating_add(r.failure_count),
+        r.total_ops
+    );
+    assert_eq!(r.success_count, 5);
+    assert_eq!(r.failure_count, 1);
+    assert_eq!(r.failed_index, Some(4));
+    assert_eq!(bridge.get_cooldown(), 13);
+    assert_eq!(bridge.get_lock_period(), 99);
+}
+
+#[test]
+fn test_execute_batch_admin_pause_op_matches_direct_pause_for_user_ops() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &2_000);
+
+    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    let mut ops = soroban_sdk::Vec::new(&env);
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "pause"),
+        payload: Bytes::new(&env),
+    });
+
+    let r = bridge.execute_batch_admin(&ops);
+    assert_eq!(r.total_ops, 1);
+    assert_eq!(r.success_count, 1);
+    assert_eq!(r.failure_count, 0);
+
+    assert_eq!(
+        bridge.try_deposit(&user, &50, &token_addr, &Bytes::new(&env), &0, &0, &None),
+        Err(Ok(Error::ContractPaused))
+    );
+}
+
+#[test]
+fn test_execute_batch_admin_pause_then_unpause_in_one_batch_restores_deposits() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &1_000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    let before = bridge.get_total_deposited();
+
+    let mut ops = soroban_sdk::Vec::new(&env);
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "pause"),
+        payload: Bytes::new(&env),
+    });
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "unpause"),
+        payload: Bytes::new(&env),
+    });
+
+    let r = bridge.execute_batch_admin(&ops);
+    assert_eq!(r.total_ops, 2);
+    assert_eq!(r.success_count, 2);
+    assert_eq!(r.failure_count, 0);
+
+    bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    assert_eq!(bridge.get_total_deposited(), before + 100);
+}
