@@ -1,7 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect } from 'react';
 import { FeatureFlag, getFeatureFlag, FeatureFlagNameSchema } from '@/lib/featureFlags';
+
+const useIsomorphicLayoutEffect =
+  typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 /**
  * Hook to check if a feature flag is enabled.
@@ -11,13 +14,12 @@ import { FeatureFlag, getFeatureFlag, FeatureFlagNameSchema } from '@/lib/featur
  * @returns boolean indicating if the flag is enabled.
  */
 export function useFeatureFlag(flag: FeatureFlag) {
-  // Initialize to false for safe hydration, then update to actual value
+  // Initialize to false for safe hydration, then update to actual value.
   const [isEnabled, setIsEnabled] = useState(false);
 
-  useEffect(() => {
-    // Runtime validation using Zod
+  useIsomorphicLayoutEffect(() => {
     const validation = FeatureFlagNameSchema.safeParse(flag);
-    
+
     if (!validation.success) {
       console.error(
         `[useFeatureFlag] Invalid feature flag name: "${flag}". ` +
