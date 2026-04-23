@@ -56,6 +56,9 @@ pub enum Error {
     RescueForbidden = 310,
     CircuitBreakerActive = 311,
     InvalidMemoHash = 312,
+    FeeWithdrawalExceedsBalance = 313,
+    CircuitBreakerTripped = 314,
+    MaxDeniedReached = 315,
 
     // --- 400 series: Funds & Balances ---
     InsufficientFunds = 401,
@@ -2043,12 +2046,15 @@ impl FiatBridge {
             .instance()
             .get(&DataKey::DeniedCount)
             .unwrap_or(0);
+        if count == u64::MAX {
+            return Err(Error::MaxDeniedReached);
+        }
         env.storage()
             .persistent()
             .set(&DataKey::DeniedIndex(count), &Some(address.clone()));
         env.storage()
             .instance()
-            .set(&DataKey::DeniedCount, &(count + 1));
+            .set(&DataKey::DeniedCount, &(count.checked_add(1).ok_or(Error::Overflow)?));
 
         DenyAddressEvent { version: EVENT_VERSION, address: address.clone() }.publish(&env);
         Ok(())
@@ -2561,6 +2567,10 @@ impl FiatBridge {
             .unwrap_or(0)
     }
     pub fn get_receipt_by_index(env: Env, idx: u64) -> Option<Receipt> {
+        let max_receipts: u64 = env.storage().instance().get(&DataKey::ReceiptCounter).unwrap_or(0);
+        if idx >= max_receipts {
+            return None; // Circuit breaker triggers to prevent out of bounds execution and excessive cycles
+        }
         let receipt_hash: BytesN<32> = env
             .storage()
             .temporary()
