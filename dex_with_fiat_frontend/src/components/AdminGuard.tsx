@@ -1,9 +1,12 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { z } from 'zod';
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
 import { getAdmin } from '@/lib/stellarContract';
 import LandingPage from '@/components/LandingPage';
+
+const stellarAddressSchema = z.string().length(56).startsWith('G');
 
 interface AdminGuardProps {
   children: React.ReactNode;
@@ -33,8 +36,26 @@ export default function AdminGuard({ children }: AdminGuardProps) {
         return;
       }
 
+      const connectedParsed = stellarAddressSchema.safeParse(connection.address);
+      if (!connectedParsed.success) {
+        console.error('Invalid connected wallet address format:', connectedParsed.error);
+        setError('Invalid wallet address format. Access denied.');
+        setIsAdmin(false);
+        setLoading(false);
+        return;
+      }
+
       try {
         const adminAddress = await getAdmin();
+        const adminParsed = stellarAddressSchema.safeParse(adminAddress);
+        if (!adminParsed.success) {
+          console.error('Invalid admin address configured in contract:', adminParsed.error);
+          setError('Invalid contract configuration. Access denied.');
+          setIsAdmin(false);
+          return;
+        }
+
+        setIsAdmin(connectedParsed.data === adminParsed.data);
         if (isCancelled) return;
         setIsAdmin(connection.address === adminAddress);
       } catch (err) {
