@@ -2060,6 +2060,12 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Records an operator heartbeat with strict nonce validation.
+    ///
+    /// Replay protection rule:
+    /// - `nonce` must be exactly the current stored nonce for `operator`
+    /// - on success, nonce is incremented by 1 atomically with the heartbeat update
+    /// - stale values return `Error::StaleNonce`, skipped/future values return `Error::InvalidNonce`
     pub fn heartbeat(env: Env, operator: Address, nonce: u64) -> Result<(), Error> {
         operator.require_auth();
         if !env
@@ -2097,6 +2103,9 @@ impl FiatBridge {
             .get(&DataKey::OperatorHeartbeat(operator))
     }
 
+    /// Returns the next expected nonce for an operator.
+    ///
+    /// Starts at `0` for operators that have never submitted a heartbeat.
     pub fn get_operator_nonce(env: Env, operator: Address) -> u64 {
         env.storage()
             .instance()
@@ -2115,6 +2124,10 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Validates nonce monotonicity and persists the next nonce value.
+    ///
+    /// This helper is intentionally strict to block replay attacks:
+    /// each operator action must provide exactly the next expected nonce.
     fn validate_and_increment_nonce(
         env: &Env,
         operator: &Address,

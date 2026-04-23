@@ -23,8 +23,14 @@ export default function AdminGuard({ children }: AdminGuardProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let isCancelled = false;
+
     async function checkAdmin() {
+      setLoading(true);
+      setError(null);
+
       if (!connection.address) {
+        if (isCancelled) return;
         setIsAdmin(false);
         setLoading(false);
         return;
@@ -50,16 +56,24 @@ export default function AdminGuard({ children }: AdminGuardProps) {
         }
 
         setIsAdmin(connectedParsed.data === adminParsed.data);
+        if (isCancelled) return;
+        setIsAdmin(connection.address === adminAddress);
       } catch (err) {
+        if (isCancelled) return;
         console.error('Failed to verify admin status:', err);
         setError('Failed to verify admin status. Please try again.');
         setIsAdmin(false);
       } finally {
+        if (isCancelled) return;
         setLoading(false);
       }
     }
 
     checkAdmin();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [connection.address]);
 
   if (loading) {
