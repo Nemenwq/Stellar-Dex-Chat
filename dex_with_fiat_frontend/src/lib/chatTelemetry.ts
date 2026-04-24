@@ -210,11 +210,6 @@ export function setTelemetryConsent(enabled: boolean): void {
 
 // ── Emitter ───────────────────────────────────────────────────────────────
 
-/**
- * Emit a telemetry event. No-ops if the user has not consented.
- * Dispatches a CustomEvent on window so any listener can react
- * (analytics adapters, logging, etc.) without tight coupling.
- */
 function emit<P extends object>(
   name: ChatEventName,
   payload: P,

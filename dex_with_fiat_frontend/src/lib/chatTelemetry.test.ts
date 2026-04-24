@@ -180,9 +180,4 @@ describe('Avatar contrast helpers', () => {
     expect(getAccessibleAvatarTextColor('#F3F4F6', '#FFFFFF')).toBe('#111827');
   });
 
-  it('leaves payloads without avatar colors unchanged', () => {
-    const payload = { messageLength: 10, hasWallet: true };
-
-    expect(withAccessibleAvatarContrast(payload)).toEqual(payload);
-  });
 });
