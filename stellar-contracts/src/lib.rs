@@ -8,6 +8,14 @@ use soroban_sdk::{
 pub mod math;
 pub mod oracle;
 
+macro_rules! require {
+    ($cond:expr, $err:expr) => {
+        if !($cond) {
+            return Err($err);
+        }
+    };
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────
 /// Minimum TTL extension applied to instance storage on every public call (~30 days).
 pub const MIN_TTL: u32 = 518_400;
@@ -2748,33 +2756,37 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
 
-        if amount <= 0 {
-            return Err(Error::ZeroAmount);
-        }
+        // ── Issue #565: proper require! checks ──
+        require!(amount > 0, Error::ZeroAmount);
 
         // ── Issue #695: replay protection ────────────────────────────────
         let nonce_key = DataKey::FeeWithdrawalNonce(admin.clone());
         let expected_nonce: u64 = env.storage().persistent().get(&nonce_key).unwrap_or(0);
 
-        if nonce != expected_nonce {
-            return Err(Error::InvalidNonce);
-        }
+        require!(nonce >= expected_nonce, Error::StaleNonce);
+        require!(nonce == expected_nonce, Error::InvalidNonce);
 
         let key = DataKey::FeeVault(token.clone());
         let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-        if amount > current {
-            return Err(Error::FeeWithdrawalExceedsBalance);
-        }
+        
+        require!(current > 0, Error::NoFeesToWithdraw);
+        require!(amount <= current, Error::FeeWithdrawalExceedsBalance);
 
+        // Boundary check: actual contract balance
         let token_client = token::Client::new(&env, &token);
+        let contract_balance = token_client.balance(&env.current_contract_address());
+        require!(amount <= contract_balance, Error::InsufficientFunds);
+
         token_client.transfer(&env.current_contract_address(), &to, &amount);
 
-        env.storage().persistent().set(&key, &(current - amount));
+        let new_balance = current.checked_sub(amount).ok_or(Error::Overflow)?;
+        env.storage().persistent().set(&key, &new_balance);
 
         // Increment nonce after successful withdrawal
+        let next_nonce = expected_nonce.checked_add(1).ok_or(Error::Overflow)?;
         env.storage()
             .persistent()
-            .set(&nonce_key, &(expected_nonce + 1));
+            .set(&nonce_key, &next_nonce);
 
         FeeWithdrawnEvent {
             version: EVENT_VERSION,
