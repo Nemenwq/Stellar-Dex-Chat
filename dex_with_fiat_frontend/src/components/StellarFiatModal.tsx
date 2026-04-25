@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Loader2,
@@ -25,7 +25,7 @@ interface StellarFiatModalProps {
   onDepositSuccess?: (xlmAmount: number) => void;
 }
 
-type TxStatus = 'idle' | 'loading' | 'success' | 'error';
+type TxStatus = 'idle' | 'pending' | 'loading' | 'success' | 'error';
 
 export default function StellarFiatModal({
   isOpen,
@@ -51,6 +51,14 @@ export default function StellarFiatModal({
   const [txHash, setTxHash] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoadingUI, setIsLoadingUI] = useState(true);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -71,7 +79,7 @@ export default function StellarFiatModal({
       return;
     }
 
-    setStatus('loading');
+    setStatus('pending');
     setErrorMsg('');
     try {
       let hash: string;
@@ -90,9 +98,12 @@ export default function StellarFiatModal({
           signTx,
         );
       }
+
+      if (!isMounted.current) return;
       setTxHash(hash);
       setStatus('success');
     } catch (err) {
+      if (!isMounted.current) return;
       setErrorMsg(err instanceof Error ? err.message : 'Transaction failed');
       setStatus('error');
     }
@@ -163,6 +174,21 @@ export default function StellarFiatModal({
               </button>
             )}
           </div>
+        ) : status === 'pending' ? (
+          <div className="text-center py-6">
+            <Loader2 className="w-14 h-14 text-blue-400 mx-auto mb-4 animate-spin" />
+            <p className="text-white font-semibold text-lg mb-2">
+              {isAdminMode ? 'Withdrawal pending…' : 'Deposit pending…'}
+            </p>
+            <p className="text-gray-400 text-sm mb-4">
+              {isAdminMode
+                ? 'Your withdrawal is being submitted to the Stellar bridge.'
+                : 'Your deposit is being submitted to the Stellar bridge.'}
+            </p>
+            <p className="text-gray-500 text-xs">
+              {stroopsToDisplay(stroopsAmount)} XLM is being processed. You will see confirmation once the transaction completes.
+            </p>
+          </div>
         ) : isLoadingUI ? (
           <SkeletonPayout />
         ) : (
@@ -178,11 +204,12 @@ export default function StellarFiatModal({
                     key={preset}
                     type="button"
                     onClick={() => handlePreset(preset)}
+                    disabled={status === 'pending' || status === 'loading'}
                     className={`flex-1 py-1.5 rounded-md text-xs font-medium border transition-colors ${
                       activePreset === preset
                         ? 'bg-blue-600 border-blue-500 text-white'
                         : 'bg-gray-800 border-gray-600 text-gray-300 hover:border-blue-500 hover:text-white'
-                    }`}
+                    } ${status === 'pending' || status === 'loading' ? 'opacity-60 cursor-not-allowed' : ''}`}
                   >
                     {preset}
                   </button>
@@ -198,7 +225,8 @@ export default function StellarFiatModal({
                   setActivePreset(null);
                 }}
                 placeholder="0.00"
-                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                disabled={status === 'pending' || status === 'loading'}
+                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
               />
             </div>
 
@@ -213,7 +241,8 @@ export default function StellarFiatModal({
                   value={recipient}
                   onChange={(e) => setRecipient(e.target.value)}
                   placeholder="G..."
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono text-sm"
+                  disabled={status === 'pending' || status === 'loading'}
+                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed font-mono text-sm"
                 />
               </div>
             )}
@@ -238,7 +267,7 @@ export default function StellarFiatModal({
             {/* CTA */}
             <button
               onClick={handleAction}
-              disabled={status === 'loading' || !connection.isConnected}
+              disabled={status === 'loading' || status === 'pending' || !connection.isConnected}
               className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-lg font-semibold transition-all"
             >
               {status === 'loading' ? (
