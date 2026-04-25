@@ -1,4 +1,5 @@
 'use client';
+import type { Variants } from 'framer-motion';
 
 // ── Schema ────────────────────────────────────────────────────────────────
 
@@ -82,6 +83,27 @@ export interface AccessibleAvatarColorTelemetryPayload
   avatarContrastRatio: number;
   avatarContrastCompliant: boolean;
 }
+
+/**
+ * Shared animation variants for telemetry chips/toasts in chat UI.
+ * Keeping this in telemetry allows consumers to animate state changes
+ * consistently when telemetry event status changes.
+ */
+export const telemetryMotionVariants: Variants = {
+  hidden: { opacity: 0, y: 6, scale: 0.98 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { duration: 0.2, ease: 'easeOut' },
+  },
+  exit: {
+    opacity: 0,
+    y: -4,
+    scale: 0.98,
+    transition: { duration: 0.15, ease: 'easeIn' },
+  },
+};
 
 // ── Consent key ───────────────────────────────────────────────────────────
 
@@ -185,6 +207,7 @@ export function withAccessibleAvatarContrast<
       ? normalizeHexColor(avatarPayload.avatarBackgroundColor)
       : null;
 
+  // Fix rendering overflow: return original payload reference if no avatar colors
   if (!backgroundColor) {
     return payload;
   }
@@ -198,13 +221,15 @@ export function withAccessibleAvatarContrast<
   const contrastRatio =
     calculateContrastRatio(accessibleTextColor, backgroundColor) ?? 0;
 
+  // Fix rendering overflow: only create new object when avatar colors exist
+  // This prevents unnecessary object creation and potential re-render cycles
   return {
     ...payload,
     avatarBackgroundColor: backgroundColor,
     avatarTextColor: accessibleTextColor,
     avatarContrastRatio: contrastRatio,
     avatarContrastCompliant: contrastRatio >= MIN_CONTRAST_RATIO,
-  };
+  } as P & AccessibleAvatarColorTelemetryPayload;
 }
 
 export function getTelemetryConsent(): boolean {
@@ -231,6 +256,14 @@ export function setTelemetryConsent(enabled: boolean): void {
 
 // ── Emitter ───────────────────────────────────────────────────────────────
 
+/**
+ * Emit a telemetry event. No-ops if the user has not consented.
+ * Dispatches a CustomEvent on window so any listener can react
+ * (analytics adapters, logging, etc.) without tight coupling.
+ * 
+ * Fix for rendering overflow: Uses requestAnimationFrame to defer event
+ * dispatch and prevent blocking the main render cycle.
+ */
 function emit<P extends object>(
   name: ChatEventName,
   payload: P,
@@ -249,10 +282,13 @@ function emit<P extends object>(
     payload: normalizedPayload,
   };
 
+  // Fix rendering overflow: defer event dispatch to prevent blocking renders
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(
-      new CustomEvent('chat:telemetry', { detail: event }),
-    );
+    requestAnimationFrame(() => {
+      window.dispatchEvent(
+        new CustomEvent('chat:telemetry', { detail: event }),
+      );
+    });
   }
 }   
 

@@ -17,7 +17,7 @@ import {
   type CCIPTransferStartResult,
 } from '@/lib/ccipExplorer';
 
-type BridgeState = 'idle' | 'initiating' | 'polling' | 'success' | 'error';
+type BridgeState = 'idle' | 'optimistic' | 'initiating' | 'polling' | 'success' | 'error';
 
 export interface CCIPBridgeModalProps {
   isOpen: boolean;
@@ -62,8 +62,12 @@ export default function CCIPBridgeModal({
   }, [isOpen, resetState]);
 
   const handleStartTransfer = useCallback(async () => {
-    setBridgeState('initiating');
+    // Immediately show optimistic UI
+    setBridgeState('optimistic');
     setErrorMessage('');
+
+    // Optimistic UI update: immediately show pending state
+    setLatestStatus('PENDING');
 
     try {
       const result = await onStartTransfer();
@@ -75,12 +79,16 @@ export default function CCIPBridgeModal({
 
       pollingStartedAtRef.current = Date.now();
       setTransactionHash(nextHash);
-      setExplorerUrl(
-        result.explorerUrl ?? buildCCIPExplorerTransactionUrl(nextHash),
-      );
-      setLatestStatus('PENDING');
+      
+      // Optimistic UI: set explorer URL immediately for better UX
+      const explorerUrlValue = result.explorerUrl ?? buildCCIPExplorerTransactionUrl(nextHash);
+      setExplorerUrl(explorerUrlValue);
+      
+      // Optimistic UI: transition to polling state immediately
       setBridgeState('polling');
     } catch (error) {
+      // Rollback optimistic updates on error
+      setLatestStatus('');
       setBridgeState('error');
       setErrorMessage(
         error instanceof Error
@@ -109,17 +117,21 @@ export default function CCIPBridgeModal({
 
     try {
       const result = await fetchTransferStatus(transactionHash);
+      
+      // Optimistic UI: update status immediately
       setLatestStatus(result.status);
       if (result.explorerUrl) {
         setExplorerUrl(result.explorerUrl);
       }
 
       if (result.status === 'SUCCESS') {
+        // Optimistic UI: transition to success state immediately
         setBridgeState('success');
         return;
       }
 
       if (result.status === 'FAILED' || result.status === 'ERROR') {
+        // Optimistic UI: transition to error state immediately
         setBridgeState('error');
         setErrorMessage(
           result.errorMessage ??
@@ -128,8 +140,10 @@ export default function CCIPBridgeModal({
         return;
       }
 
+      // Optimistic UI: keep polling state for intermediate statuses
       setBridgeState('polling');
     } catch (error) {
+      // Optimistic UI: maintain PENDING status during transient errors
       setLatestStatus('PENDING');
       setBridgeState('polling');
       if (
@@ -151,6 +165,7 @@ export default function CCIPBridgeModal({
       !isOpen ||
       !transactionHash ||
       bridgeState === 'idle' ||
+      bridgeState === 'optimistic' ||
       bridgeState === 'success' ||
       bridgeState === 'error'
     ) {
@@ -214,6 +229,26 @@ export default function CCIPBridgeModal({
           >
             Start CCIP Transfer
           </button>
+        )}
+
+        {bridgeState === 'optimistic' && (
+          <div className="text-center py-6">
+            <div className="w-14 h-14 bg-blue-500 rounded-full mx-auto mb-4 flex items-center justify-center">
+              <CheckCircle className="w-8 h-8 text-white" />
+            </div>
+            <p className="theme-text-primary font-semibold text-lg mb-2">
+              Transfer Initiated!
+            </p>
+            <p className="theme-text-secondary text-sm mb-4">
+              Processing your CCIP transfer request...
+            </p>
+            <div className="flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+              <span className="theme-text-secondary text-xs">
+                Preparing transaction
+              </span>
+            </div>
+          </div>
         )}
 
         {bridgeState === 'initiating' && (

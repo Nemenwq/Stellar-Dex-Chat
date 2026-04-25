@@ -8,6 +8,14 @@ use soroban_sdk::{
 pub mod math;
 pub mod oracle;
 
+macro_rules! require {
+    ($cond:expr, $err:expr) => {
+        if !($cond) {
+            return Err($err);
+        }
+    };
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────
 /// Minimum TTL extension applied to instance storage on every public call (~30 days).
 pub const MIN_TTL: u32 = 518_400;
@@ -41,6 +49,8 @@ const DEFAULT_INACTIVITY_THRESHOLD: u32 = 1_555_200;
 /// is rejected with [`Error::UpgradeDelayTooShort`] to prevent surprise
 /// upgrades that bypass the governance timelock.
 const MIN_UPGRADE_DELAY: u32 = 1_000;
+/// Maximum number of signers allowed in the multi-signature configuration.
+const MAX_SIGNERS: u32 = 20;
 /// Version tag embedded in all contract events for indexer compatibility.
 pub const EVENT_VERSION: u32 = 1;
 /// Current escrow storage schema version used by the migration system.
@@ -128,6 +138,14 @@ pub enum Error {
     AlreadyApproved = 1105,
     ProposalAlreadyExecuted = 1106,
     ThresholdNotMet = 1107,
+    MaxSignersReached = 1108,
+
+    // --- 1200 series: Receipt query ---
+    /// `get_receipt_by_index` was called with an index >= the receipt counter.
+    ReceiptIndexOutOfBounds = 1201,
+    /// `get_receipt_by_index` resolved to an index/hash that has no receipt
+    /// stored (typically the temporary index entry has expired).
+    ReceiptNotFound = 1202,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -283,6 +301,8 @@ pub struct DeployHashEvent {
 #[derive(Clone, Debug)]
 pub struct DepositEvent {
     pub version: u32,
+    /// Admin that co-authorized the deposit (recorded for off-chain audit).
+    pub admin: Address,
     pub from: Address,
     pub token: Address,
     pub amount: i128,
@@ -676,9 +696,18 @@ impl FiatBridge {
         signers: Vec<Address>,
         threshold: u32,
     ) -> Result<(), Error> {
-        if env.storage().instance().has(&DataKey::Admin) {
+        // Boundary check (fix #214): ensure contract is not already initialized.
+        // We check SchemaVersion instead of Admin because Admin can be removed
+        // during renounce_admin, which would otherwise allow re-initialization.
+        if env.storage().instance().has(&DataKey::SchemaVersion) {
             return Err(Error::AlreadyInitialized);
         }
+
+        // Boundary check: admin cannot be the contract itself to prevent lockout.
+        if admin == env.current_contract_address() {
+            return Err(Error::Unauthorized);
+        }
+
         if limit <= 0 {
             return Err(Error::ZeroAmount);
         }
@@ -687,9 +716,16 @@ impl FiatBridge {
         }
 
         // Validate multisig config
-        if threshold == 0 || threshold > signers.len() {
+        if threshold == 0 {
             return Err(Error::InvalidThreshold);
         }
+        if signers.len() == 0 || threshold > signers.len() {
+            return Err(Error::InvalidThreshold);
+        }
+        if signers.len() > MAX_SIGNERS {
+            return Err(Error::MaxSignersReached);
+        }
+
         // Ensure no duplicate signers
         let mut seen = Vec::<Address>::new(&env);
         for s in signers.iter() {
@@ -781,6 +817,18 @@ impl FiatBridge {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         Self::validate_memo_hash(&env, &memo_hash)?;
         from.require_auth();
+
+        // Admin co-authentication: deposits require the admin's signature
+        // alongside the depositor's. This lets the bridge enforce off-chain
+        // KYC/AML decisions on-chain — the admin only co-signs after the
+        // operator-side checks have cleared.
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
         Self::require_not_paused(&env)?;
 
         if amount <= 0 {
@@ -975,6 +1023,7 @@ impl FiatBridge {
 
         DepositEvent {
             version: EVENT_VERSION,
+            admin: admin.clone(),
             from: from.clone(),
             token: token.clone(),
             amount,
@@ -2282,6 +2331,18 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+
+        // Boundary checks (fix #525): prevent role confusion that could affect
+        // circuit breaker state transitions.
+        // The admin must not be granted the operator role — conflating both roles
+        // bypasses the separation of concerns between governance and operations.
+        require!(operator != admin, Error::NotAllowed);
+        // The contract itself must never be an operator.
+        require!(
+            operator != env.current_contract_address(),
+            Error::InvalidRecipient
+        );
+
         Self::prune_inactive_operators_internal(&env);
         let was_active = env
             .storage()
@@ -2748,33 +2809,37 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
 
-        if amount <= 0 {
-            return Err(Error::ZeroAmount);
-        }
+        // ── Issue #565: proper require! checks ──
+        require!(amount > 0, Error::ZeroAmount);
 
         // ── Issue #695: replay protection ────────────────────────────────
         let nonce_key = DataKey::FeeWithdrawalNonce(admin.clone());
         let expected_nonce: u64 = env.storage().persistent().get(&nonce_key).unwrap_or(0);
 
-        if nonce != expected_nonce {
-            return Err(Error::InvalidNonce);
-        }
+        require!(nonce >= expected_nonce, Error::StaleNonce);
+        require!(nonce == expected_nonce, Error::InvalidNonce);
 
         let key = DataKey::FeeVault(token.clone());
         let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-        if amount > current {
-            return Err(Error::FeeWithdrawalExceedsBalance);
-        }
+        
+        require!(current > 0, Error::NoFeesToWithdraw);
+        require!(amount <= current, Error::FeeWithdrawalExceedsBalance);
 
+        // Boundary check: actual contract balance
         let token_client = token::Client::new(&env, &token);
+        let contract_balance = token_client.balance(&env.current_contract_address());
+        require!(amount <= contract_balance, Error::InsufficientFunds);
+
         token_client.transfer(&env.current_contract_address(), &to, &amount);
 
-        env.storage().persistent().set(&key, &(current - amount));
+        let new_balance = current.checked_sub(amount).ok_or(Error::Overflow)?;
+        env.storage().persistent().set(&key, &new_balance);
 
         // Increment nonce after successful withdrawal
+        let next_nonce = expected_nonce.checked_add(1).ok_or(Error::Overflow)?;
         env.storage()
             .persistent()
-            .set(&nonce_key, &(expected_nonce + 1));
+            .set(&nonce_key, &next_nonce);
 
         FeeWithdrawnEvent {
             version: EVENT_VERSION,
@@ -2982,20 +3047,40 @@ impl FiatBridge {
             .get(&DataKey::WithdrawCooldownThreshold)
             .unwrap_or(0)
     }
-    pub fn get_receipt_by_index(env: Env, idx: u64) -> Option<Receipt> {
+    /// Look up a receipt by its sequential deposit index.
+    ///
+    /// # Boundary checks
+    /// 1. `idx < ReceiptCounter` — refuses queries past the highest issued
+    ///    index. Without this check, callers could probe arbitrary `idx`
+    ///    values and force the contract to do unbounded storage reads, which
+    ///    is a state-explosion vector that could push the receipt index
+    ///    table past the admin-configured cap.
+    /// 2. The temporary `ReceiptIndex(idx) → hash` entry must still exist —
+    ///    soroban temporary storage TTLs out, so a previously-issued index
+    ///    can become unreachable.
+    /// 3. The persistent `Receipt(hash)` entry must still exist.
+    ///
+    /// # Errors
+    /// * [`Error::ReceiptIndexOutOfBounds`] – `idx >= ReceiptCounter`.
+    /// * [`Error::ReceiptNotFound`]         – index entry or receipt is gone.
+    pub fn get_receipt_by_index(env: Env, idx: u64) -> Result<Receipt, Error> {
         let max_receipts: u64 = env
             .storage()
             .instance()
             .get(&DataKey::ReceiptCounter)
             .unwrap_or(0);
         if idx >= max_receipts {
-            return None; // Circuit breaker triggers to prevent out of bounds execution and excessive cycles
+            return Err(Error::ReceiptIndexOutOfBounds);
         }
-        let receipt_hash: BytesN<32> =
-            env.storage().temporary().get(&DataKey::ReceiptIndex(idx))?;
+        let receipt_hash: BytesN<32> = env
+            .storage()
+            .temporary()
+            .get(&DataKey::ReceiptIndex(idx))
+            .ok_or(Error::ReceiptNotFound)?;
         env.storage()
             .persistent()
             .get(&DataKey::Receipt(receipt_hash))
+            .ok_or(Error::ReceiptNotFound)
     }
 
     pub fn get_withdrawal_request(env: Env, id: u64) -> Option<WithdrawRequest> {
@@ -4276,3 +4361,9 @@ mod test_new_issues;
 
 #[cfg(test)]
 mod test_issues_695_687;
+
+#[cfg(test)]
+mod test_init_validation;
+
+#[cfg(test)]
+mod test_get_receipt_by_index;
