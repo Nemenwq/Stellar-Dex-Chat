@@ -304,7 +304,7 @@ function emit<P extends object>(
       name,
       version: TELEMETRY_SCHEMA_VERSION,
       timestamp: Date.now(),
-      payload: normalizedPayload,
+      payload: normalizedPayload as Record<string, unknown>,
     };
 
     // Fix rendering overflow: defer event dispatch to prevent blocking renders
