@@ -301,6 +301,8 @@ pub struct DeployHashEvent {
 #[derive(Clone, Debug)]
 pub struct DepositEvent {
     pub version: u32,
+    /// Admin that co-authorized the deposit (recorded for off-chain audit).
+    pub admin: Address,
     pub from: Address,
     pub token: Address,
     pub amount: i128,
@@ -815,6 +817,18 @@ impl FiatBridge {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         Self::validate_memo_hash(&env, &memo_hash)?;
         from.require_auth();
+
+        // Admin co-authentication: deposits require the admin's signature
+        // alongside the depositor's. This lets the bridge enforce off-chain
+        // KYC/AML decisions on-chain — the admin only co-signs after the
+        // operator-side checks have cleared.
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
         Self::require_not_paused(&env)?;
 
         if amount <= 0 {
@@ -1009,6 +1023,7 @@ impl FiatBridge {
 
         DepositEvent {
             version: EVENT_VERSION,
+            admin: admin.clone(),
             from: from.clone(),
             token: token.clone(),
             amount,
