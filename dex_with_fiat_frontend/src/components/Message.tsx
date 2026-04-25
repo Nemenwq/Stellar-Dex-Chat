@@ -1,10 +1,18 @@
 'use client';
 
-import { ChatMessage } from '@/types';
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { Bot, User, AlertTriangle, Link, Clock, Coins } from 'lucide-react';
+import { useUserPreferences } from '@/contexts/UserPreferencesContext';
+import { useMasking } from '@/hooks/useMasking';
+import { useCurrencyConversion } from '@/hooks/useCurrencyConversion';
+import { ChatMessage } from '@/types';
+import { AlertTriangle, Bot, Clock, Coins, Link, RotateCcw, User, Loader2, RefreshCcw, XCircle } from 'lucide-react';
+import React from 'react';
 import ReactMarkdown from 'react-markdown';
+import { sanitizeUrl } from '@/lib/markdownSanitizer';
+import { useTranslation } from '@/contexts/TranslationContext';
+import { motion, useReducedMotion } from 'framer-motion';
+import CopyButton from '@/components/ui/CopyButton';
 
 interface MessageProps {
   message: ChatMessage;
@@ -13,16 +21,63 @@ interface MessageProps {
     actionType: string,
     data?: Record<string, unknown>,
   ) => void;
+  onRetry?: (messageId: string) => void;
+  shouldAnimate?: boolean;
 }
 
-export default function Message({ message, onActionClick }: MessageProps) {
+export default function Message({ message, onActionClick, onRetry, shouldAnimate = false }: MessageProps) {
   const { connection } = useStellarWallet();
   const { isDarkMode } = useTheme();
+  const { maskingEnabled, maskingStyle } = useUserPreferences();
   const isUser = message.role === 'user';
+  const hasError = !!message.error;
+  const shouldReduceMotion = useReducedMotion();
+
+  // Apply masking to message content
+  const maskedContent = useMasking(message.content, {
+    enabled: maskingEnabled,
+    style: maskingStyle,
+  });
+  const { t } = useTranslation();
+  const isPending = message.metadata?.status === 'pending';
+  const isFailed = message.metadata?.status === 'failed';
+
+
+  // Currency conversion hook for transaction amounts
+  const amountForConversion = message.metadata?.transactionData?.amountIn 
+    ? parseFloat(String(message.metadata.transactionData.amountIn))
+    : undefined;
+  const tokenForConversion = message.metadata?.transactionData?.tokenIn || 'XLM';
+  const { displayText: conversionDisplayText } = useCurrencyConversion(
+    amountForConversion,
+    tokenForConversion,
+  );
+
+
+
+  const variants = {
+    initial: { 
+      opacity: 0, 
+      y: shouldReduceMotion ? 0 : 20,
+      scale: shouldReduceMotion ? 1 : 0.95
+    },
+    animate: { 
+      opacity: 1, 
+      y: 0,
+      scale: 1,
+      transition: {
+        duration: 0.4,
+        ease: [0.23, 1, 0.32, 1] as const // Custom cubic-bezier for premium feel
+      }
+    }
+  };
 
   return (
-    <div
-      className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-8 animate-fadeIn`}
+    <motion.div
+      initial={shouldAnimate ? "initial" : false}
+      animate="animate"
+      variants={variants}
+      className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-8`}
     >
       <div className={`max-w-[80%] ${isUser ? 'order-2' : 'order-1'}`}>
         {/* Avatar */}
@@ -51,13 +106,20 @@ export default function Message({ message, onActionClick }: MessageProps) {
               className={`inline-block px-4 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 ${
                 isUser
                   ? 'bg-blue-600 text-white'
-                  : isDarkMode
-                    ? 'bg-gray-800 text-gray-100 border border-gray-700'
-                    : 'bg-gray-100 text-gray-900 border border-gray-200'
-              }`}
+                  : isFailed
+                    ? 'bg-red-50 border-red-200 text-red-900 shadow-red-100'
+                    : isDarkMode
+                      ? 'bg-gray-800 text-gray-100 border border-gray-700'
+                      : 'bg-gray-100 text-gray-900 border border-gray-200'
+              } ${isPending ? 'animate-pulse opacity-70' : ''}`}
             >
-              <div className="whitespace-pre-wrap break-words">
-                {isUser ? (
+              <div className="whitespace-pre-wrap break-words min-h-[20px] flex items-center">
+                {isPending ? (
+                  <div className="flex items-center space-x-2 text-gray-400">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm italic">{t('common.loading')}</span>
+                  </div>
+                ) : isUser ? (
                   message.content
                 ) : (
                   <ReactMarkdown
@@ -100,9 +162,37 @@ export default function Message({ message, onActionClick }: MessageProps) {
                       h3: ({ children }) => (
                         <h3 className="text-sm font-bold mb-1">{children}</h3>
                       ),
+                      a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
+                        const safeHref = sanitizeUrl(href);
+                        return (
+                          <a
+                            href={safeHref}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline text-blue-400 hover:text-blue-300"
+                          >
+                            {children}
+                          </a>
+                        );
+                      },
+                      img: (props: React.ImgHTMLAttributes<HTMLImageElement> & { src?: string | Blob }) => {
+                        const { src, alt, ...rest } = props;
+                        const srcStr = typeof src === 'string' ? src : undefined;
+                        const safeSrc = sanitizeUrl(srcStr);
+                        void rest;
+                        if (safeSrc === '#blocked') return null;
+                        return (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={safeSrc}
+                            alt={alt ?? ''}
+                            className="max-w-full rounded"
+                          />
+                        );
+                      },
                     }}
                   >
-                    {message.content}
+                    {maskedContent}
                   </ReactMarkdown>
                 )}
               </div>
@@ -113,11 +203,93 @@ export default function Message({ message, onActionClick }: MessageProps) {
               className={`flex items-center mt-2 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} ${isUser ? 'justify-end' : 'justify-start'}`}
             >
               <Clock className="w-3 h-3 mr-1" />
-              {message.timestamp.toLocaleTimeString([], {
+              {new Date(message.timestamp).toLocaleTimeString([], {
                 hour: '2-digit',
                 minute: '2-digit',
               })}
             </div>
+
+            {/* Error State */}
+            {hasError && (
+              <div
+                className={`mt-3 inline-flex flex-col gap-2 rounded-lg border px-3 py-2 text-xs ${
+                  isDarkMode
+                    ? 'border-red-700 bg-red-950/40 text-red-200'
+                    : 'border-red-200 bg-red-50 text-red-800'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span>
+                    {message.error?.message || 'Failed to send message'}
+                  </span>
+                </div>
+                {message.error?.retryAttempts && message.error.retryAttempts > 0 && (
+                  <div className="text-xs opacity-75">
+                    Retry attempts: {message.error.retryAttempts}
+                  </div>
+                )}
+                {onRetry && (
+                  <button
+                    onClick={() => onRetry(message.id)}
+                    className={`mt-2 flex items-center justify-center gap-2 px-3 py-1 rounded-lg text-xs font-medium transition-all transform hover:scale-105 active:scale-95 ${
+                      isDarkMode
+                        ? 'bg-red-700/40 hover:bg-red-700/60 border border-red-600'
+                        : 'bg-red-100 hover:bg-red-200 border border-red-300'
+                    }`}
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Retry
+                  </button>
+                )}
+              </div>
+            )}
+            {message.metadata?.guardrail?.triggered && (
+              <div
+                className={`mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+                  isDarkMode
+                    ? 'border-amber-700 bg-amber-950/40 text-amber-200'
+                    : 'border-amber-200 bg-amber-50 text-amber-800'
+                }`}
+              >
+                <AlertTriangle className="h-4 w-4" />
+                <span>
+                  Guardrail:{' '}
+                  {message.metadata.guardrail.category.replaceAll('_', ' ')}
+                </span>
+              </div>
+            )}
+            {isFailed && (
+              <div
+                className={`mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+                  isDarkMode
+                    ? 'border-red-700 bg-red-950/40 text-red-200'
+                    : 'border-red-200 bg-red-50 text-red-800'
+                }`}
+              >
+                <XCircle className="h-4 w-4" />
+                <span>{t('chat.error_message')}</span>
+                <button 
+                  onClick={() => window.location.reload()} 
+                  className="ml-2 underline flex items-center gap-1"
+                >
+                  <RefreshCcw className="w-3 h-3" />
+                  {t('common.retry')}
+                </button>
+              </div>
+            )}
+            {message.metadata?.requestStatus === 'cancelled' && (
+              <div
+                className={`mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+                  isDarkMode
+                    ? 'border-sky-700 bg-sky-950/40 text-sky-200'
+                    : 'border-sky-200 bg-sky-50 text-sky-800'
+                }`}
+              >
+                <AlertTriangle className="h-4 w-4" />
+                <span>{t('chat.cancelled_message')}</span>
+              </div>
+            )}
             {message.metadata?.suggestedActions &&
               message.metadata.suggestedActions.length > 0 && (
                 <div
@@ -160,17 +332,17 @@ export default function Message({ message, onActionClick }: MessageProps) {
             {/* Transaction Data Preview */}
             {message.metadata?.transactionData && (
               <div
-                className={`mt-4 p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm ${isUser ? 'text-right' : 'text-left'}`}
+                className={`theme-surface-muted theme-border mt-4 p-4 border rounded-xl text-sm ${isUser ? 'text-right' : 'text-left'}`}
               >
-                <div className="flex items-center space-x-2 text-gray-700 font-medium mb-3">
+                <div className="theme-text-primary flex items-center space-x-2 font-medium mb-3">
                   <Coins className="w-4 h-4" />
                   <span>Transaction Details</span>
                 </div>
-                <div className="space-y-2 text-gray-600">
+                <div className="theme-text-secondary space-y-2">
                   {message.metadata.transactionData.type && (
                     <div className="flex justify-between">
                       <span>Type:</span>
-                      <span className="text-gray-900 font-medium capitalize">
+                      <span className="theme-text-primary font-medium capitalize">
                         {message.metadata.transactionData.type}
                       </span>
                     </div>
@@ -178,7 +350,7 @@ export default function Message({ message, onActionClick }: MessageProps) {
                   {message.metadata.transactionData.tokenIn && (
                     <div className="flex justify-between">
                       <span>Token:</span>
-                      <span className="text-gray-900 font-medium">
+                      <span className="theme-text-primary font-medium">
                         {message.metadata.transactionData.tokenIn}
                       </span>
                     </div>
@@ -186,24 +358,83 @@ export default function Message({ message, onActionClick }: MessageProps) {
                   {message.metadata.transactionData.amountIn && (
                     <div className="flex justify-between">
                       <span>Amount:</span>
-                      <span className="text-gray-900 font-medium">
-                        {message.metadata.transactionData.amountIn}
+                      <span className="theme-text-primary font-medium">
+                        {conversionDisplayText || message.metadata.transactionData.amountIn}
                       </span>
                     </div>
                   )}
                   {message.metadata.transactionData.fiatAmount && (
                     <div className="flex justify-between">
                       <span>Fiat:</span>
-                      <span className="text-gray-900 font-medium">
+                      <span className="theme-text-primary font-medium">
                         {message.metadata.transactionData.fiatAmount}{' '}
                         {message.metadata.transactionData.fiatCurrency || 'USD'}
                       </span>
                     </div>
                   )}
+                  {message.metadata.transactionData.note && (
+                    <div className="flex justify-between gap-3">
+                      <span>Note:</span>
+                      <span className="theme-text-primary font-medium">
+                        {message.metadata.transactionData.note}
+                      </span>
+                    </div>
+                  )}
+                  {message.metadata.transactionData.transactionId && (
+                    <div className="flex justify-between items-center gap-2">
+                      <span>Request ID:</span>
+                      <div className="flex items-center gap-1">
+                        <span className="theme-text-primary font-mono text-xs">
+                          {message.metadata.transactionData.transactionId.slice(0, 6)}
+                          ...
+                          {message.metadata.transactionData.transactionId.slice(-4)}
+                        </span>
+                        <CopyButton
+                          value={message.metadata.transactionData.transactionId}
+                          className="flex-shrink-0 p-0.5"
+                          iconClassName="w-3 h-3"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {message.metadata.transactionData.txHash && (
+                    <div className="flex justify-between items-center gap-2">
+                      <span>Tx Hash:</span>
+                      <div className="flex items-center gap-1">
+                        <span className="theme-text-primary font-mono text-xs">
+                          {message.metadata.transactionData.txHash.slice(0, 6)}
+                          ...
+                          {message.metadata.transactionData.txHash.slice(-4)}
+                        </span>
+                        <CopyButton
+                          value={message.metadata.transactionData.txHash}
+                          className="flex-shrink-0 p-0.5"
+                          iconClassName="w-3 h-3"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {message.metadata.transactionData.receiptId && (
+                    <div className="flex justify-between items-center gap-2">
+                      <span>Receipt ID:</span>
+                      <div className="flex items-center gap-1">
+                        <span className="theme-text-primary font-mono text-xs">
+                          {message.metadata.transactionData.receiptId.slice(0, 6)}
+                          ...
+                          {message.metadata.transactionData.receiptId.slice(-4)}
+                        </span>
+                        <CopyButton
+                          value={message.metadata.transactionData.receiptId}
+                          className="flex-shrink-0 p-0.5"
+                          iconClassName="w-3 h-3"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {message.metadata.confirmationRequired && (
-                  <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs">
+                  <div className="theme-soft-warning mt-3 p-3 border rounded-lg text-xs">
                     <div className="flex items-center space-x-2">
                       <AlertTriangle className="w-4 h-4" />
                       <span>This transaction requires your confirmation</span>
@@ -211,8 +442,18 @@ export default function Message({ message, onActionClick }: MessageProps) {
                   </div>
                 )}
 
+                {message.metadata.lowConfidence &&
+                  message.metadata.clarificationQuestion && (
+                    <div className="theme-soft-warning mt-3 p-3 border rounded-lg text-xs">
+                      <div className="flex items-center space-x-2">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span>{message.metadata.clarificationQuestion}</span>
+                      </div>
+                    </div>
+                  )}
+
                 {!connection.isConnected && (
-                  <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-xs">
+                  <div className="theme-soft-danger mt-3 p-3 border rounded-lg text-xs">
                     <div className="flex items-center space-x-2">
                       <Link className="w-4 h-4" />
                       <span>Connect your wallet to proceed</span>
@@ -224,6 +465,6 @@ export default function Message({ message, onActionClick }: MessageProps) {
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
