@@ -4298,3 +4298,6 @@ mod test_issues_695_687;
 
 #[cfg(test)]
 mod test_init_validation;
+
+#[cfg(test)]
+mod test_set_limit;
