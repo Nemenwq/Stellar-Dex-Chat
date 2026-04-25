@@ -2055,8 +2055,6 @@ fn test_get_receipt_by_index_valid() {
     let receipt_hash = bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     let receipt = bridge.get_receipt_by_index(&0);
-    assert!(receipt.is_some());
-    let receipt = receipt.unwrap();
     assert_eq!(receipt.id, receipt_hash);
     assert_eq!(receipt.depositor, user);
     assert_eq!(receipt.amount, 100);
@@ -2074,9 +2072,15 @@ fn test_get_receipt_by_index_out_of_range() {
     bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     // Index 1 does not exist (only one deposit at index 0)
-    assert_eq!(bridge.get_receipt_by_index(&1), None);
+    assert_eq!(
+        bridge.try_get_receipt_by_index(&1),
+        Err(Ok(Error::ReceiptIndexOutOfBounds))
+    );
     // Large out-of-range index
-    assert_eq!(bridge.get_receipt_by_index(&999), None);
+    assert_eq!(
+        bridge.try_get_receipt_by_index(&999),
+        Err(Ok(Error::ReceiptIndexOutOfBounds))
+    );
 }
 
 #[test]
@@ -2092,12 +2096,17 @@ fn test_get_receipt_by_index_nonexistent_index() {
 
     // The receipt at index 0 should be accessible
     let receipt = bridge.get_receipt_by_index(&0);
-    assert!(receipt.is_some());
-    assert_eq!(receipt.unwrap().amount, 100);
+    assert_eq!(receipt.amount, 100);
 
-    // Indexes that were never written return None
-    assert_eq!(bridge.get_receipt_by_index(&50), None);
-    assert_eq!(bridge.get_receipt_by_index(&u64::MAX), None);
+    // Indexes that were never written return ReceiptIndexOutOfBounds.
+    assert_eq!(
+        bridge.try_get_receipt_by_index(&50),
+        Err(Ok(Error::ReceiptIndexOutOfBounds))
+    );
+    assert_eq!(
+        bridge.try_get_receipt_by_index(&u64::MAX),
+        Err(Ok(Error::ReceiptIndexOutOfBounds))
+    );
 }
 
 #[test]
@@ -3674,7 +3683,7 @@ fn test_deposit_invariant_receipt_issued_event() {
     let receipt_id = bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     // Verify receipt was created (receipts are indexed, so we get by index 0)
-    let receipt = bridge.get_receipt_by_index(&0).unwrap();
+    let receipt = bridge.get_receipt_by_index(&0);
     assert_eq!(receipt.depositor, user);
     assert_eq!(receipt.amount, 100);
     assert!(!receipt.refunded);
