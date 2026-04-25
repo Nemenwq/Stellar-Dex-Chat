@@ -139,6 +139,13 @@ pub enum Error {
     ProposalAlreadyExecuted = 1106,
     ThresholdNotMet = 1107,
     MaxSignersReached = 1108,
+
+    // --- 1200 series: Receipt query ---
+    /// `get_receipt_by_index` was called with an index >= the receipt counter.
+    ReceiptIndexOutOfBounds = 1201,
+    /// `get_receipt_by_index` resolved to an index/hash that has no receipt
+    /// stored (typically the temporary index entry has expired).
+    ReceiptNotFound = 1202,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -3013,20 +3020,40 @@ impl FiatBridge {
             .get(&DataKey::WithdrawCooldownThreshold)
             .unwrap_or(0)
     }
-    pub fn get_receipt_by_index(env: Env, idx: u64) -> Option<Receipt> {
+    /// Look up a receipt by its sequential deposit index.
+    ///
+    /// # Boundary checks
+    /// 1. `idx < ReceiptCounter` — refuses queries past the highest issued
+    ///    index. Without this check, callers could probe arbitrary `idx`
+    ///    values and force the contract to do unbounded storage reads, which
+    ///    is a state-explosion vector that could push the receipt index
+    ///    table past the admin-configured cap.
+    /// 2. The temporary `ReceiptIndex(idx) → hash` entry must still exist —
+    ///    soroban temporary storage TTLs out, so a previously-issued index
+    ///    can become unreachable.
+    /// 3. The persistent `Receipt(hash)` entry must still exist.
+    ///
+    /// # Errors
+    /// * [`Error::ReceiptIndexOutOfBounds`] – `idx >= ReceiptCounter`.
+    /// * [`Error::ReceiptNotFound`]         – index entry or receipt is gone.
+    pub fn get_receipt_by_index(env: Env, idx: u64) -> Result<Receipt, Error> {
         let max_receipts: u64 = env
             .storage()
             .instance()
             .get(&DataKey::ReceiptCounter)
             .unwrap_or(0);
         if idx >= max_receipts {
-            return None; // Circuit breaker triggers to prevent out of bounds execution and excessive cycles
+            return Err(Error::ReceiptIndexOutOfBounds);
         }
-        let receipt_hash: BytesN<32> =
-            env.storage().temporary().get(&DataKey::ReceiptIndex(idx))?;
+        let receipt_hash: BytesN<32> = env
+            .storage()
+            .temporary()
+            .get(&DataKey::ReceiptIndex(idx))
+            .ok_or(Error::ReceiptNotFound)?;
         env.storage()
             .persistent()
             .get(&DataKey::Receipt(receipt_hash))
+            .ok_or(Error::ReceiptNotFound)
     }
 
     pub fn get_withdrawal_request(env: Env, id: u64) -> Option<WithdrawRequest> {
@@ -4310,3 +4337,6 @@ mod test_issues_695_687;
 
 #[cfg(test)]
 mod test_init_validation;
+
+#[cfg(test)]
+mod test_get_receipt_by_index;
