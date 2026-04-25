@@ -111,4 +111,71 @@ describe('CCIPBridgeModal', () => {
       screen.getByText(/timed out after 10 minutes/i),
     ).toBeInTheDocument();
   });
+
+  it('shows optimistic UI immediately when transfer is started', async () => {
+    // Mock a slow onStartTransfer to test optimistic UI
+    const onStartTransfer = vi.fn().mockImplementation(
+      () => new Promise(resolve => setTimeout(() => resolve({
+        transactionHash: '0xabc123',
+      }), 1000))
+    );
+
+    render(
+      <CCIPBridgeModal
+        {...defaultProps}
+        onStartTransfer={onStartTransfer}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Start CCIP Transfer'));
+
+    // Should immediately show optimistic UI
+    expect(
+      await screen.findByText('Transfer Initiated!'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Processing your CCIP transfer request...'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Preparing transaction'),
+    ).toBeInTheDocument();
+
+    // Wait for the async operation to complete
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    // Should transition to polling state
+    expect(
+      await screen.findByText('Waiting for CCIP confirmation…'),
+    ).toBeInTheDocument();
+  });
+
+  it('reverts to error state if onStartTransfer fails', async () => {
+    const onStartTransfer = vi.fn().mockRejectedValue(
+      new Error('Network error')
+    );
+
+    render(
+      <CCIPBridgeModal
+        {...defaultProps}
+        onStartTransfer={onStartTransfer}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Start CCIP Transfer'));
+
+    // Should show optimistic UI first
+    expect(
+      await screen.findByText('Transfer Initiated!'),
+    ).toBeInTheDocument();
+
+    // Wait for error to be handled
+    expect(
+      await screen.findByText('CCIP transfer error'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Network error'),
+    ).toBeInTheDocument();
+  });
 });
