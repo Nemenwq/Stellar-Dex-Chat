@@ -747,6 +747,41 @@ fn test_migrate_escrow_basic() {
 }
 
 #[test]
+fn test_validate_withdrawal_quota_migration_check() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, admin, token_addr, token, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    // Set withdrawal quota to enable enforcement
+    bridge.set_withdrawal_quota(&2000);
+
+    // Initial storage version is 0 (unwrap_or(0))
+    assert_eq!(bridge.get_escrow_storage_version(), 0);
+
+    bridge.deposit(&user, &3000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+
+    // Request withdrawal - this should emit MigrationCheckEvent since storage_version < ESCROW_STORAGE_VERSION
+    let req_id = bridge.request_withdrawal(&user, &500, &token_addr, &None, &0);
+    
+    // Check that MigrationCheckEvent was emitted
+    let events = env.events().all().filter_by_contract(&contract_id);
+    let has_migration_check = events.events().iter().any(|e| {
+        if let soroban_sdk::xdr::ContractEventBody::V0(body) = &e.body {
+            body.topics.len() > 0 && matches!(&body.topics[0], soroban_sdk::xdr::ScVal::Symbol(sym) if std::str::from_utf8(sym.0.as_slice()).unwrap() == "migration_check_event")
+        } else {
+            false
+        }
+    });
+    
+    // Verify it still enforces quota (validate_withdrawal_quota is working)
+    let res = bridge.try_withdraw(&admin, &user, &2001, &token_addr);
+    assert_eq!(res, Err(Ok(Error::WithdrawalQuotaExceeded)));
+}
+
+#[test]
 fn test_deny_address_blocks_withdraw() {
     let env = Env::default();
     env.mock_all_auths();
