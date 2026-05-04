@@ -90,13 +90,13 @@ export default function CCIPBridgeModal({
 
       pollingStartedAtRef.current = Date.now();
       setTransactionHash(nextHash);
-      
+
       // Optimistic UI: set explorer URL immediately for better UX
       const explorerUrlValue = result.explorerUrl ?? buildCCIPExplorerTransactionUrl(nextHash);
       setExplorerUrl(explorerUrlValue);
-      
-      // Optimistic UI: transition to optimistic state to trigger polling effect
-      setBridgeState('optimistic');
+
+      // Transition to polling state now that we have a hash
+      setBridgeState('polling');
     } catch (error) {
       // Rollback optimistic updates on error
       setLatestStatus('');
@@ -148,7 +148,7 @@ export default function CCIPBridgeModal({
         setBridgeState('error');
         setErrorMessage(
           result.errorMessage ??
-            `CCIP transfer failed with status "${result.status}".`,
+          `CCIP transfer failed with status "${result.status}".`,
         );
         return;
       }
@@ -177,9 +177,7 @@ export default function CCIPBridgeModal({
     if (
       !isOpen ||
       !transactionHash ||
-      bridgeState === 'idle' ||
-      bridgeState === 'success' ||
-      bridgeState === 'error'
+      bridgeState !== 'polling'
     ) {
       return;
     }
