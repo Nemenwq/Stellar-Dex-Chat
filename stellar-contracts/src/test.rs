@@ -13,12 +13,7 @@ use std::{format, fs, path::PathBuf, string::String, vec::Vec as StdVec};
 // ── helpers ──────────────────────────────────────────────────────────
 
 fn get_contract_events(env: &Env, contract_id: &Address) -> soroban_sdk::Vec<(Address, soroban_sdk::Vec<soroban_sdk::Val>, soroban_sdk::Val)> {
-    let all_events = env.events().all().filter_by_contract(contract_id);
-    let mut result = soroban_sdk::vec![env];
-    for e in all_events.events() {
-        result.push_back(e);
-    }
-    result
+    env.events().all().filter_by_contract(contract_id)
 }
 
 fn create_token<'a>(
