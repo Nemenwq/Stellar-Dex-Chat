@@ -56,6 +56,7 @@ function SessionRow({
 
   return (
     <div
+      data-active={isActive ? 'true' : 'false'}
       className={`group relative p-3 mb-2 rounded-lg cursor-pointer transition-all duration-200 border ${
         isActive
           ? 'bg-[var(--color-primary-soft)] border-[var(--color-primary)] shadow-md'
@@ -260,6 +261,17 @@ export default function ChatHistorySidebar({
     : visibleSessions;
   const filteredPinned = filteredSessions.filter((s) => s.pinned);
   const filteredUnpinned = filteredSessions.filter((s) => !s.pinned);
+  const filteredSessionIds = filteredSessions.map((s) => s.id).join(',');
+  const historyListRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (isCollapsed) return;
+
+    const activeRow = historyListRef.current?.querySelector<HTMLElement>('[data-active="true"]');
+    if (!activeRow) return;
+
+    activeRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [currentSessionId, filteredSessionIds, isCollapsed]);
 
   // ── Optimistic delete with undo ──────────────────────────────────────────
   const handleDeleteSession = useCallback((sessionId: string) => {
@@ -567,7 +579,7 @@ export default function ChatHistorySidebar({
               </div>
             )}
 
-            <div className={`p-2 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
+            <div ref={historyListRef} className={`p-2 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
               {!hasHistory ? (
                 <EmptyState
                   icon={MessageSquare}

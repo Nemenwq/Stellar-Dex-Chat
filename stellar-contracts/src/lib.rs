@@ -282,7 +282,36 @@ pub struct EscrowRecord {
     pub ledger: u32,
     pub migrated: bool,
 }
-
+/// A single administrative operation in a batch.
+///
+/// # Fields
+///
+/// * `op_type` - Symbol identifying the operation type (e.g., "set_cooldown", "pause")
+/// * `payload` - Binary-encoded operation parameters (format depends on op_type)
+///
+/// # Operation Types
+///
+/// | op_type | payload_len | payload_format | description |
+/// |---------|-------------|----------------|-------------|
+/// | `set_cooldown` | 4 | u32 big-endian | Set cooldown period in ledgers |
+/// | `set_lock` | 4 | u32 big-endian | Set lock period in ledgers |
+/// | `set_quota` | 16 | i128 big-endian | Set daily withdrawal quota |
+/// | `set_sandwich` | 4 | u32 big-endian | Set anti-sandwich delay in ledgers |
+/// | `pause` | 0 | (empty) | Pause all user operations |
+/// | `unpause` | 0 | (empty) | Resume user operations |
+///
+/// # Payload Encoding Rules
+///
+/// All numeric payloads use **big-endian byte order**. For example:
+///
+/// ```rust,no_run
+/// // To encode u32 value 100:
+/// let value: u32 = 100;
+/// let payload = Bytes::from_array(&env, &value.to_be_bytes());
+/// // payload = [0x00, 0x00, 0x00, 0x64]
+/// ```
+///
+/// Payloads that are too short will cause the operation to fail with `Error::InternalError`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BatchAdminOp {
@@ -290,6 +319,56 @@ pub struct BatchAdminOp {
     pub payload: Bytes,
 }
 
+/// Result of executing a batch of administrative operations.
+///
+/// Contains detailed counters for success/failure and indicates which operation
+/// failed first (if any). Operations continue executing after failures—this is
+/// not a transactional rollback scenario.
+///
+/// # Fields
+///
+/// * `total_ops` - Total number of operations in the batch
+/// * `success_count` - Number of successfully executed operations
+/// * `failure_count` - Number of failed operations (operations that returned an error)
+/// * `failed_index` - Zero-based index of the **first** operation that failed, or None if all succeeded
+///
+/// # Invariants
+///
+/// 1. `success_count + failure_count == total_ops` (always true)
+/// 2. If `failure_count == 0`, then `failed_index == None`
+/// 3. If `failure_count > 0`, then `failed_index == Some(idx)` where idx is the index of
+///    the first failure (not the only failure, but the **first**); other failures may exist
+///    at higher indices but are not recorded in `failed_index`
+///
+/// # Execution Semantics
+///
+/// **Important**: The batch is **not** atomic with respect to individual operation failures:
+/// - If operation at index 2 fails, operations at indices 0 and 1 have already been applied
+/// - Operations at indices 3, 4, 5, ... still execute
+/// - State changes from successful operations persist even if a later operation fails
+///
+/// Each individual operation either succeeds completely or fails without side effects,
+/// but the overall batch does not rollback on failure.
+///
+/// # Example
+///
+/// ```text
+/// Batch of 5 operations: [op0, op1, op2, op3, op4]
+///    - op0: succeeds
+///    - op1: succeeds
+///    - op2: fails (malformed payload)
+///    - op3: succeeds
+///    - op4: succeeds
+///
+/// Result:
+///   total_ops: 5
+///   success_count: 4
+///   failure_count: 1
+///   failed_index: Some(2)
+///
+/// Contract state reflects op0, op1, op3, op4 having been applied.
+/// op2 had no effect due to the error.
+/// ```
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BatchResult {
@@ -3898,6 +3977,151 @@ impl FiatBridge {
     }
 
     // ── Batched Admin Operations ──────────────────────────────────────────
+
+    /// Executes a batch of administrative operations atomically.
+    ///
+    /// Allows the contract admin to perform multiple state mutations in a single transaction.
+    /// Each operation is processed sequentially; if an operation fails, execution continues
+    /// with the next operation (no rollback).
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract environment
+    /// * `operations` - A vector of `BatchAdminOp` structures, each specifying an operation type
+    ///   and binary-encoded parameters
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(BatchResult)` - Detailed results including success/failure counts and the index
+    ///   of the first operation that failed (if any)
+    /// * `Err(Error::NotInitialized)` - Contract has not been initialized
+    /// * `Err(Error::Overflow)` - Internal counter overflow (extremely unlikely)
+    ///
+    /// # Authorization
+    ///
+    /// Requires that the caller be the contract admin:
+    /// ```rust,no_run
+    /// admin.require_auth()  // Panics/errors if caller is not admin
+    /// ```
+    ///
+    /// # Supported Operations
+    ///
+    /// | Operation | Symbol | Payload | Effect |
+    /// |-----------|--------|---------|--------|
+    /// | Set cooldown | `"set_cooldown"` | u32 BE | Sets cooldown period in ledgers |
+    /// | Set lock period | `"set_lock"` | u32 BE | Sets lock period in ledgers |
+    /// | Set quota | `"set_quota"` | i128 BE | Sets daily withdrawal quota |
+    /// | Set sandwich delay | `"set_sandwich"` | u32 BE | Sets anti-sandwich delay in ledgers |
+    /// | Pause | `"pause"` | (empty) | Pauses all user deposits/withdrawals |
+    /// | Unpause | `"unpause"` | (empty) | Resumes user deposits/withdrawals |
+    ///
+    /// For detailed payload encoding rules, see [`BatchAdminOp`].
+    ///
+    /// # Execution Semantics
+    ///
+    /// **Key behavior**: This is **not** a transactional rollback operation. If operation N
+    /// fails, operations 0 to N-1 have already modified contract state, and operations N+1
+    /// onwards still execute.
+    ///
+    /// 1. Authorization check: Caller must be admin
+    /// 2. For each operation in order:
+    ///    a. Attempt `execute_single_admin_op()`
+    ///    b. On success: increment `success_count`
+    ///    c. On failure: increment `failure_count`, record `failed_index` if first failure,
+    ///       and continue to next operation
+    /// 3. Emit `BatchOkEvent` with final counts (or multiple `BatchFailEvent`s if failures occurred)
+    /// 4. Return `BatchResult` with final counts
+    ///
+    /// # Error Recording
+    ///
+    /// When an operation fails:
+    /// - A `BatchFailEvent` is emitted containing the operation's index
+    /// - Execution continues with the next operation
+    /// - The operation is counted in `failure_count`
+    /// - `failed_index` is set to this operation's index (if it's the first failure)
+    ///
+    /// Only the **first** failure's index is recorded in `BatchResult.failed_index`.
+    /// Subsequent failures are counted but their indices are not stored.
+    ///
+    /// # Events Emitted
+    ///
+    /// - `BatchFailEvent`: Emitted for each operation that fails
+    ///   - Contains: version, operation index, total operations count
+    /// - `BatchOkEvent`: Emitted at the end
+    ///   - Contains: version, success_count, failure_count, total_ops
+    ///
+    /// # Examples
+    ///
+    /// ## Successful Batch
+    ///
+    /// ```rust,no_run
+    /// # use soroban_sdk::{Env, Symbol, Bytes};
+    /// # struct Bridge;
+    /// # impl Bridge {
+    /// # pub fn execute_batch_admin(env: Env, ops: Vec<BatchAdminOp>) -> Result<BatchResult, Error> { unimplemented!() }
+    /// let mut ops = soroban_sdk::Vec::new(&env);
+    ///
+    /// // Operation 0: Set cooldown to 100 ledgers
+    /// ops.push_back(BatchAdminOp {
+    ///     op_type: Symbol::new(&env, "set_cooldown"),
+    ///     payload: Bytes::from_array(&env, &100u32.to_be_bytes()),
+    /// });
+    ///
+    /// // Operation 1: Set lock period to 50 ledgers
+    /// ops.push_back(BatchAdminOp {
+    ///     op_type: Symbol::new(&env, "set_lock"),
+    ///     payload: Bytes::from_array(&env, &50u32.to_be_bytes()),
+    /// });
+    ///
+    /// let result = bridge.execute_batch_admin(&env, ops)?;
+    /// assert_eq!(result.total_ops, 2);
+    /// assert_eq!(result.success_count, 2);
+    /// assert_eq!(result.failure_count, 0);
+    /// assert!(result.failed_index.is_none());
+    /// # }
+    /// ```
+    ///
+    /// ## Batch with Failures
+    ///
+    /// ```rust,no_run
+    /// # use soroban_sdk::{Env, Symbol, Bytes};
+    /// # struct Bridge;
+    /// # impl Bridge {
+    /// # pub fn execute_batch_admin(env: Env, ops: Vec<BatchAdminOp>) -> Result<BatchResult, Error> { unimplemented!() }
+    /// let mut ops = soroban_sdk::Vec::new(&env);
+    ///
+    /// // Operation 0: Valid - set cooldown
+    /// ops.push_back(BatchAdminOp {
+    ///     op_type: Symbol::new(&env, "set_cooldown"),
+    ///     payload: Bytes::from_array(&env, &100u32.to_be_bytes()),
+    /// });
+    ///
+    /// // Operation 1: Invalid - malformed payload (too short)
+    /// ops.push_back(BatchAdminOp {
+    ///     op_type: Symbol::new(&env, "set_lock"),
+    ///     payload: Bytes::new(&env),  // ERROR: requires 4 bytes!
+    /// });
+    ///
+    /// // Operation 2: Valid - still executes despite operation 1 failure
+    /// ops.push_back(BatchAdminOp {
+    ///     op_type: Symbol::new(&env, "set_sandwich"),
+    ///     payload: Bytes::from_array(&env, &3u32.to_be_bytes()),
+    /// });
+    ///
+    /// let result = bridge.execute_batch_admin(&env, ops)?;
+    /// // Result:
+    /// //   total_ops: 3
+    /// //   success_count: 2 (operations 0 and 2)
+    /// //   failure_count: 1 (operation 1)
+    /// //   failed_index: Some(1) (first failure at index 1)
+    /// # }
+    /// ```
+    ///
+    /// # See Also
+    ///
+    /// - [`BatchAdminOp`]: Structure defining individual operations
+    /// - [`BatchResult`]: Detailed result information
+    /// - [BATCH_OPERATIONS.md](../../docs/BATCH_OPERATIONS.md): Comprehensive batch operations guide
     pub fn execute_batch_admin(
         env: Env,
         operations: Vec<BatchAdminOp>,
@@ -3951,6 +4175,42 @@ impl FiatBridge {
         Ok(batch_result)
     }
 
+    /// Executes a single administrative operation.
+    ///
+    /// This is a private helper function called by `execute_batch_admin` to process
+    /// individual operations. It dispatches to the appropriate handler based on the
+    /// operation type.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract environment
+    /// * `op` - The operation to execute
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Operation executed successfully
+    /// * `Err(Error::InternalError)` - Any error condition:
+    ///   - Unknown operation type
+    ///   - Malformed or incorrectly-sized payload
+    ///   - Payload decoding failure
+    ///
+    /// # Operation Handlers
+    ///
+    /// | op_type | Handler | Effect |
+    /// |---------|---------|--------|
+    /// | `"set_cooldown"` | Decode u32, store in `DataKey::CooldownLedgers` | ✓ |
+    /// | `"set_lock"` | Decode u32, store in `DataKey::LockPeriod` | ✓ |
+    /// | `"set_quota"` | Decode i128, store in `DataKey::WithdrawalQuota` | ✓ |
+    /// | `"set_sandwich"` | Decode u32, store in `DataKey::AntiSandwichDelay` | ✓ |
+    /// | `"pause"` | Store `true` in `DataKey::Paused` | ✓ |
+    /// | `"unpause"` | Store `false` in `DataKey::Paused` | ✓ |
+    /// | (anything else) | Return `Error::InternalError` | - |
+    ///
+    /// # Notes
+    ///
+    /// - Each operation either succeeds completely or fails without side effects
+    /// - Failures are counted but do not stop subsequent operations
+    /// - State changes from successful operations are immediately visible
     fn execute_single_admin_op(env: &Env, op: &BatchAdminOp) -> Result<(), Error> {
         let op_name = &op.op_type;
 
@@ -3997,6 +4257,41 @@ impl FiatBridge {
         }
     }
 
+    /// Converts a big-endian byte sequence to a `u32`.
+    ///
+    /// Used to decode operation payloads that contain unsigned 32-bit integers.
+    /// The bytes must be in **big-endian** byte order (most significant byte first).
+    ///
+    /// # Arguments
+    ///
+    /// * `_env` - The contract environment (unused)
+    /// * `bytes` - The byte sequence to decode
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(u32)` - The decoded value
+    /// * `Err(Error::InternalError)` - The byte sequence is shorter than 4 bytes
+    ///
+    /// # Byte Order
+    ///
+    /// The function assumes **big-endian** encoding:
+    /// ```text
+    /// Bytes:  [0xAA, 0xBB, 0xCC, 0xDD]
+    /// Result: 0xAABBCCDD
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::InternalError` if `bytes.len() < 4`. This typically represents
+    /// a malformed payload in a batch operation.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// bytes_to_u32(Bytes::from_array([0x00, 0x00, 0x00, 0x64])) -> Ok(100)
+    /// bytes_to_u32(Bytes::from_array([0x00, 0x00, 0x01, 0x00])) -> Ok(256)
+    /// bytes_to_u32(Bytes::new())                                 -> Err(InternalError)
+    /// ```
     fn bytes_to_u32(_env: &Env, bytes: &Bytes) -> Result<u32, Error> {
         if bytes.len() < 4 {
             return Err(Error::InternalError);
@@ -4008,6 +4303,47 @@ impl FiatBridge {
         Ok(u32::from_be_bytes(arr))
     }
 
+    /// Converts a big-endian byte sequence to an `i128`.
+    ///
+    /// Used to decode operation payloads that contain signed 128-bit integers.
+    /// The bytes must be in **big-endian** byte order (most significant byte first).
+    /// Negative numbers are represented using two's complement notation.
+    ///
+    /// # Arguments
+    ///
+    /// * `_env` - The contract environment (unused)
+    /// * `bytes` - The byte sequence to decode (must be exactly 16 bytes)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(i128)` - The decoded value (can be positive, negative, or zero)
+    /// * `Err(Error::InternalError)` - The byte sequence is shorter than 16 bytes
+    ///
+    /// # Byte Order
+    ///
+    /// The function assumes **big-endian** encoding with two's complement for negatives:
+    /// ```text
+    /// Positive example:
+    /// Bytes:  [0x00, 0x00, ..., 0x00, 0x64]  (15 zeros followed by 0x64)
+    /// Result: 100
+    ///
+    /// Negative example:
+    /// Bytes:  [0xFF, 0xFF, ..., 0xFF, 0xFF]  (all 0xFF)
+    /// Result: -1
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::InternalError` if `bytes.len() < 16`. This typically represents
+    /// a malformed payload in a batch operation (e.g., `set_quota` with insufficient data).
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// bytes_to_i128([0x00, 0x00, ..., 0x00, 0x64]) -> Ok(100)
+    /// bytes_to_i128([0xFF, 0xFF, ..., 0xFF, 0xFF]) -> Ok(-1)
+    /// bytes_to_i128([...partial data...])          -> Err(InternalError)
+    /// ```
     fn bytes_to_i128(_env: &Env, bytes: &Bytes) -> Result<i128, Error> {
         if bytes.len() < 16 {
             return Err(Error::InternalError);
