@@ -130,6 +130,47 @@ describe('TransactionAmountDisplay', () => {
   });
 });
 
+// ── Dynamic theme tokens (issue #593) ──────────────────────────────────
+describe('TransactionAmountDisplay - dynamic theme tokens', () => {
+  afterEach(cleanup);
+
+  it('renders the amount with the primary theme token instead of hardcoded colours', () => {
+    render(<TransactionAmountDisplay amount={100} asset="XLM" />);
+    const amountText = screen.getByText(/100 XLM ≈ \$12\.40 USD/i);
+    expect(amountText).toHaveClass('theme-text-primary');
+    expect(amountText.className).not.toMatch(/text-gray-300/);
+  });
+
+  it('renders the stored fiat line with the muted theme token', () => {
+    render(
+      <TransactionAmountDisplay
+        amount={100}
+        asset="XLM"
+        fiatAmount="12.40"
+        fiatCurrency="USD"
+      />
+    );
+    const storedFiat = screen.getByText(/Stored fiat: 12.40 USD/i);
+    expect(storedFiat).toHaveClass('theme-text-muted');
+    expect(storedFiat.className).not.toMatch(/text-gray-(400|500)/);
+  });
+});
+
+// ── Themed error border colour (issue #596) ─────────────────────────────
+describe('TransactionAmountDisplay - error border colour', () => {
+  afterEach(cleanup);
+
+  it('renders the error state with a themed danger border', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(<TransactionAmountDisplay amount={0} />);
+    const errorMessage = screen.getByText(/Amount must be positive/i);
+    expect(errorMessage).toHaveClass('theme-soft-danger');
+    expect(errorMessage).toHaveClass('border');
+    expect(errorMessage.className).not.toMatch(/text-red-500/);
+    consoleSpy.mockRestore();
+  });
+});
+
 describe('TransactionAmountDisplay - Framer Motion Animations', () => {
   afterEach(cleanup);
 
