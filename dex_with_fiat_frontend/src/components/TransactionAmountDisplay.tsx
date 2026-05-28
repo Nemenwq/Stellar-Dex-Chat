@@ -17,6 +17,23 @@ import { motion } from 'framer-motion';
 export function TransactionAmountDisplay(props: TransactionAmountProps) {
   const result = transactionAmountSchema.safeParse(props);
 
+  // Derive values for hooks unconditionally — hooks must not be called after
+  // a conditional return (Rules of Hooks). Fall back to neutral values when
+  // the parse fails so useCurrencyConversion still receives valid arguments.
+  const parsed = result.success ? result.data : null;
+  const numericAmount = parsed
+    ? (typeof parsed.amount === 'string' ? parseFloat(parsed.amount) : parsed.amount)
+    : 0;
+  const normalizedAsset = parsed?.asset || 'XLM';
+
+  const { displayText } = useCurrencyConversion(numericAmount, normalizedAsset);
+
+  // Auto-scroll: keep the latest amount visible whenever displayText updates.
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [displayText]);
+
   if (!result.success) {
     const errorMessage = result.error.issues[0]?.message || 'Invalid Amount Data';
     console.error('TransactionAmountDisplay: Invalid props', result.error.format());
@@ -32,20 +49,11 @@ export function TransactionAmountDisplay(props: TransactionAmountProps) {
     );
   }
 
-  const { amount, asset, fiatAmount, fiatCurrency } = result.data;
-
-  const numericAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
-  const normalizedAsset = asset || 'XLM';
-  const { displayText } = useCurrencyConversion(numericAmount, normalizedAsset);
-
-  // Auto-scroll: keep the latest amount visible whenever displayText updates.
-  const containerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }, [displayText]);
+  const { fiatAmount, fiatCurrency } = result.data;
 
   return (
     <motion.div
+      ref={containerRef}
       className="flex flex-col gap-1"
       initial={{ opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}

@@ -228,3 +228,68 @@ describe('TransactionAmountDisplay - Framer Motion Animations', () => {
     expect(displayText2).toBeInTheDocument();
   });
 });
+
+// ── Rules of Hooks regression (issue #596 fix) ───────────────────────────────
+// Hooks were previously called after a conditional early return, violating the
+// Rules of Hooks. This caused intermittent glitches (incorrect border colour,
+// stale state) when the component transitioned between valid and invalid props.
+describe('TransactionAmountDisplay - Rules of Hooks regression', () => {
+  afterEach(cleanup);
+
+  it('does not crash when switching from invalid to valid props', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { rerender } = render(<TransactionAmountDisplay amount={0} />);
+    expect(screen.getByText(/Amount must be positive/i)).toBeDefined();
+
+    // Switching to valid props must not throw a hook-order error
+    expect(() => {
+      rerender(<TransactionAmountDisplay amount={100} asset="XLM" />);
+    }).not.toThrow();
+
+    expect(screen.getByText(/100 XLM ≈ \$12\.40 USD/i)).toBeDefined();
+    consoleSpy.mockRestore();
+  });
+
+  it('does not crash when switching from valid to invalid props', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { rerender } = render(<TransactionAmountDisplay amount={100} asset="XLM" />);
+    expect(screen.getByText(/100 XLM ≈ \$12\.40 USD/i)).toBeDefined();
+
+    expect(() => {
+      rerender(<TransactionAmountDisplay amount={null as unknown as number} />);
+    }).not.toThrow();
+
+    consoleSpy.mockRestore();
+  });
+
+  it('attaches containerRef to the DOM element so scrollIntoView is called', () => {
+    const scrollIntoView = vi.fn();
+    window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+
+    render(<TransactionAmountDisplay amount={100} asset="XLM" />);
+
+    // The ref must be attached to the rendered div, so scrollIntoView fires
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'nearest' });
+  });
+
+  it('renders multiple valid/invalid cycles without hook-order errors', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { rerender } = render(<TransactionAmountDisplay amount={100} asset="XLM" />);
+
+    for (let i = 0; i < 3; i++) {
+      rerender(<TransactionAmountDisplay amount={-1} />);
+      rerender(<TransactionAmountDisplay amount={50 + i} asset="XLM" />);
+    }
+
+    // If no hook-order error, console.error is only called for invalid props
+    const hookErrors = consoleSpy.mock.calls.filter((args) =>
+      String(args[0]).toLowerCase().includes('hook')
+    );
+    expect(hookErrors).toHaveLength(0);
+
+    consoleSpy.mockRestore();
+  });
+});

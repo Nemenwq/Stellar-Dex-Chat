@@ -1,3 +1,4 @@
+import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import '@testing-library/jest-dom';
@@ -323,5 +324,66 @@ describe('AdminDashboard - Optimistic UI Updates', () => {
         actions: [],
       }),
     } as Response);
+  });
+});
+
+describe('AdminDashboard - ErrorBoundary protection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => [],
+    } as Response);
+  });
+
+  it('renders AdminErrorFallback when a child component throws', async () => {
+    // Suppress the expected React error boundary console output
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    // Replace AuditTable with a component that throws to simulate a runtime crash
+    vi.mock('@/components/AuditTable', () => ({
+      default: () => {
+        throw new Error('Simulated runtime crash');
+      },
+    }));
+
+    render(<AdminDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to load dashboard/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+    expect(screen.queryByText('Admin Dashboard')).not.toBeInTheDocument();
+
+    consoleError.mockRestore();
+    vi.unmock('@/components/AuditTable');
+  });
+
+  it('shows a retry button that reloads the page on click', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const reloadSpy = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, reload: reloadSpy },
+      writable: true,
+    });
+
+    vi.mock('@/components/AuditTable', () => ({
+      default: () => {
+        throw new Error('Simulated crash');
+      },
+    }));
+
+    render(<AdminDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to load dashboard/i)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+
+    consoleError.mockRestore();
+    vi.unmock('@/components/AuditTable');
   });
 });
