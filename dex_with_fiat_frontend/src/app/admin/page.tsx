@@ -12,6 +12,7 @@ import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import AuditTable from '@/components/AuditTable';
 import useBridgeStats from '@/hooks/useBridgeStats';
 import AdminGuard from '@/components/AdminGuard';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { stroopsToDisplay } from '@/lib/stellarContract';
 import {
   AreaChart,
@@ -103,6 +104,28 @@ function useChartColors() {
   }, []);
 
   return colors;
+}
+
+function AdminErrorFallback() {
+  return (
+    <div className="min-h-screen theme-app flex items-center justify-center p-8">
+      <div className="text-center max-w-md">
+        <h2 className="text-2xl font-bold theme-text-primary mb-3">
+          Failed to load dashboard
+        </h2>
+        <p className="theme-text-muted mb-6">
+          Something went wrong while loading the admin dashboard. Please try again.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="theme-primary-button px-6 py-2 rounded-md"
+        >
+          Retry
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function AdminDashboard() {
@@ -313,6 +336,7 @@ export default function AdminDashboard() {
 
   return (
     <AdminGuard>
+      <ErrorBoundary fallback={<AdminErrorFallback />}>
       <div className="min-h-screen theme-app p-8">
         <div className="max-w-7xl mx-auto">
           <div className="flex justify-between items-center mb-8">
@@ -689,6 +713,7 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+      </ErrorBoundary>
     </AdminGuard>
   );
 }
