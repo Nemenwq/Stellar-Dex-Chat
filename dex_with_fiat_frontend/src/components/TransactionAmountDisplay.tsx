@@ -22,7 +22,7 @@ export function TransactionAmountDisplay(props: TransactionAmountProps) {
     console.error('TransactionAmountDisplay: Invalid props', result.error.format());
     return (
       <motion.span
-        className="text-red-500 text-xs italic"
+        className="theme-soft-danger inline-flex items-center rounded-md border px-2 py-1 text-xs italic"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.2 }}
@@ -52,7 +52,7 @@ export function TransactionAmountDisplay(props: TransactionAmountProps) {
       transition={{ duration: 0.3, ease: 'easeOut' }}
     >
       <motion.span
-        className="font-medium dark:text-gray-300"
+        className="font-medium theme-text-primary"
         key={displayText}
         initial={{ scale: 0.95, opacity: 0.7 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -62,7 +62,7 @@ export function TransactionAmountDisplay(props: TransactionAmountProps) {
       </motion.span>
       {fiatAmount && fiatCurrency && (
         <motion.span
-          className="text-xs text-gray-500 dark:text-gray-400"
+          className="text-xs theme-text-muted"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.2, delay: 0.1 }}
