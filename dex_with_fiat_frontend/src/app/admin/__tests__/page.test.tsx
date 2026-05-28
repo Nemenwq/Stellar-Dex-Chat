@@ -58,18 +58,24 @@ describe('AdminDashboard - Dark Mode Support', () => {
     expect(container?.className).toContain('theme-');
   });
 
-  it('applies CSS tokens for colors', async () => {
+  it('applies CSS tokens for colors — no raw Tailwind colour classes remain', async () => {
     render(<AdminDashboard />);
 
     await waitFor(() => {
       expect(screen.getByText('Admin Dashboard')).toBeInTheDocument();
     });
 
-    // Verify no hardcoded Tailwind color classes
     const html = document.body.innerHTML;
-    expect(html).not.toMatch(/bg-blue-\d+/);
-    expect(html).not.toMatch(/text-gray-\d+/);
-    expect(html).not.toMatch(/border-gray-\d+/);
+
+    // Acceptance-criteria checks: none of these raw Tailwind colour classes should appear
+    expect(html).not.toMatch(/\bbg-gray-\d+\b/);
+    expect(html).not.toMatch(/\bbg-white\b/);
+    expect(html).not.toMatch(/\bbg-blue-\d+\b/);
+    expect(html).not.toMatch(/\bbg-indigo-\d+\b/);
+    expect(html).not.toMatch(/\btext-gray-\d+\b/);
+    expect(html).not.toMatch(/\bborder-blue-\d+\b/);
+    expect(html).not.toMatch(/\bborder-indigo-\d+\b/);
+    expect(html).not.toMatch(/\bborder-gray-\d+\b/);
   });
 
   it('uses theme utility classes for surfaces', async () => {
