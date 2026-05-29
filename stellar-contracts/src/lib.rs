@@ -581,6 +581,13 @@ pub struct CircuitBreakerAutoResetEvent {
     pub reset_at: u32,
 }
 
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct CircuitBreakerBlockedEvent {
+    pub version: u32,
+    pub function: Symbol,
+}
+
 // ── Storage keys ──────────────────────────────────────────────────────────
 #[contracttype]
 pub enum DataKey {
@@ -2992,20 +2999,36 @@ impl FiatBridge {
             .get(&DataKey::WithdrawCooldownThreshold)
             .unwrap_or(0)
     }
-    pub fn get_receipt_by_index(env: Env, idx: u64) -> Option<Receipt> {
+    pub fn get_receipt_by_index(env: Env, idx: u64) -> Result<Option<Receipt>, Error> {
+        // ── Issue #511: circuit breaker guard ────────────────────────────
+        if Self::is_circuit_breaker_tripped(env.clone()) {
+            CircuitBreakerBlockedEvent {
+                version: EVENT_VERSION,
+                function: Symbol::new(&env, "get_receipt_by_index"),
+            }
+            .publish(&env);
+            return Err(Error::CircuitBreakerActive);
+        }
         let max_receipts: u64 = env
             .storage()
             .instance()
             .get(&DataKey::ReceiptCounter)
             .unwrap_or(0);
         if idx >= max_receipts {
-            return None; // Circuit breaker triggers to prevent out of bounds execution and excessive cycles
+            return Ok(None);
         }
-        let receipt_hash: BytesN<32> =
-            env.storage().temporary().get(&DataKey::ReceiptIndex(idx))?;
-        env.storage()
+        let receipt_hash: BytesN<32> = match env
+            .storage()
+            .temporary()
+            .get(&DataKey::ReceiptIndex(idx))
+        {
+            Some(h) => h,
+            None => return Ok(None),
+        };
+        Ok(env
+            .storage()
             .persistent()
-            .get(&DataKey::Receipt(receipt_hash))
+            .get(&DataKey::Receipt(receipt_hash)))
     }
 
     pub fn get_withdrawal_request(env: Env, id: u64) -> Option<WithdrawRequest> {
