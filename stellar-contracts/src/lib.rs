@@ -49,6 +49,8 @@ const DEFAULT_INACTIVITY_THRESHOLD: u32 = 1_555_200;
 /// is rejected with [`Error::UpgradeDelayTooShort`] to prevent surprise
 /// upgrades that bypass the governance timelock.
 const MIN_UPGRADE_DELAY: u32 = 1_000;
+/// Maximum number of signers allowed in the multi-signature configuration.
+const MAX_SIGNERS: u32 = 20;
 /// Version tag embedded in all contract events for indexer compatibility.
 pub const EVENT_VERSION: u32 = 1;
 /// Current escrow storage schema version used by the migration system.
@@ -136,6 +138,14 @@ pub enum Error {
     AlreadyApproved = 1105,
     ProposalAlreadyExecuted = 1106,
     ThresholdNotMet = 1107,
+    MaxSignersReached = 1108,
+
+    // --- 1200 series: Receipt query ---
+    /// `get_receipt_by_index` was called with an index >= the receipt counter.
+    ReceiptIndexOutOfBounds = 1201,
+    /// `get_receipt_by_index` resolved to an index/hash that has no receipt
+    /// stored (typically the temporary index entry has expired).
+    ReceiptNotFound = 1202,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -235,6 +245,33 @@ pub struct UserDailyDeposit {
     pub window_start: u32,
 }
 
+/// Versioned escrow record with migration metadata.
+///
+/// This struct represents an escrow record that has been migrated to the versioned
+/// storage schema. It includes metadata about the migration process and the original
+/// transaction details.
+///
+/// # Fields
+///
+/// * `version` - Schema version of this record (e.g., 1 for v1 schema)
+/// * `depositor` - Address of the original depositor who created the escrow
+/// * `token` - Token address for the escrowed amount
+/// * `amount` - Escrowed amount in token units
+/// * `ledger` - Stellar ledger number when the escrow was created
+/// * `migrated` - Flag indicating if this record has been successfully migrated
+///
+/// # Example
+///
+/// ```rust
+/// let record = EscrowRecord {
+///     version: 1,
+///     depositor: Address::from_string(&String::from_str(&env, "G...")),
+///     token: Address::from_string(&String::from_str(&env, "G...")),
+///     amount: 100_000_000,
+///     ledger: 12345,
+///     migrated: true,
+/// };
+/// ```
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowRecord {
@@ -245,7 +282,36 @@ pub struct EscrowRecord {
     pub ledger: u32,
     pub migrated: bool,
 }
-
+/// A single administrative operation in a batch.
+///
+/// # Fields
+///
+/// * `op_type` - Symbol identifying the operation type (e.g., "set_cooldown", "pause")
+/// * `payload` - Binary-encoded operation parameters (format depends on op_type)
+///
+/// # Operation Types
+///
+/// | op_type | payload_len | payload_format | description |
+/// |---------|-------------|----------------|-------------|
+/// | `set_cooldown` | 4 | u32 big-endian | Set cooldown period in ledgers |
+/// | `set_lock` | 4 | u32 big-endian | Set lock period in ledgers |
+/// | `set_quota` | 16 | i128 big-endian | Set daily withdrawal quota |
+/// | `set_sandwich` | 4 | u32 big-endian | Set anti-sandwich delay in ledgers |
+/// | `pause` | 0 | (empty) | Pause all user operations |
+/// | `unpause` | 0 | (empty) | Resume user operations |
+///
+/// # Payload Encoding Rules
+///
+/// All numeric payloads use **big-endian byte order**. For example:
+///
+/// ```rust,no_run
+/// // To encode u32 value 100:
+/// let value: u32 = 100;
+/// let payload = Bytes::from_array(&env, &value.to_be_bytes());
+/// // payload = [0x00, 0x00, 0x00, 0x64]
+/// ```
+///
+/// Payloads that are too short will cause the operation to fail with `Error::InternalError`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BatchAdminOp {
@@ -253,6 +319,56 @@ pub struct BatchAdminOp {
     pub payload: Bytes,
 }
 
+/// Result of executing a batch of administrative operations.
+///
+/// Contains detailed counters for success/failure and indicates which operation
+/// failed first (if any). Operations continue executing after failures—this is
+/// not a transactional rollback scenario.
+///
+/// # Fields
+///
+/// * `total_ops` - Total number of operations in the batch
+/// * `success_count` - Number of successfully executed operations
+/// * `failure_count` - Number of failed operations (operations that returned an error)
+/// * `failed_index` - Zero-based index of the **first** operation that failed, or None if all succeeded
+///
+/// # Invariants
+///
+/// 1. `success_count + failure_count == total_ops` (always true)
+/// 2. If `failure_count == 0`, then `failed_index == None`
+/// 3. If `failure_count > 0`, then `failed_index == Some(idx)` where idx is the index of
+///    the first failure (not the only failure, but the **first**); other failures may exist
+///    at higher indices but are not recorded in `failed_index`
+///
+/// # Execution Semantics
+///
+/// **Important**: The batch is **not** atomic with respect to individual operation failures:
+/// - If operation at index 2 fails, operations at indices 0 and 1 have already been applied
+/// - Operations at indices 3, 4, 5, ... still execute
+/// - State changes from successful operations persist even if a later operation fails
+///
+/// Each individual operation either succeeds completely or fails without side effects,
+/// but the overall batch does not rollback on failure.
+///
+/// # Example
+///
+/// ```text
+/// Batch of 5 operations: [op0, op1, op2, op3, op4]
+///    - op0: succeeds
+///    - op1: succeeds
+///    - op2: fails (malformed payload)
+///    - op3: succeeds
+///    - op4: succeeds
+///
+/// Result:
+///   total_ops: 5
+///   success_count: 4
+///   failure_count: 1
+///   failed_index: Some(2)
+///
+/// Contract state reflects op0, op1, op3, op4 having been applied.
+/// op2 had no effect due to the error.
+/// ```
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BatchResult {
@@ -291,9 +407,13 @@ pub struct DeployHashEvent {
 #[derive(Clone, Debug)]
 pub struct DepositEvent {
     pub version: u32,
+    /// Admin that co-authorized the deposit (recorded for off-chain audit).
+    pub admin: Address,
     pub from: Address,
     pub token: Address,
     pub amount: i128,
+    /// Receipt ID issued for this deposit, linking deposit and receipt events.
+    pub receipt_id: BytesN<32>,
 }
 
 #[contractevent]
@@ -302,6 +422,15 @@ pub struct ReceiptIssuedEvent {
     pub version: u32,
     pub receipt_id: BytesN<32>,
     pub memo_hash: Option<BytesN<32>>,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct ReceiptQueryEvent {
+    pub version: u32,
+    pub index: u64,
+    pub receipt_hash: Option<BytesN<32>>,
+    pub error_code: Option<u32>,
 }
 
 #[contractevent]
@@ -386,6 +515,7 @@ pub struct SetMinDepositEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
+/// Emitted when the admin updates the global per-token limit ceiling.
 pub struct SetLimitMaxCapEvent {
     pub version: u32,
     pub max_cap: i128,
@@ -501,6 +631,30 @@ pub struct QuotaResetEvent {
     pub window_start: u32,
 }
 
+/// Event emitted during escrow storage migration to track progress.
+///
+/// This event is published after each batch of records is migrated, allowing
+/// indexers and monitoring systems to track the migration progress in real-time.
+///
+/// # Fields
+///
+/// * `version` - Event schema version (e.g., 1 for v1 events)
+/// * `cursor` - Current migration cursor position (last processed record ID)
+/// * `migrated_count` - Number of records migrated in this batch
+///
+/// # Event Topics
+///
+/// `(Symbol::short("migration"), Symbol::short("v1"))`
+///
+/// # Example
+///
+/// ```rust
+/// MigrationEvent {
+///     version: 1,
+///     cursor: 5000,
+///     migrated_count: 100,
+/// }.publish(&env);
+/// ```
 #[contractevent]
 #[derive(Clone, Debug)]
 pub struct MigrationEvent {
@@ -679,7 +833,10 @@ pub enum DataKey {
     NextMultisigID,
     // ── Issue #695: replay protection for withdraw_fees ──────────────────
     FeeWithdrawalNonce(Address),
-    /// Maximum value allowed for per-token liability limits via `set_limit`.
+    /// Global ceiling for per-token liability limits assigned by `set_limit`.
+    ///
+    /// This value defaults to `i128::MAX` and may be lowered by
+    /// `set_limit_max_cap` to enforce a production risk ceiling.
     SetLimitMaxCap,
 }
 
@@ -813,6 +970,18 @@ impl FiatBridge {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         Self::validate_memo_hash(&env, &memo_hash)?;
         from.require_auth();
+
+        // Admin co-authentication: deposits require the admin's signature
+        // alongside the depositor's. This lets the bridge enforce off-chain
+        // KYC/AML decisions on-chain — the admin only co-signs after the
+        // operator-side checks have cleared.
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
         Self::require_not_paused(&env)?;
 
         if amount <= 0 {
@@ -1007,9 +1176,11 @@ impl FiatBridge {
 
         DepositEvent {
             version: EVENT_VERSION,
+            admin: admin.clone(),
             from: from.clone(),
             token: token.clone(),
             amount,
+            receipt_id: receipt_hash.clone(),
         }
         .publish(&env);
 
@@ -1191,9 +1362,13 @@ impl FiatBridge {
         admin.require_auth();
         Self::require_not_paused(&env)?;
 
-        if amount <= 0 {
-            return Err(Error::ZeroAmount);
-        }
+        require!(amount > 0, Error::ZeroAmount);
+
+        // ── Circuit breaker: reject withdrawal requests when tripped ─────
+        require!(
+            !Self::is_circuit_breaker_tripped(env.clone()),
+            Error::CircuitBreakerActive
+        );
 
         // ── Issue #687: edge case validation ─────────────────────────────
         // Validate token is whitelisted before proceeding
@@ -1689,24 +1864,30 @@ impl FiatBridge {
     ///
     /// This function can only be called by the current contract administrator.
     /// It ensures that the bridge does not exceed its risk capacity for the given asset.
+    ///
+    /// If an admin-configured global cap has been set via `set_limit_max_cap`,
+    /// this call rejects values above that ceiling with
+    /// [`Error::ExceedsLimitMaxCap`]. The cap applies to new or updated token
+    /// limits only; existing per-token limits are not retroactively reduced.
     pub fn set_limit(env: Env, token: Address, limit: i128) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
-        if Self::is_circuit_breaker_tripped(env.clone()) {
-            return Err(Error::CircuitBreakerActive);
-        }
+        require!(
+            !Self::is_circuit_breaker_tripped(env.clone()),
+            Error::CircuitBreakerActive
+        );
+        require!(limit > 0, Error::ZeroAmount);
         let max_cap: i128 = env
             .storage()
             .instance()
             .get(&DataKey::SetLimitMaxCap)
             .unwrap_or(i128::MAX);
-        if limit > max_cap {
-            return Err(Error::ExceedsLimitMaxCap);
-        }
+        require!(limit <= max_cap, Error::ExceedsLimitMaxCap);
         let mut config: TokenConfig = env
             .storage()
             .persistent()
@@ -1725,7 +1906,12 @@ impl FiatBridge {
         Ok(())
     }
 
-    /// Sets the maximum value that `set_limit` may assign for any token.
+    /// Sets the global ceiling for per-token liability limits assigned by
+    /// [`set_limit`].
+    ///
+    /// This global max cap is a risk control: it prevents any subsequent
+    /// `set_limit(token, limit)` call from assigning `limit` above `max_cap`.
+    /// It does not retroactively lower already-configured token limits.
     ///
     /// Defaults to `i128::MAX` after `init` (no practical ceiling). Admins should
     /// set this to a risk-appropriate cap in production.
@@ -1751,6 +1937,10 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Returns the current configured global ceiling for token limits.
+    ///
+    /// If no cap has been explicitly set, this returns `i128::MAX`, which means
+    /// `set_limit` is effectively unrestricted by the global ceiling.
     pub fn get_set_limit_max_cap(env: Env) -> i128 {
         env.storage()
             .instance()
@@ -2065,22 +2255,48 @@ impl FiatBridge {
 
     /// Enforces `max_slippage_bps` on **downward** price moves only.
     ///
-    /// # Model
+    /// # Parameters
     ///
-    /// - `expected_price` — benchmark (e.g. oracle) price used for the check.
-    /// - `actual_price` — effective price for the current deposit/withdraw path.
-    /// - `max_slippage_bps` — cap in **basis points** (10_000 BPS = 100%). Only
+    /// - `expected_price` - benchmark (e.g. oracle) price used for the check.
+    ///   Skipped entirely when `<= 0` (no benchmark available).
+    /// - `actual_price` - effective price for the current deposit/withdraw path.
+    /// - `max_slippage_bps` - cap in **basis points** (10_000 BPS = 100%). Only
     ///   applies when `actual_price < expected_price`.
     ///
     /// # Display vs assertion
     ///
     /// The emitted `SlippageEvent` uses **floor** BPS:
-    /// `⌊(expected - actual) * 10_000 / expected⌋` when `actual < expected`, else `0`.
+    /// `floor((expected - actual) * 10_000 / expected)` when `actual < expected`, else `0`.
     ///
     /// The revert decision uses **integer cross-multiplication** and a
     /// **remainder guard** when the floored quotient equals `max_slippage_bps`,
-    /// so boundary tests at “exactly max” vs “max + 1 bps” stay stable without
+    /// so boundary tests at "exactly max" vs "max + 1 bps" stay stable without
     /// floating point. See `docs/slippage-threshold.md` at the repo root.
+    ///
+    /// # Algorithm (step-by-step)
+    ///
+    /// 1. If `actual_price >= expected_price` - slippage is zero; return `Ok(())`.
+    /// 2. Compute `diff = expected_price - actual_price`.
+    /// 3. **Fast reject**: if `diff * 10_000 > max_slippage_bps * expected_price`
+    ///    the slippage is clearly over the cap; return `Err(SlippageTooHigh)`.
+    /// 4. Compute `quotient = (diff * 10_000) / expected_price` (integer floor).
+    /// 5. If `quotient > max_slippage_bps` - return `Err(SlippageTooHigh)`.
+    /// 6. **Boundary guard**: if `quotient == max_slippage_bps`, inspect the
+    ///    remainder `r = (diff * 10_000) % expected_price`. If `r >= expected_price / 2`
+    ///    the true (ceiling) value would exceed the cap - return `Err(SlippageTooHigh)`.
+    /// 7. Otherwise return `Ok(())`.
+    ///
+    /// # Overflow safety
+    ///
+    /// `diff * 10_000` and `max_slippage_bps * expected_price` are both `i128`
+    /// multiplications. Given that `expected_price` is bounded by the fiat limit
+    /// (see `validate_fiat_limit`) and `max_slippage_bps <= 10_000`, neither
+    /// product can overflow `i128`. See `docs/OVERFLOW_PREVENTION.md`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::SlippageTooHigh`] when the effective downward slippage
+    /// exceeds `max_slippage_bps`.
     fn check_slippage(
         env: &Env,
         expected_price: i128,
@@ -2230,6 +2446,40 @@ impl FiatBridge {
     }
 
     // ── Timelock ──────────────────────────────────────────────────────────
+    /// Queue an admin action to be executed after the mandatory timelock delay.
+    ///
+    /// All privileged governance operations (parameter changes, operator
+    /// management, etc.) must be queued here first and can only be executed
+    /// once the timelock has elapsed.  This prevents surprise changes and
+    /// gives observers time to react.
+    ///
+    /// # Role check
+    /// Only the contract admin may call this function.  The admin address is
+    /// read from instance storage and `require_auth()` is called against it,
+    /// so the transaction must be signed by the admin key.  Operators and
+    /// other addresses are explicitly excluded — they hold a narrower role
+    /// that does not include governance authority.
+    ///
+    /// # Timelock enforcement
+    /// `delay` must be at least [`MIN_TIMELOCK_DELAY`] (34 560 ledgers ≈ 48 h).
+    /// Shorter delays are rejected with [`Error::ActionNotReady`] to prevent
+    /// governance actions from bypassing the mandatory waiting period.
+    ///
+    /// # Arguments
+    /// * `env`         – The contract environment.
+    /// * `action_type` – A [`Symbol`] identifying the action kind (used for
+    ///                   event emission and off-chain indexing).
+    /// * `payload`     – Arbitrary bytes encoding the action parameters.
+    /// * `delay`       – Number of ledgers to wait before the action becomes
+    ///                   executable.  Must be ≥ `MIN_TIMELOCK_DELAY`.
+    ///
+    /// # Returns
+    /// The numeric ID assigned to the queued action.  Pass this ID to
+    /// [`execute_admin_action`] once the timelock has elapsed.
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`] – Contract has not been initialised.
+    /// * [`Error::ActionNotReady`] – `delay` is below `MIN_TIMELOCK_DELAY`.
     pub fn queue_admin_action(
         env: Env,
         action_type: Symbol,
@@ -2272,6 +2522,30 @@ impl FiatBridge {
         Ok(id)
     }
 
+    /// Execute a previously queued admin action once its timelock has elapsed.
+    ///
+    /// # Role check
+    /// Only the contract admin may execute queued actions.  The same
+    /// `require_auth()` guard used in [`queue_admin_action`] applies here,
+    /// ensuring that the entity that queued the action is also the one that
+    /// executes it.  This prevents a scenario where an attacker who gains
+    /// temporary access to the queue could trigger execution without the
+    /// admin's continued authorisation.
+    ///
+    /// # Timelock enforcement
+    /// The action is only executable once `env.ledger().sequence()` is
+    /// strictly greater than `action.target_ledger` (i.e. `>`, not `>=`).
+    /// This adds one extra ledger of safety margin and is consistent with
+    /// the off-by-one fix documented in [`execute_upgrade`].
+    ///
+    /// # Arguments
+    /// * `env` – The contract environment.
+    /// * `id`  – The action ID returned by [`queue_admin_action`].
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`]  – Contract has not been initialised.
+    /// * [`Error::ActionNotQueued`] – No action exists for the given `id`.
+    /// * [`Error::ActionNotReady`]  – The timelock has not yet elapsed.
     pub fn execute_admin_action(env: Env, id: u64) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -2307,6 +2581,37 @@ impl FiatBridge {
     /// Operators are restricted roles that can perform low-stakes actions like
     /// heartbeats but cannot change core contract parameters.
     /// Admin-only function.
+    ///
+    /// # Role separation (timelock role check)
+    /// The admin and operator roles are intentionally kept separate:
+    ///
+    /// * **Admin** – governance role; can queue/execute timelock actions,
+    ///   pause/unpause the contract, and manage operators.
+    /// * **Operator** – operational role; limited to heartbeat and similar
+    ///   low-stakes actions that do not require a timelock.
+    ///
+    /// Conflating both roles on a single address would allow an operator key
+    /// compromise to bypass the governance timelock entirely.  Therefore:
+    ///
+    /// 1. The admin address **must not** be granted the operator role
+    ///    (`operator != admin` is enforced; violation → [`Error::NotAllowed`]).
+    /// 2. The contract itself **must not** be an operator
+    ///    (`operator != current_contract_address()`; violation →
+    ///    [`Error::InvalidRecipient`]).
+    ///
+    /// These checks are the canonical *timelock role check* referenced
+    /// throughout the codebase and test suite (fix #525).
+    ///
+    /// # Arguments
+    /// * `env`      – The contract environment.
+    /// * `operator` – The address to grant or revoke the operator role for.
+    /// * `active`   – `true` to grant, `false` to revoke.
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`]    – Contract has not been initialised.
+    /// * [`Error::NotAllowed`]        – `operator` is the admin address.
+    /// * [`Error::InvalidRecipient`]  – `operator` is the contract address.
+    /// * [`Error::OperatorCapReached`] – Maximum operator count already reached.
     pub fn set_operator(env: Env, operator: Address, active: bool) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -2314,6 +2619,18 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+
+        // Boundary checks (fix #525): prevent role confusion that could affect
+        // circuit breaker state transitions.
+        // The admin must not be granted the operator role — conflating both roles
+        // bypasses the separation of concerns between governance and operations.
+        require!(operator != admin, Error::NotAllowed);
+        // The contract itself must never be an operator.
+        require!(
+            operator != env.current_contract_address(),
+            Error::InvalidRecipient
+        );
+
         Self::prune_inactive_operators_internal(&env);
         let was_active = env
             .storage()
@@ -2435,6 +2752,8 @@ impl FiatBridge {
 
         // Validate and increment nonce for replay protection
         Self::validate_and_increment_nonce(&env, &operator, nonce)?;
+
+        Self::maybe_auto_reset_circuit_breaker(&env);
 
         let curr = env.ledger().sequence();
         env.storage()
@@ -2793,7 +3112,7 @@ impl FiatBridge {
 
         let key = DataKey::FeeVault(token.clone());
         let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-        
+
         require!(current > 0, Error::NoFeesToWithdraw);
         require!(amount <= current, Error::FeeWithdrawalExceedsBalance);
 
@@ -2809,9 +3128,7 @@ impl FiatBridge {
 
         // Increment nonce after successful withdrawal
         let next_nonce = expected_nonce.checked_add(1).ok_or(Error::Overflow)?;
-        env.storage()
-            .persistent()
-            .set(&nonce_key, &next_nonce);
+        env.storage().persistent().set(&nonce_key, &next_nonce);
 
         FeeWithdrawnEvent {
             version: EVENT_VERSION,
@@ -3382,6 +3699,29 @@ impl FiatBridge {
     }
 
     // ── Escrow Migration ──────────────────────────────────────────────────
+    /// Retrieves the current escrow storage version.
+    ///
+    /// # Returns
+    ///
+    /// * `u32` - The current storage version. Returns 0 if no migration has been performed.
+    ///
+    /// # Description
+    ///
+    /// This function queries the contract's instance storage for the current escrow
+    /// storage schema version. The version indicates which storage schema is currently
+    /// in use for escrow records. A value of 0 indicates that no migration has been
+    /// performed and the legacy storage format is still in use.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let version = bridge.get_escrow_storage_version(&env);
+    /// if version == 0 {
+    ///     println!("Migration needed");
+    /// } else {
+    ///     println!("Migration complete, version: {}", version);
+    /// }
+    /// ```
     pub fn get_escrow_storage_version(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -3389,6 +3729,64 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
+    /// Migrates escrow records from legacy storage to versioned schema.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract environment
+    /// * `batch_size` - Maximum number of records to migrate in this call
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(u32)` - Number of records successfully migrated in this batch
+    /// * `Err(Error::MigrationAlreadyComplete)` - Migration is already complete
+    /// * `Err(Error::NotAuthorized)` - Caller is not the admin
+    /// * `Err(Error::NotInitialized)` - Contract has not been initialized
+    ///
+    /// # Description
+    ///
+    /// This function performs a cursor-based batch migration of escrow records from
+    /// the legacy storage format to the versioned schema. The migration is designed to
+    /// be:
+    ///
+    /// - **Resumable**: Can be called multiple times until all records are migrated
+    /// - **Idempotent**: Safe to call after completion (returns error)
+    /// - **Atomic**: Each batch is processed atomically with rollback on failure
+    ///
+    /// # Migration Process
+    ///
+    /// 1. Verifies caller is authorized (admin only)
+    /// 2. Checks current storage version; returns error if already at target
+    /// 3. Retrieves migration cursor (last processed record ID)
+    /// 4. Processes up to `batch_size` records starting from cursor
+    /// 5. For each record:
+    ///    - Looks up receipt hash from temporary storage index
+    ///    - Retrieves receipt from persistent storage
+    ///    - Creates versioned EscrowRecord with migration metadata
+    ///    - Stores in persistent storage
+    /// 6. Updates cursor to new position
+    /// 7. Sets storage version to target if all records processed
+    /// 8. Emits migration event with progress information
+    ///
+    /// # Performance Considerations
+    ///
+    /// - Each record migration consumes gas; monitor during testing
+    /// - Recommended batch sizes: 10-100 for safety, 100-1000 for speed
+    /// - Use migration events to track progress in production
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// // Migrate 100 records at a time
+    /// let migrated = bridge.migrate_escrow(&env, 100)?;
+    /// println!("Migrated {} records", migrated);
+    ///
+    /// // Check if migration is complete
+    /// let version = bridge.get_escrow_storage_version(&env);
+    /// if version == ESCROW_STORAGE_VERSION {
+    ///     println!("Migration complete");
+    /// }
+    /// ```
     pub fn migrate_escrow(env: Env, batch_size: u32) -> Result<u32, Error> {
         let admin: Address = env
             .storage()
@@ -3477,10 +3875,64 @@ impl FiatBridge {
         Ok(migrated_count)
     }
 
+    /// Retrieves a migrated escrow record by its ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract environment
+    /// * `id` - The unique identifier of the escrow record to retrieve
+    ///
+    /// # Returns
+    ///
+    /// * `Some(EscrowRecord)` - The escrow record if it exists and has been migrated
+    /// * `None` - Record not found or not yet migrated
+    ///
+    /// # Description
+    ///
+    /// This function queries persistent storage for an escrow record with the given ID.
+    /// The record will only be present if it has been migrated to the versioned schema.
+    /// Records that have not yet been migrated will return `None`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// if let Some(record) = bridge.get_escrow_record(&env, 123) {
+    ///     println!("Depositor: {:?}", record.depositor);
+    ///     println!("Amount: {}", record.amount);
+    ///     println!("Version: {}", record.version);
+    /// }
+    /// ```
     pub fn get_escrow_record(env: Env, id: u64) -> Option<EscrowRecord> {
         env.storage().persistent().get(&DataKey::EscrowRecord(id))
     }
 
+    /// Gets the current migration progress cursor.
+    ///
+    /// # Returns
+    ///
+    /// * `u64` - The last processed record ID. Returns 0 if migration has not started.
+    ///
+    /// # Description
+    ///
+    /// This function retrieves the migration cursor, which indicates the last record
+    /// ID that was successfully processed during the escrow storage migration.
+    /// The cursor is used to enable resumable migrations - if a migration is
+    /// interrupted, it can be resumed from the last processed position.
+    ///
+    /// # Usage
+    ///
+    /// - Monitor migration progress by comparing cursor to total record count
+    /// - Determine if migration is complete (cursor >= total records)
+    /// - Debug migration issues by checking cursor position
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let cursor = bridge.get_migration_cursor(&env);
+    /// let total = bridge.get_receipt_counter(&env);
+    /// let progress = (cursor as f64 / total as f64) * 100.0;
+    /// println!("Migration progress: {:.2}%", progress);
+    /// ```
     pub fn get_migration_cursor(env: Env) -> u64 {
         env.storage()
             .instance()
@@ -3489,6 +3941,151 @@ impl FiatBridge {
     }
 
     // ── Batched Admin Operations ──────────────────────────────────────────
+
+    /// Executes a batch of administrative operations atomically.
+    ///
+    /// Allows the contract admin to perform multiple state mutations in a single transaction.
+    /// Each operation is processed sequentially; if an operation fails, execution continues
+    /// with the next operation (no rollback).
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract environment
+    /// * `operations` - A vector of `BatchAdminOp` structures, each specifying an operation type
+    ///   and binary-encoded parameters
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(BatchResult)` - Detailed results including success/failure counts and the index
+    ///   of the first operation that failed (if any)
+    /// * `Err(Error::NotInitialized)` - Contract has not been initialized
+    /// * `Err(Error::Overflow)` - Internal counter overflow (extremely unlikely)
+    ///
+    /// # Authorization
+    ///
+    /// Requires that the caller be the contract admin:
+    /// ```rust,no_run
+    /// admin.require_auth()  // Panics/errors if caller is not admin
+    /// ```
+    ///
+    /// # Supported Operations
+    ///
+    /// | Operation | Symbol | Payload | Effect |
+    /// |-----------|--------|---------|--------|
+    /// | Set cooldown | `"set_cooldown"` | u32 BE | Sets cooldown period in ledgers |
+    /// | Set lock period | `"set_lock"` | u32 BE | Sets lock period in ledgers |
+    /// | Set quota | `"set_quota"` | i128 BE | Sets daily withdrawal quota |
+    /// | Set sandwich delay | `"set_sandwich"` | u32 BE | Sets anti-sandwich delay in ledgers |
+    /// | Pause | `"pause"` | (empty) | Pauses all user deposits/withdrawals |
+    /// | Unpause | `"unpause"` | (empty) | Resumes user deposits/withdrawals |
+    ///
+    /// For detailed payload encoding rules, see [`BatchAdminOp`].
+    ///
+    /// # Execution Semantics
+    ///
+    /// **Key behavior**: This is **not** a transactional rollback operation. If operation N
+    /// fails, operations 0 to N-1 have already modified contract state, and operations N+1
+    /// onwards still execute.
+    ///
+    /// 1. Authorization check: Caller must be admin
+    /// 2. For each operation in order:
+    ///    a. Attempt `execute_single_admin_op()`
+    ///    b. On success: increment `success_count`
+    ///    c. On failure: increment `failure_count`, record `failed_index` if first failure,
+    ///       and continue to next operation
+    /// 3. Emit `BatchOkEvent` with final counts (or multiple `BatchFailEvent`s if failures occurred)
+    /// 4. Return `BatchResult` with final counts
+    ///
+    /// # Error Recording
+    ///
+    /// When an operation fails:
+    /// - A `BatchFailEvent` is emitted containing the operation's index
+    /// - Execution continues with the next operation
+    /// - The operation is counted in `failure_count`
+    /// - `failed_index` is set to this operation's index (if it's the first failure)
+    ///
+    /// Only the **first** failure's index is recorded in `BatchResult.failed_index`.
+    /// Subsequent failures are counted but their indices are not stored.
+    ///
+    /// # Events Emitted
+    ///
+    /// - `BatchFailEvent`: Emitted for each operation that fails
+    ///   - Contains: version, operation index, total operations count
+    /// - `BatchOkEvent`: Emitted at the end
+    ///   - Contains: version, success_count, failure_count, total_ops
+    ///
+    /// # Examples
+    ///
+    /// ## Successful Batch
+    ///
+    /// ```rust,no_run
+    /// # use soroban_sdk::{Env, Symbol, Bytes};
+    /// # struct Bridge;
+    /// # impl Bridge {
+    /// # pub fn execute_batch_admin(env: Env, ops: Vec<BatchAdminOp>) -> Result<BatchResult, Error> { unimplemented!() }
+    /// let mut ops = soroban_sdk::Vec::new(&env);
+    ///
+    /// // Operation 0: Set cooldown to 100 ledgers
+    /// ops.push_back(BatchAdminOp {
+    ///     op_type: Symbol::new(&env, "set_cooldown"),
+    ///     payload: Bytes::from_array(&env, &100u32.to_be_bytes()),
+    /// });
+    ///
+    /// // Operation 1: Set lock period to 50 ledgers
+    /// ops.push_back(BatchAdminOp {
+    ///     op_type: Symbol::new(&env, "set_lock"),
+    ///     payload: Bytes::from_array(&env, &50u32.to_be_bytes()),
+    /// });
+    ///
+    /// let result = bridge.execute_batch_admin(&env, ops)?;
+    /// assert_eq!(result.total_ops, 2);
+    /// assert_eq!(result.success_count, 2);
+    /// assert_eq!(result.failure_count, 0);
+    /// assert!(result.failed_index.is_none());
+    /// # }
+    /// ```
+    ///
+    /// ## Batch with Failures
+    ///
+    /// ```rust,no_run
+    /// # use soroban_sdk::{Env, Symbol, Bytes};
+    /// # struct Bridge;
+    /// # impl Bridge {
+    /// # pub fn execute_batch_admin(env: Env, ops: Vec<BatchAdminOp>) -> Result<BatchResult, Error> { unimplemented!() }
+    /// let mut ops = soroban_sdk::Vec::new(&env);
+    ///
+    /// // Operation 0: Valid - set cooldown
+    /// ops.push_back(BatchAdminOp {
+    ///     op_type: Symbol::new(&env, "set_cooldown"),
+    ///     payload: Bytes::from_array(&env, &100u32.to_be_bytes()),
+    /// });
+    ///
+    /// // Operation 1: Invalid - malformed payload (too short)
+    /// ops.push_back(BatchAdminOp {
+    ///     op_type: Symbol::new(&env, "set_lock"),
+    ///     payload: Bytes::new(&env),  // ERROR: requires 4 bytes!
+    /// });
+    ///
+    /// // Operation 2: Valid - still executes despite operation 1 failure
+    /// ops.push_back(BatchAdminOp {
+    ///     op_type: Symbol::new(&env, "set_sandwich"),
+    ///     payload: Bytes::from_array(&env, &3u32.to_be_bytes()),
+    /// });
+    ///
+    /// let result = bridge.execute_batch_admin(&env, ops)?;
+    /// // Result:
+    /// //   total_ops: 3
+    /// //   success_count: 2 (operations 0 and 2)
+    /// //   failure_count: 1 (operation 1)
+    /// //   failed_index: Some(1) (first failure at index 1)
+    /// # }
+    /// ```
+    ///
+    /// # See Also
+    ///
+    /// - [`BatchAdminOp`]: Structure defining individual operations
+    /// - [`BatchResult`]: Detailed result information
+    /// - [BATCH_OPERATIONS.md](../../docs/BATCH_OPERATIONS.md): Comprehensive batch operations guide
     pub fn execute_batch_admin(
         env: Env,
         operations: Vec<BatchAdminOp>,
@@ -3542,6 +4139,42 @@ impl FiatBridge {
         Ok(batch_result)
     }
 
+    /// Executes a single administrative operation.
+    ///
+    /// This is a private helper function called by `execute_batch_admin` to process
+    /// individual operations. It dispatches to the appropriate handler based on the
+    /// operation type.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract environment
+    /// * `op` - The operation to execute
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Operation executed successfully
+    /// * `Err(Error::InternalError)` - Any error condition:
+    ///   - Unknown operation type
+    ///   - Malformed or incorrectly-sized payload
+    ///   - Payload decoding failure
+    ///
+    /// # Operation Handlers
+    ///
+    /// | op_type | Handler | Effect |
+    /// |---------|---------|--------|
+    /// | `"set_cooldown"` | Decode u32, store in `DataKey::CooldownLedgers` | ✓ |
+    /// | `"set_lock"` | Decode u32, store in `DataKey::LockPeriod` | ✓ |
+    /// | `"set_quota"` | Decode i128, store in `DataKey::WithdrawalQuota` | ✓ |
+    /// | `"set_sandwich"` | Decode u32, store in `DataKey::AntiSandwichDelay` | ✓ |
+    /// | `"pause"` | Store `true` in `DataKey::Paused` | ✓ |
+    /// | `"unpause"` | Store `false` in `DataKey::Paused` | ✓ |
+    /// | (anything else) | Return `Error::InternalError` | - |
+    ///
+    /// # Notes
+    ///
+    /// - Each operation either succeeds completely or fails without side effects
+    /// - Failures are counted but do not stop subsequent operations
+    /// - State changes from successful operations are immediately visible
     fn execute_single_admin_op(env: &Env, op: &BatchAdminOp) -> Result<(), Error> {
         let op_name = &op.op_type;
 
@@ -3588,6 +4221,41 @@ impl FiatBridge {
         }
     }
 
+    /// Converts a big-endian byte sequence to a `u32`.
+    ///
+    /// Used to decode operation payloads that contain unsigned 32-bit integers.
+    /// The bytes must be in **big-endian** byte order (most significant byte first).
+    ///
+    /// # Arguments
+    ///
+    /// * `_env` - The contract environment (unused)
+    /// * `bytes` - The byte sequence to decode
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(u32)` - The decoded value
+    /// * `Err(Error::InternalError)` - The byte sequence is shorter than 4 bytes
+    ///
+    /// # Byte Order
+    ///
+    /// The function assumes **big-endian** encoding:
+    /// ```text
+    /// Bytes:  [0xAA, 0xBB, 0xCC, 0xDD]
+    /// Result: 0xAABBCCDD
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::InternalError` if `bytes.len() < 4`. This typically represents
+    /// a malformed payload in a batch operation.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// bytes_to_u32(Bytes::from_array([0x00, 0x00, 0x00, 0x64])) -> Ok(100)
+    /// bytes_to_u32(Bytes::from_array([0x00, 0x00, 0x01, 0x00])) -> Ok(256)
+    /// bytes_to_u32(Bytes::new())                                 -> Err(InternalError)
+    /// ```
     fn bytes_to_u32(_env: &Env, bytes: &Bytes) -> Result<u32, Error> {
         if bytes.len() < 4 {
             return Err(Error::InternalError);
@@ -3599,6 +4267,47 @@ impl FiatBridge {
         Ok(u32::from_be_bytes(arr))
     }
 
+    /// Converts a big-endian byte sequence to an `i128`.
+    ///
+    /// Used to decode operation payloads that contain signed 128-bit integers.
+    /// The bytes must be in **big-endian** byte order (most significant byte first).
+    /// Negative numbers are represented using two's complement notation.
+    ///
+    /// # Arguments
+    ///
+    /// * `_env` - The contract environment (unused)
+    /// * `bytes` - The byte sequence to decode (must be exactly 16 bytes)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(i128)` - The decoded value (can be positive, negative, or zero)
+    /// * `Err(Error::InternalError)` - The byte sequence is shorter than 16 bytes
+    ///
+    /// # Byte Order
+    ///
+    /// The function assumes **big-endian** encoding with two's complement for negatives:
+    /// ```text
+    /// Positive example:
+    /// Bytes:  [0x00, 0x00, ..., 0x00, 0x64]  (15 zeros followed by 0x64)
+    /// Result: 100
+    ///
+    /// Negative example:
+    /// Bytes:  [0xFF, 0xFF, ..., 0xFF, 0xFF]  (all 0xFF)
+    /// Result: -1
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::InternalError` if `bytes.len() < 16`. This typically represents
+    /// a malformed payload in a batch operation (e.g., `set_quota` with insufficient data).
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// bytes_to_i128([0x00, 0x00, ..., 0x00, 0x64]) -> Ok(100)
+    /// bytes_to_i128([0xFF, 0xFF, ..., 0xFF, 0xFF]) -> Ok(-1)
+    /// bytes_to_i128([...partial data...])          -> Err(InternalError)
+    /// ```
     fn bytes_to_i128(_env: &Env, bytes: &Bytes) -> Result<i128, Error> {
         if bytes.len() < 16 {
             return Err(Error::InternalError);
@@ -3694,6 +4403,57 @@ impl FiatBridge {
             .instance()
             .get::<_, bool>(&DataKey::CircuitBreakerTripped)
             .unwrap_or(false)
+    }
+
+    fn maybe_auto_reset_circuit_breaker(env: &Env) {
+        let threshold: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CircuitBreakerThreshold)
+            .unwrap_or(0);
+        if threshold <= 0 {
+            return;
+        }
+
+        if !env
+            .storage()
+            .instance()
+            .get::<_, bool>(&DataKey::CircuitBreakerTripped)
+            .unwrap_or(false)
+        {
+            return;
+        }
+
+        let curr = env.ledger().sequence();
+        let reset_window: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CircuitBreakerResetWindow)
+            .unwrap_or(CIRCUIT_BREAKER_RESET_LEDGERS);
+        let tripped_at: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CircuitBreakerTrippedAt)
+            .unwrap_or(0);
+
+        if reset_window != u32::MAX && curr > tripped_at.saturating_add(reset_window) {
+            env.storage()
+                .instance()
+                .set(&DataKey::CircuitBreakerTripped, &false);
+            env.storage().instance().set(
+                &DataKey::GlobalDailyWithdrawn,
+                &GlobalDailyWithdrawn {
+                    amount: 0,
+                    window_start: curr,
+                },
+            );
+            CircuitBreakerAutoResetEvent {
+                version: EVENT_VERSION,
+                tripped_at,
+                reset_at: curr,
+            }
+            .publish(env);
+        }
     }
 
     /// Accumulate `amount` into the rolling 24-h global withdrawal volume.
