@@ -4329,3 +4329,6 @@ mod test_new_issues;
 
 #[cfg(test)]
 mod test_issues_695_687;
+
+#[cfg(test)]
+mod test_issues_504_511_600;
