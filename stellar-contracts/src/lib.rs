@@ -684,26 +684,23 @@ impl FiatBridge {
         signers: Vec<Address>,
         threshold: u32,
     ) -> Result<(), Error> {
-        if env.storage().instance().has(&DataKey::Admin) {
-            return Err(Error::AlreadyInitialized);
-        }
-        if limit <= 0 {
-            return Err(Error::ZeroAmount);
-        }
-        if min_deposit < 1 || min_deposit >= limit {
-            return Err(Error::BelowMinimum);
-        }
+        require!(
+            !env.storage().instance().has(&DataKey::Admin),
+            Error::AlreadyInitialized
+        );
+        require!(limit > 0, Error::ZeroAmount);
+        require!(min_deposit >= 1, Error::BelowMinimum);
+        require!(min_deposit < limit, Error::BelowMinimum);
 
         // Validate multisig config
-        if threshold == 0 || threshold > signers.len() {
-            return Err(Error::InvalidThreshold);
-        }
+        require!(
+            threshold > 0 && threshold <= signers.len(),
+            Error::InvalidThreshold
+        );
         // Ensure no duplicate signers
         let mut seen = Vec::<Address>::new(&env);
         for s in signers.iter() {
-            if seen.contains(&s) {
-                return Err(Error::DuplicateSigner);
-            }
+            require!(!seen.contains(&s), Error::DuplicateSigner);
             seen.push_back(s);
         }
 
