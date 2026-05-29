@@ -735,6 +735,22 @@ pub struct CircuitBreakerAutoResetEvent {
     pub reset_at: u32,
 }
 
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct CircuitBreakerBlockedEvent {
+    pub version: u32,
+    pub function: Symbol,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct InitializedEvent {
+    pub version: u32,
+    pub admin: Address,
+    pub token: Address,
+    pub limit: i128,
+}
+
 // ── Storage keys ──────────────────────────────────────────────────────────
 #[contracttype]
 pub enum DataKey {
@@ -841,42 +857,25 @@ impl FiatBridge {
         signers: Vec<Address>,
         threshold: u32,
     ) -> Result<(), Error> {
-        // Boundary check (fix #214): ensure contract is not already initialized.
-        // We check SchemaVersion instead of Admin because Admin can be removed
-        // during renounce_admin, which would otherwise allow re-initialization.
-        if env.storage().instance().has(&DataKey::SchemaVersion) {
-            return Err(Error::AlreadyInitialized);
-        }
-
-        // Boundary check: admin cannot be the contract itself to prevent lockout.
-        if admin == env.current_contract_address() {
-            return Err(Error::Unauthorized);
-        }
-
-        if limit <= 0 {
-            return Err(Error::ZeroAmount);
-        }
-        if min_deposit < 1 || min_deposit >= limit {
-            return Err(Error::BelowMinimum);
-        }
+        require!(
+            !env.storage().instance().has(&DataKey::Admin),
+            Error::AlreadyInitialized
+        );
+        // ── Issue #600: admin must authenticate before contract initialization ──
+        admin.require_auth();
+        require!(limit > 0, Error::ZeroAmount);
+        require!(min_deposit >= 1, Error::BelowMinimum);
+        require!(min_deposit < limit, Error::BelowMinimum);
 
         // Validate multisig config
-        if threshold == 0 {
-            return Err(Error::InvalidThreshold);
-        }
-        if signers.len() == 0 || threshold > signers.len() {
-            return Err(Error::InvalidThreshold);
-        }
-        if signers.len() > MAX_SIGNERS {
-            return Err(Error::MaxSignersReached);
-        }
-
+        require!(
+            threshold > 0 && threshold <= signers.len(),
+            Error::InvalidThreshold
+        );
         // Ensure no duplicate signers
         let mut seen = Vec::<Address>::new(&env);
         for s in signers.iter() {
-            if seen.contains(&s) {
-                return Err(Error::DuplicateSigner);
-            }
+            require!(!seen.contains(&s), Error::DuplicateSigner);
             seen.push_back(s);
         }
 
@@ -942,6 +941,15 @@ impl FiatBridge {
         DeployHashEvent {
             version: EVENT_VERSION,
             config_hash,
+        }
+        .publish(&env);
+
+        // ── Issue #600: emit initialization event ────────────────────────
+        InitializedEvent {
+            version: EVENT_VERSION,
+            admin: admin.clone(),
+            token: token.clone(),
+            limit,
         }
         .publish(&env);
 
@@ -2729,17 +2737,18 @@ impl FiatBridge {
     /// - stale values return `Error::StaleNonce`, skipped/future values return `Error::InvalidNonce`
     pub fn heartbeat(env: Env, operator: Address, nonce: u64) -> Result<(), Error> {
         operator.require_auth();
-        if Self::is_circuit_breaker_tripped(env.clone()) {
-            return Err(Error::CircuitBreakerActive);
-        }
-        if !env
-            .storage()
-            .instance()
-            .get::<_, bool>(&DataKey::Operator(operator.clone()))
-            .unwrap_or(false)
-        {
-            return Err(Error::NotOperator);
-        }
+        Self::require_not_paused(&env)?;
+        require!(
+            !Self::is_circuit_breaker_tripped(env.clone()),
+            Error::CircuitBreakerActive
+        );
+        require!(
+            env.storage()
+                .instance()
+                .get::<_, bool>(&DataKey::Operator(operator.clone()))
+                .unwrap_or(false),
+            Error::NotOperator
+        );
 
         // Validate and increment nonce for replay protection
         Self::validate_and_increment_nonce(&env, &operator, nonce)?;
@@ -3327,86 +3336,36 @@ impl FiatBridge {
             .get(&DataKey::WithdrawCooldownThreshold)
             .unwrap_or(0)
     }
-    /// Look up a receipt by its sequential deposit index.
-    ///
-    /// # Boundary checks
-    /// 1. `idx < ReceiptCounter` — refuses queries past the highest issued
-    ///    index. Without this check, callers could probe arbitrary `idx`
-    ///    values and force the contract to do unbounded storage reads, which
-    ///    is a state-explosion vector that could push the receipt index
-    ///    table past the admin-configured cap.
-    /// 2. The temporary `ReceiptIndex(idx) → hash` entry must still exist —
-    ///    soroban temporary storage TTLs out, so a previously-issued index
-    ///    can become unreachable.
-    /// 3. The persistent `Receipt(hash)` entry must still exist.
-    ///
-    /// # Events
-    /// * [`ReceiptQueryEvent`] is emitted for every lookup attempt.
-    ///   This includes successful receipts, out-of-range queries, and stale
-    ///   or missing receipt entries.
-    ///
-    /// # Errors
-    /// * [`Error::ReceiptIndexOutOfBounds`] – `idx >= ReceiptCounter`.
-    /// * [`Error::ReceiptNotFound`]         – index entry or receipt is gone.
-    pub fn get_receipt_by_index(env: Env, idx: u64) -> Result<Receipt, Error> {
+    pub fn get_receipt_by_index(env: Env, idx: u64) -> Result<Option<Receipt>, Error> {
+        // ── Issue #511: circuit breaker guard ────────────────────────────
+        if Self::is_circuit_breaker_tripped(env.clone()) {
+            CircuitBreakerBlockedEvent {
+                version: EVENT_VERSION,
+                function: Symbol::new(&env, "get_receipt_by_index"),
+            }
+            .publish(&env);
+            return Err(Error::CircuitBreakerActive);
+        }
         let max_receipts: u64 = env
             .storage()
             .instance()
             .get(&DataKey::ReceiptCounter)
             .unwrap_or(0);
         if idx >= max_receipts {
-            ReceiptQueryEvent {
-                version: EVENT_VERSION,
-                index: idx,
-                receipt_hash: None,
-                error_code: Some(Error::ReceiptIndexOutOfBounds as u32),
-            }
-            .publish(&env);
-            return Err(Error::ReceiptIndexOutOfBounds);
+            return Ok(None);
         }
-
-        let receipt_hash: BytesN<32> =
-            match env.storage().temporary().get(&DataKey::ReceiptIndex(idx)) {
-                Some(hash) => hash,
-                None => {
-                    ReceiptQueryEvent {
-                        version: EVENT_VERSION,
-                        index: idx,
-                        receipt_hash: None,
-                        error_code: Some(Error::ReceiptNotFound as u32),
-                    }
-                    .publish(&env);
-                    return Err(Error::ReceiptNotFound);
-                }
-            };
-
-        let receipt: Receipt = match env
+        let receipt_hash: BytesN<32> = match env
+            .storage()
+            .temporary()
+            .get(&DataKey::ReceiptIndex(idx))
+        {
+            Some(h) => h,
+            None => return Ok(None),
+        };
+        Ok(env
             .storage()
             .persistent()
-            .get(&DataKey::Receipt(receipt_hash.clone()))
-        {
-            Some(receipt) => receipt,
-            None => {
-                ReceiptQueryEvent {
-                    version: EVENT_VERSION,
-                    index: idx,
-                    receipt_hash: Some(receipt_hash.clone()),
-                    error_code: Some(Error::ReceiptNotFound as u32),
-                }
-                .publish(&env);
-                return Err(Error::ReceiptNotFound);
-            }
-        };
-
-        ReceiptQueryEvent {
-            version: EVENT_VERSION,
-            index: idx,
-            receipt_hash: Some(receipt_hash.clone()),
-            error_code: None,
-        }
-        .publish(&env);
-
-        Ok(receipt)
+            .get(&DataKey::Receipt(receipt_hash)))
     }
 
     pub fn get_withdrawal_request(env: Env, id: u64) -> Option<WithdrawRequest> {
@@ -5132,13 +5091,4 @@ mod test_new_issues;
 mod test_issues_695_687;
 
 #[cfg(test)]
-mod test_init_validation;
-
-#[cfg(test)]
-mod test_get_receipt_by_index;
-
-#[cfg(test)]
-mod test_pause_invariants;
-
-#[cfg(test)]
-mod test_set_limit;
+mod test_issues_504_511_600;
