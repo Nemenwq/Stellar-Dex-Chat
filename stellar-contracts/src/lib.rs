@@ -588,6 +588,15 @@ pub struct CircuitBreakerBlockedEvent {
     pub function: Symbol,
 }
 
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct InitializedEvent {
+    pub version: u32,
+    pub admin: Address,
+    pub token: Address,
+    pub limit: i128,
+}
+
 // ── Storage keys ──────────────────────────────────────────────────────────
 #[contracttype]
 pub enum DataKey {
@@ -695,6 +704,8 @@ impl FiatBridge {
             !env.storage().instance().has(&DataKey::Admin),
             Error::AlreadyInitialized
         );
+        // ── Issue #600: admin must authenticate before contract initialization ──
+        admin.require_auth();
         require!(limit > 0, Error::ZeroAmount);
         require!(min_deposit >= 1, Error::BelowMinimum);
         require!(min_deposit < limit, Error::BelowMinimum);
@@ -773,6 +784,15 @@ impl FiatBridge {
         DeployHashEvent {
             version: EVENT_VERSION,
             config_hash,
+        }
+        .publish(&env);
+
+        // ── Issue #600: emit initialization event ────────────────────────
+        InitializedEvent {
+            version: EVENT_VERSION,
+            admin: admin.clone(),
+            token: token.clone(),
+            limit,
         }
         .publish(&env);
 
