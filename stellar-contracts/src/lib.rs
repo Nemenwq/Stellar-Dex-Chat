@@ -595,8 +595,18 @@ pub struct OperatorPrunedEvent {
 #[derive(Clone, Debug)]
 pub struct FeeWithdrawnEvent {
     pub version: u32,
+    /// Admin address that authorised the fee withdrawal.
+    pub admin: Address,
+    /// Recipient of the withdrawn fees.
     pub to: Address,
+    /// Token contract address whose fee vault was debited.
+    pub token: Address,
+    /// Amount of tokens transferred to `to`.
     pub amount: i128,
+    /// Replay-protection nonce consumed by this withdrawal (0 for batch sweeps).
+    pub nonce: u64,
+    /// Fee-vault balance remaining after this withdrawal.
+    pub remaining_fees: i128,
 }
 
 #[contractevent]
@@ -3314,6 +3324,16 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
+    /// Withdraw a specific `amount` of accrued fees for `token` to the `to` address.
+    ///
+    /// # Security
+    /// Only the stored admin may call this function. The `nonce` parameter
+    /// provides replay protection — it must equal the current per-admin nonce
+    /// stored in persistent storage and is atomically incremented on success.
+    ///
+    /// # Event
+    /// Emits [`FeeWithdrawnEvent`] carrying the full withdrawal schema:
+    /// admin, recipient, token, amount, nonce consumed, and remaining vault balance.
     pub fn withdraw_fees(
         env: Env,
         to: Address,
@@ -3321,6 +3341,7 @@ impl FiatBridge {
         amount: i128,
         nonce: u64,
     ) -> Result<(), Error> {
+        // ── Admin authentication ───────────────────────────────────────────
         let admin: Address = env
             .storage()
             .instance()
@@ -3328,19 +3349,19 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
 
-        // ── Issue #565: proper require! checks ──
+        // ── Parameter validation ───────────────────────────────────────────
+        // Issue #565: amount must be positive
         require!(amount > 0, Error::ZeroAmount);
 
-        // ── Issue #695: replay protection ────────────────────────────────
+        // ── Replay protection (Issue #695) ────────────────────────────────
         let nonce_key = DataKey::FeeWithdrawalNonce(admin.clone());
         let expected_nonce: u64 = env.storage().persistent().get(&nonce_key).unwrap_or(0);
-
         require!(nonce >= expected_nonce, Error::StaleNonce);
         require!(nonce == expected_nonce, Error::InvalidNonce);
 
+        // ── Fee vault checks ──────────────────────────────────────────────
         let key = DataKey::FeeVault(token.clone());
         let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-
         require!(current > 0, Error::NoFeesToWithdraw);
         require!(amount <= current, Error::FeeWithdrawalExceedsBalance);
 
@@ -3349,25 +3370,41 @@ impl FiatBridge {
         let contract_balance = token_client.balance(&env.current_contract_address());
         require!(amount <= contract_balance, Error::InsufficientFunds);
 
+        // ── State mutation ────────────────────────────────────────────────
         token_client.transfer(&env.current_contract_address(), &to, &amount);
 
-        let new_balance = current.checked_sub(amount).ok_or(Error::Overflow)?;
-        env.storage().persistent().set(&key, &new_balance);
+        let remaining_fees = current.checked_sub(amount).ok_or(Error::Overflow)?;
+        env.storage().persistent().set(&key, &remaining_fees);
 
         // Increment nonce after successful withdrawal
         let next_nonce = expected_nonce.checked_add(1).ok_or(Error::Overflow)?;
         env.storage().persistent().set(&nonce_key, &next_nonce);
 
+        // ── Audit event ───────────────────────────────────────────────────
+        // Emit full schema so indexers get a self-contained record:
+        // who authorised it, where it went, which token, how much,
+        // which nonce was consumed, and what balance remains.
         FeeWithdrawnEvent {
             version: EVENT_VERSION,
-            to: to.clone(),
+            admin,
+            to,
+            token,
             amount,
+            nonce,
+            remaining_fees,
         }
         .publish(&env);
         Ok(())
     }
 
+    /// Sweep all accrued fees for each token in `tokens` to the `to` address.
+    ///
+    /// Tokens with zero accrued fees are silently skipped. A [`FeeWithdrawnEvent`]
+    /// is emitted per token that has a positive balance, carrying the full event
+    /// schema (nonce is set to `0` since batch sweeps do not consume the
+    /// per-admin replay-protection nonce).
     pub fn withdraw_fees_batch(env: Env, to: Address, tokens: Vec<Address>) -> Result<(), Error> {
+        // ── Admin authentication ───────────────────────────────────────────
         let admin: Address = env
             .storage()
             .instance()
@@ -3385,11 +3422,20 @@ impl FiatBridge {
 
             let token_client = token::Client::new(&env, &token);
             token_client.transfer(&contract, &to, &current);
+            // After transfer the vault for this token is fully drained.
             env.storage().persistent().set(&key, &0i128);
+
+            // Emit full schema per token so each sweep leg is individually
+            // attributable. nonce = 0 because batch sweeps are not
+            // replay-protected by the per-admin nonce mechanism.
             FeeWithdrawnEvent {
                 version: EVENT_VERSION,
+                admin: admin.clone(),
                 to: to.clone(),
+                token,
                 amount: current,
+                nonce: 0,
+                remaining_fees: 0,
             }
             .publish(&env);
         }
