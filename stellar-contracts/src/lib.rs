@@ -179,10 +179,17 @@ pub struct WithdrawRequest {
     pub risk_tier: u32,
 }
 
+/// Tracks the global rolling-window withdrawal volume used by the circuit breaker.
+///
+/// The circuit breaker auto-resets the window every 48 hours (`CIRCUIT_BREAKER_RESET_LEDGERS`).
+/// When the window is exceeded, further withdrawals are blocked; when the window resets,
+/// withdrawals resume.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GlobalDailyWithdrawn {
+    /// Aggregate amount withdrawn in the current window.
     pub amount: i128,
+    /// Ledger number at which the current 48-hour window started.
     pub window_start: u32,
 }
 
@@ -231,17 +238,29 @@ pub struct UpgradeProposal {
     pub executable_after: u32,
 }
 
+/// Tracks a user's rolling-window withdrawal amount for quota enforcement.
+///
+/// The 24-hour window is defined by [`WINDOW_LEDGERS`]. Once the window elapses,
+/// the tracker resets and a new window begins.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UserDailyWithdrawal {
+    /// Total withdrawn by this user in the current 24-hour window.
     pub amount: i128,
+    /// Ledger number at which the current window started.
     pub window_start: u32,
 }
 
+/// Tracks a user's rolling-window deposit amount for per-token daily limit enforcement.
+///
+/// The 24-hour window is defined by [`WINDOW_LEDGERS`]. Once the window elapses,
+/// the tracker resets and a new window begins.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UserDailyDeposit {
+    /// Total deposited by this user for the token in the current 24-hour window.
     pub amount: i128,
+    /// Ledger number at which the current window started.
     pub window_start: u32,
 }
 
@@ -794,6 +813,7 @@ pub enum DataKey {
     WithdrawQueueLen,
     WithdrawQueueHead,
     WithdrawQueue(u64),
+    /// Legacy/reserved key. Not currently written to; circuit breaker uses [`CircuitBreakerThreshold`] instead.
     DailyWithdrawLimit,
     WindowStart,
     WindowWithdrawn,
@@ -2055,6 +2075,27 @@ impl FiatBridge {
             .unwrap_or(1)
     }
 
+    /// Sets the per-token daily deposit limit to enforce rolling-window rate limiting.
+    ///
+    /// The limit applies on a per-user, per-token basis: each user has a separate
+    /// 24-hour window (defined by [`WINDOW_LEDGERS`]) for each token, and deposits
+    /// exceeding the limit are rejected with [`Error::DailyLimitExceeded`].
+    ///
+    /// # Limit Disabling
+    /// A limit of 0 or any negative value disables enforcement for this token.
+    /// Once disabled, all deposits for this token bypass the daily-limit check.
+    ///
+    /// # Storage
+    /// The limit is stored in the persistent `TokenConfig` under [`DataKey::TokenRegistry`].
+    ///
+    /// # Arguments
+    /// * `env`         – The contract environment.
+    /// * `token`       – Address of the token to configure.
+    /// * `limit_per_day` – Maximum tokens per user per day; ≤ 0 disables the check.
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`] – Contract has not been initialized.
+    /// * [`Error::TokenNotWhitelisted`] – The token address is not in the registry.
     pub fn set_daily_deposit_limit(
         env: Env,
         token: Address,
@@ -2462,6 +2503,35 @@ impl FiatBridge {
         Ok(price)
     }
 
+    /// Enforces the rolling 24-hour per-user per-token deposit limit.
+    ///
+    /// This function is called by [`deposit`] before accepting a new deposit. It maintains
+    /// a per-user per-token rolling-window accumulator (`UserDailyDeposit`) and rejects
+    /// deposits that would exceed the configured [`TokenConfig::daily_deposit_limit`].
+    ///
+    /// # Window Semantics
+    /// The 24-hour window is defined by [`WINDOW_LEDGERS`] ≈ 17,280 ledgers.
+    /// Once `env.ledger().sequence() >= window_start + WINDOW_LEDGERS`, the window
+    /// automatically resets: the amount is zeroed and `window_start` is updated.
+    ///
+    /// # Limit Disabling
+    /// If `config.daily_deposit_limit <= 0`, no limit is enforced; this function returns `Ok(())`
+    /// immediately and the deposit proceeds unchecked.
+    ///
+    /// # Overflow Protection
+    /// Accumulation uses `checked_add` (issue #499) to prevent a crafted extremely large
+    /// deposit from wrapping the `i128` accumulator and bypassing the limit check.
+    ///
+    /// # Arguments
+    /// * `env`       – The contract environment (used to fetch current ledger sequence).
+    /// * `depositor` – The user making the deposit.
+    /// * `token`     – The token being deposited.
+    /// * `amount`    – The number of tokens being deposited.
+    /// * `config`    – The token's configuration, including its `daily_deposit_limit`.
+    ///
+    /// # Errors
+    /// * [`Error::DailyLimitExceeded`] – Deposit would cause accumulator to exceed the limit.
+    /// * [`Error::Overflow`] – The accumulation would overflow `i128`.
     fn enforce_daily_deposit_limit(
         env: &Env,
         depositor: &Address,
@@ -2667,6 +2737,8 @@ impl FiatBridge {
     /// * [`Error::NotAllowed`]        – `operator` is the admin address.
     /// * [`Error::InvalidRecipient`]  – `operator` is the contract address.
     /// * [`Error::OperatorCapReached`] – Maximum operator count already reached.
+    /// * [`Error::NotOperator`]       – `active == false` but the address is not an operator.
+    /// * [`Error::ContractPaused`]    – Contract is paused; operator list cannot be mutated.
     pub fn set_operator(env: Env, operator: Address, active: bool) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -3206,6 +3278,33 @@ impl FiatBridge {
     }
 
     // ── Ownership Renounce ────────────────────────────────────────────────
+    /// Queue an irreversible admin renounce that will eliminate all governance.
+    ///
+    /// Once queued, the renounce cannot be cancelled. After the mandatory timelock
+    /// (`MIN_TIMELOCK_DELAY`), the current admin can call [`execute_renounce_admin`]
+    /// to permanently remove the admin address and take the contract out of governance.
+    ///
+    /// # Role check
+    /// Only the current admin can call this function. The admin address is
+    /// read from instance storage and `require_auth()` is called against it,
+    /// so the transaction must be signed by the admin key.
+    ///
+    /// # Timelock enforcement
+    /// The renounce cannot be executed until `env.ledger().sequence() > target_ledger`,
+    /// where `target_ledger = now + MIN_TIMELOCK_DELAY` (34 560 ledgers ≈ 48 h).
+    /// This gives all stakeholders time to react.
+    ///
+    /// # Pause requirement
+    /// Renounce queueing is blocked while the contract is paused. This prevents the
+    /// timelock from elapsing while paused, which would leave the contract permanently
+    /// without governance. An explicit unpause is required first.
+    ///
+    /// # Arguments
+    /// * `env` – The contract environment.
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`]   – Contract has not been initialized.
+    /// * [`Error::ContractPaused`]   – Contract is paused; renounce queueing is blocked.
     pub fn queue_renounce_admin(env: Env) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -3480,6 +3579,28 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Execute a previously queued admin renounce once its timelock has elapsed.
+    ///
+    /// Completes the renounce process by permanently removing the admin address
+    /// and the pending admin address from storage. Once executed, the contract
+    /// no longer has any governance authority and cannot be administered.
+    ///
+    /// # Role check
+    /// Only the current admin can call this function. The same `require_auth()`
+    /// guard used in [`queue_renounce_admin`] applies here, ensuring that the
+    /// entity that queued the renounce is also the one executing it.
+    ///
+    /// # Timelock enforcement
+    /// The renounce is only executable once `env.ledger().sequence() > target_ledger`
+    /// (strict `>`, not `>=`). This adds one extra ledger of safety margin.
+    ///
+    /// # Arguments
+    /// * `env` – The contract environment.
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`]    – Contract has not been initialized.
+    /// * [`Error::ActionNotQueued`]   – No renounce was queued (no pending target ledger).
+    /// * [`Error::ActionNotReady`]    – The timelock has not yet elapsed.
     pub fn execute_renounce_admin(env: Env) -> Result<(), Error> {
         let admin: Address = env
             .storage()
