@@ -98,6 +98,42 @@ fn set_upgrade_delay(env: Env, delay: u32) -> Result<(), Error>
 
 ---
 
+## Admin Action Timelock
+
+All privileged governance operations follow a mandatory two-phase commit pattern to prevent surprise changes and give observers time to react.
+
+### General Pattern
+
+```rust
+// Phase 1: Queue an action with a mandatory minimum delay
+fn queue_admin_action(env: Env, action_type: Symbol, payload: Bytes, delay: u32) -> Result<u64, Error>
+
+// Phase 2: Execute a queued action once the timelock has elapsed
+fn execute_admin_action(env: Env, id: u64) -> Result<(), Error>
+```
+
+**Minimum delay:** `delay` must be at least `MIN_TIMELOCK_DELAY` = 34,560 ledgers ≈ 48 hours.
+Shorter delays are rejected with `Error::ActionNotReady`.
+
+**Boundary check:** Execution requires `current_ledger > target_ledger` (strict `>`), adding one extra ledger of safety margin.
+
+### Admin Renounce Pattern
+
+The `queue_renounce_admin` / `execute_renounce_admin` functions follow the same timelock pattern but are irreversible:
+once renounce is executed, the admin address is permanently removed and no further governance is possible.
+
+```rust
+// Queue irreversible admin renounce under timelock
+fn queue_renounce_admin(env: Env) -> Result<(), Error>
+
+// Complete renounce after timelock elapses (permanent)
+fn execute_renounce_admin(env: Env) -> Result<(), Error>
+```
+
+**Pause requirement:** Renounce queueing is blocked while the contract is paused, preventing the timelock from elapsing and leaving the contract permanently without governance.
+
+---
+
 ## Overflow Prevention
 
 See [OVERFLOW_PREVENTION.md](./OVERFLOW_PREVENTION.md) for a comprehensive
@@ -257,6 +293,49 @@ fn get_user_daily_withdrawal(env: Env, user: Address) -> i128
 - Quota of 0 disables enforcement
 - Window resets after 17,280 ledgers (~24 hours)
 - Quota is per-user, tracked independently
+
+---
+
+## Daily Deposit Limit
+
+### Per-Token Daily Deposit Limit Enforcement
+
+Per-user per-token daily deposit limits are enforced with 24-hour rolling windows (~17,280 ledgers).
+This complements the global fiat limit and withdrawal quota, providing multi-layer rate limiting.
+
+### Configuration
+
+```rust
+// Set daily deposit limit for a specific token (admin only)
+fn set_daily_deposit_limit(env: Env, token: Address, limit_per_day: i128) -> Result<(), Error>
+```
+
+### Behavior
+
+- Limit of 0 or negative value disables enforcement for that token
+- Window resets after 17,280 ledgers (`WINDOW_LEDGERS`) — approximately 24 hours
+- Limit is per-user per-token, tracked independently
+- Deposits exceeding the limit are rejected with `Error::DailyLimitExceeded` (code 303)
+
+### Storage
+
+User deposit records are stored as `UserDailyDeposit` structs in instance storage,
+keyed by `DataKey::UserDailyDeposit(depositor, token)`:
+
+```rust
+pub struct UserDailyDeposit {
+    pub amount: i128,           // Total deposited in current window
+    pub window_start: u32,      // Ledger when the current window opened
+}
+```
+
+### Relation to Other Limits
+
+- **Daily Deposit Limit** (this section): per-user per-token rolling cap, enforced on `deposit`
+- **Withdrawal Quota** (previous section): per-user daily rollup cap, enforced on `withdraw` / `execute_withdrawal`
+- **Fiat Limit** (`ExceedsFiatLimit`, code 304): per-user USD-cent daily cap, enforced on `deposit`
+
+---
 
 ## Batched Admin Operations
 
