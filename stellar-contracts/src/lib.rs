@@ -673,6 +673,31 @@ pub struct QuotaResetEvent {
     pub window_start: u32,
 }
 
+/// Event emitted when a withdrawal successfully consumes part of a user's
+/// daily withdrawal quota (issue #697).
+///
+/// Published on the success path of [`enforce_withdrawal_quota`] so off-chain
+/// indexers and monitoring systems can track per-user daily usage in real
+/// time without re-deriving it from raw withdrawals.
+///
+/// # Fields
+/// * `version`      – Event schema version.
+/// * `user`         – The withdrawing user.
+/// * `amount`       – The amount applied to the quota by this withdrawal.
+/// * `accumulated`  – The user's total accumulated withdrawal in the current window.
+/// * `quota`        – The configured daily quota at the time of the withdrawal.
+/// * `window_start` – Ledger sequence at which the current window started.
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct WithdrawalQuotaConsumedEvent {
+    pub version: u32,
+    pub user: Address,
+    pub amount: i128,
+    pub accumulated: i128,
+    pub quota: i128,
+    pub window_start: u32,
+}
+
 /// Event emitted during escrow storage migration to track progress.
 ///
 /// This event is published after each batch of records is migrated, allowing
@@ -4067,17 +4092,20 @@ impl FiatBridge {
     /// the configured quota.
     ///
     /// # Overflow Prevention
-    /// The running total `record.amount + amount` is computed with plain
-    /// addition after the window-reset branch.  Both values are `i128` and
-    /// bounded by the quota (itself an `i128`), so overflow is not reachable
-    /// in practice.  If the quota were ever set to `i128::MAX` the addition
-    /// could theoretically overflow; a future hardening pass could add
-    /// `checked_add` here for belt-and-suspenders safety.
+    /// The running total is computed with `checked_add` (issue #697), mirroring
+    /// the deposit-side [`enforce_daily_deposit_limit`] hardening (#499). This
+    /// prevents a crafted extremely large withdrawal from wrapping the `i128`
+    /// daily accumulator and bypassing the quota check; an overflow returns
+    /// [`Error::Overflow`].
     ///
     /// # Window Reset
     /// When the current ledger has advanced past `window_start + WINDOW_LEDGERS`
     /// the accumulated amount is reset to zero and the window start is updated.
     /// A [`QuotaResetEvent`] is emitted so off-chain indexers can track resets.
+    ///
+    /// # Usage Tracking
+    /// On the success path a [`WithdrawalQuotaConsumedEvent`] is emitted with the
+    /// newly accumulated total so indexers can track per-user daily usage.
     fn enforce_withdrawal_quota(
         env: &Env,
         user: &Address,
@@ -4114,8 +4142,12 @@ impl FiatBridge {
             .publish(env);
         }
 
-        if record.amount + amount > quota {
-            let excess = record.amount + amount - quota;
+        // #697: use checked_add so a crafted extremely large withdrawal cannot
+        // wrap the i128 daily accumulator and bypass the quota check below.
+        let projected = record.amount.checked_add(amount).ok_or(Error::Overflow)?;
+
+        if projected > quota {
+            let excess = projected - quota;
             // Accrue the excess amount as fee to the vault
             let key = DataKey::FeeVault(token.clone());
             let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
@@ -4129,10 +4161,21 @@ impl FiatBridge {
             return Err(Error::WithdrawalQuotaExceeded);
         }
 
-        record.amount += amount;
+        record.amount = projected;
         env.storage()
             .instance()
             .set(&DataKey::UserDailyWithdrawal(user.clone()), &record);
+
+        // #697: emit per-user daily usage so indexers can track quota consumption.
+        WithdrawalQuotaConsumedEvent {
+            version: EVENT_VERSION,
+            user: user.clone(),
+            amount,
+            accumulated: record.amount,
+            quota,
+            window_start: record.window_start,
+        }
+        .publish(env);
 
         Ok(())
     }
@@ -5593,3 +5636,6 @@ mod test_issues_492_499;
 
 #[cfg(test)]
 mod test_issues_840;
+
+#[cfg(test)]
+mod test_issue_697;
