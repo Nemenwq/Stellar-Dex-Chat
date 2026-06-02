@@ -5639,3 +5639,12 @@ mod test_issues_840;
 
 #[cfg(test)]
 mod test_issue_697;
+
+#[cfg(test)]
+mod test_issue_702;
+
+#[cfg(test)]
+mod test_issue_832;
+
+#[cfg(test)]
+mod test_issue_681;
