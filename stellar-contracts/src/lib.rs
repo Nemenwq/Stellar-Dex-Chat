@@ -5647,4 +5647,7 @@ mod test_issue_702;
 mod test_issue_832;
 
 #[cfg(test)]
+mod test_issue_676;
+
+#[cfg(test)]
 mod test_issue_681;
