@@ -935,29 +935,20 @@ pub struct UserDailyDepositRecord {
 
 // ── Helper functions ───────────────────────────────────────────────────────
 
-/// Check whether `addr` is denied from depositing.
+/// Check whether `addr` is on the denylist.
 ///
-/// Returns `true` (denied) when the allowlist is enabled AND the address
-/// does not have an explicit `Allowed` entry.
+/// Returns `true` when the address has an explicit `Denied` entry in
+/// persistent storage. This is the overflow-safe gate used in `deposit` and
+/// `deposit_for` before the allowlist check runs.
 ///
 /// # Overflow safety
-/// The function only reads boolean flags and performs no arithmetic, so
+/// The function only reads a boolean flag and performs no arithmetic, so
 /// there is no numeric overflow risk here. The overflow-safe accumulation
 /// for USD-cent volumes is handled separately in `validate_fiat_limit`.
 fn is_denied(env: &Env, addr: &Address) -> bool {
-    let enabled: bool = env
-        .storage()
-        .instance()
-        .get(&DataKey::AllowlistEnabled)
-        .unwrap_or(false);
-    if !enabled {
-        return false;
-    }
-    // Allowed entry must be explicitly present and true
-    !env.storage()
+    env.storage()
         .persistent()
-        .get::<DataKey, bool>(&DataKey::Allowed(addr.clone()))
-        .unwrap_or(false)
+        .has(&DataKey::Denied(addr.clone()))
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────

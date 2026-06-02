@@ -12,8 +12,47 @@ use std::{format, fs, path::PathBuf, string::String, vec::Vec as StdVec};
 
 // ── helpers ──────────────────────────────────────────────────────────
 
-fn get_contract_events(env: &Env, contract_id: &Address) -> soroban_sdk::Vec<(Address, soroban_sdk::Vec<soroban_sdk::Val>, soroban_sdk::Val)> {
-    env.events().all().filter_by_contract(contract_id).events()}
+fn get_contract_events(
+    env: &Env,
+    contract_id: &Address,
+) -> soroban_sdk::Vec<(Address, soroban_sdk::Vec<soroban_sdk::Val>, soroban_sdk::Val)> {
+    use soroban_sdk::xdr::ContractEventBody;
+    use soroban_sdk::{FromVal, Val};
+
+    let filtered = env.events().all().filter_by_contract(contract_id);
+    let raw = filtered.events();
+
+    let mut result: soroban_sdk::Vec<(Address, soroban_sdk::Vec<Val>, Val)> =
+        soroban_sdk::Vec::new(env);
+
+    for event in raw.iter() {
+        // Resolve contract address — skip events with no contract id
+        let addr = match &event.contract_id {
+            Some(hash) => {
+                let hash_bytes: [u8; 32] = hash.0.clone().into();
+                Address::from_string_bytes(&soroban_sdk::Bytes::from_array(env, &hash_bytes))
+            }
+            None => continue,
+        };
+
+        // Extract topics and data from the event body
+        let (topics_xdr, data_xdr) = match &event.body {
+            ContractEventBody::V0(v0) => (&v0.topics, &v0.data),
+        };
+
+        // Convert topics to Val vector
+        let mut topics_vec: soroban_sdk::Vec<Val> = soroban_sdk::Vec::new(env);
+        for topic in topics_xdr.iter() {
+            topics_vec.push_back(Val::from_val(env, topic));
+        }
+        // Convert data to Val
+        let data_val: Val = Val::from_val(env, data_xdr);
+
+        result.push_back((addr, topics_vec, data_val));
+    }
+    result
+}
+
 
 fn create_token<'a>(
     e: &Env,
