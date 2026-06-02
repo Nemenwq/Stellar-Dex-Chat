@@ -2897,6 +2897,7 @@ impl FiatBridge {
         // the cap by being less than the current operator count
         if max_operators > 0 {
             let operators = Self::get_operator_list(&env);
+            #[allow(clippy::unnecessary_cast)]
             let current_count = operators.len() as u32;
             require!(
                 current_count <= max_operators,
