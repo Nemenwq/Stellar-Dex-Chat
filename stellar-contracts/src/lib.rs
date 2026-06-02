@@ -90,14 +90,19 @@ pub enum Error {
     CircuitBreakerActive = 311,
     InvalidMemoHash = 312,
     OperatorDailyLimitExceeded = 313,
+    ExceedsLimitMaxCap = 314,
+    MaxDeniedReached = 315,
 
     // --- 400 series: Funds & Balances ---
     InsufficientFunds = 401,
     NoFeesToWithdraw = 402,
+    FeeWithdrawalExceedsBalance = 403,
 
     // --- 500 series: Withdrawal Queue ---
     RequestNotFound = 501,
     WithdrawalLocked = 502,
+    ReceiptIndexOutOfBounds = 503,
+    ReceiptNotFound = 504,
 
     // --- 600 series: Governance & Timelock ---
     ActionNotQueued = 601,
@@ -866,6 +871,10 @@ pub enum DataKey {
     Threshold,
     MultisigProposal(u64),
     NextMultisigID,
+    // ── Issue #set_limit_max_cap: global per-token limit ceiling ──────────
+    SetLimitMaxCap,
+    // ── Issue #fee_withdrawal_nonce: replay-protection nonce per admin ────
+    FeeWithdrawalNonce(Address),
 
 }
 
@@ -1621,7 +1630,7 @@ impl FiatBridge {
             env.storage().instance().set(&DataKey::OperatorDailyVolume(operator.clone()), &operator_vol);
         }
 
-        Self::enforce_withdrawal_quota(&env, &request.to, execute_amount)?;
+        Self::enforce_withdrawal_quota(&env, &request.to, execute_amount, &request.token)?;
         // ── Issue #209: circuit breaker check ────────────────────────────
         Self::check_and_update_circuit_breaker(&env, execute_amount)?;
 

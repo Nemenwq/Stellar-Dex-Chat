@@ -1265,14 +1265,6 @@ fn test_request_withdrawal_extends_matching_receipt_ttl() {
     bridge.set_lock_period(&100);
     bridge.set_cooldown(&20);
     bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
-
->>>>>>> 7997a8e (the-error-fix)
-    assert!(
-        result.is_err(),
-        "non-admin caller must not be able to set emergency recovery"
-    );
-    // State must remain unchanged
-    assert_eq!(bridge.get_emergency_recovery_cap(), None);
 }
 
 #[test]
@@ -1542,26 +1534,14 @@ fn test_deny_address_blocks_request_withdrawal() {
     assert_eq!(result, Err(Ok(Error::AddressDenied)));
 }
 
-    assert_eq!(
-        bridge.try_deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None),
-        Err(Ok(Error::ContractPaused))
-    );
-    assert_eq!(
-        bridge.try_request_withdrawal(&user, &50, &token_addr, &None, &0),
-        Err(Ok(Error::ContractPaused))
-    );
-    assert_eq!(
-        bridge.try_withdraw(&admin, &user, &50, &token_addr),
-        Err(Ok(Error::ContractPaused))
-    );
-    assert_eq!(
-        bridge.try_execute_withdrawal(&operator, &req_id, &None, &0, &0),
-        Err(Ok(Error::ContractPaused))
-    );
-    assert_eq!(
-        bridge.try_cancel_withdrawal(&req_id),
-        Err(Ok(Error::ContractPaused))
-    );
+#[test]
+fn test_migrate_escrow_already_complete() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
 
     bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
     bridge.migrate_escrow(&10);
@@ -2644,11 +2624,11 @@ fn test_circuit_breaker_also_blocks_execute_withdrawal() {
     let r2 = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
 
     // Executing r1 exceeds threshold and trips the breaker
-    bridge.execute_withdrawal(&r1, &None, &0, &0);
+    bridge.execute_withdrawal(&admin, &r1, &None, &0, &0);
     assert!(bridge.is_circuit_breaker_tripped());
 
     // The second queued withdrawal execution is now blocked
-    let result = bridge.try_execute_withdrawal(&r2, &None, &0, &0);
+    let result = bridge.try_execute_withdrawal(&admin, &r2, &None, &0, &0);
     assert_eq!(result, Err(Ok(Error::CircuitBreakerActive)));
 }
 
@@ -2762,7 +2742,7 @@ fn test_tier_prioritization_higher_tier_waits() {
     assert_eq!(next, Some(r0));
 
     // Execute tier 0 — now tier 2 should surface
-    bridge.execute_withdrawal(&r0, &None, &0, &0);
+    bridge.execute_withdrawal(&admin, &r0, &None, &0, &0);
     let next_after = bridge.get_next_priority_withdrawal();
     assert_eq!(next_after, Some(r2));
 }
@@ -2785,7 +2765,7 @@ fn test_tier_fifo_within_same_tier() {
     assert_eq!(next, Some(r_first));
 
     // After executing first, second should surface
-    bridge.execute_withdrawal(&r_first, &None, &0, &0);
+    bridge.execute_withdrawal(&admin, &r_first, &None, &0, &0);
     let next_after = bridge.get_next_priority_withdrawal();
     assert_eq!(next_after, Some(r_second));
 }
@@ -4178,10 +4158,7 @@ fn test_get_denied_addresses_offset_beyond_count() {
     assert_eq!(result.len(), 0);
 }
 
-<<<<<<< HEAD
-=======
 
->>>>>>> 7997a8e (the-error-fix)
 // ── withdrawal expiry tests ───────────────────────────────────────────────
 #[test]
 fn test_reclaim_expired_withdrawal_succeeds_after_window() {
@@ -4428,11 +4405,7 @@ fn test_circuit_breaker_still_blocked_before_reset_window() {
     assert_eq!(result, Err(Ok(Error::CircuitBreakerActive)));
 }
 
-<<<<<<< HEAD
 #[test]
-=======
-
->>>>>>> 7997a8e (the-error-fix)
 fn test_set_and_get_circuit_breaker_reset_window() {
     let env = Env::default();
     env.mock_all_auths();
@@ -4606,10 +4579,6 @@ fn test_queue_renounce_succeeds_when_not_paused() {
     // Normal flow — not paused, should work fine
     bridge.queue_renounce_admin();
     assert!(bridge.get_pending_renounce_ledger().is_some());
-<<<<<<< HEAD
-=======
-
->>>>>>> 7997a8e (the-error-fix)
 }
 
 // ── upgrade mechanism tests ───────────────────────────────────────────────
