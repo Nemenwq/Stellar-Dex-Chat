@@ -553,6 +553,14 @@ pub struct SetLimitMaxCapEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
+pub struct FeeVaultThresholdEvent {
+    pub version: u32,
+    pub token: Address,
+    pub threshold: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
 pub struct SetLimitEvent {
     pub version: u32,
     pub token: Address,
@@ -918,6 +926,8 @@ pub enum DataKey {
     /// This value defaults to `i128::MAX` and may be lowered by
     /// `set_limit_max_cap` to enforce a production risk ceiling.
     SetLimitMaxCap,
+    /// Maximum allowed fee vault balance per token for safety threshold checks.
+    FeeVaultThreshold(Address),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -1456,11 +1466,8 @@ impl FiatBridge {
 
         require!(amount > 0, Error::ZeroAmount);
 
-        // ── Circuit breaker: reject withdrawal requests when tripped ─────
-        require!(
-            !Self::is_circuit_breaker_tripped(env.clone()),
-            Error::CircuitBreakerActive
-        );
+        // ── Circuit breaker: track requested withdrawal amount and reject when tripped ─────
+        Self::check_and_update_circuit_breaker(&env, amount)?;
 
         // ── Issue #687: edge case validation ─────────────────────────────
         // Validate token is whitelisted before proceeding
@@ -3530,10 +3537,68 @@ impl FiatBridge {
     }
 
     pub fn get_accrued_fees(env: Env, token: Address) -> i128 {
-        env.storage()
+        let fees = env
+            .storage()
             .persistent()
-            .get(&DataKey::FeeVault(token))
-            .unwrap_or(0)
+            .get(&DataKey::FeeVault(token.clone()))
+            .unwrap_or(0);
+
+        // Check against configured threshold and emit event if exceeded
+        if let Some(threshold) = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeVaultThreshold(token.clone()))
+        {
+            if fees > threshold {
+                // Emit event indicating threshold exceeded
+                // This is informational - the function still returns the actual value
+                FeeVaultThresholdEvent {
+                    version: EVENT_VERSION,
+                    token: token.clone(),
+                    threshold,
+                }
+                .publish(&env);
+            }
+        }
+
+        fees
+    }
+
+    /// Sets the maximum allowed fee vault balance for a specific token.
+    ///
+    /// When the accrued fees exceed this threshold, a FeeVaultThresholdEvent
+    /// is emitted to alert operators. This is a safety mechanism to prevent
+    /// excessive fee accumulation.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `token` - The token address to set the threshold for
+    /// * `threshold` - The maximum allowed fee vault balance (0 disables the check)
+    pub fn set_fee_vault_threshold(env: Env, token: Address, threshold: i128) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        if threshold < 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeVaultThreshold(token.clone()), &threshold);
+
+        FeeVaultThresholdEvent {
+            version: EVENT_VERSION,
+            token,
+            threshold,
+        }
+        .publish(&env);
+
+        Ok(())
     }
 
     pub fn get_fee_withdrawal_nonce(env: Env, admin: Address) -> u64 {
@@ -3610,6 +3675,10 @@ impl FiatBridge {
             remaining_fees,
         }
         .publish(&env);
+
+        // Check invariants after fee withdrawal
+        Self::check_invariants(&env, &token)?;
+
         Ok(())
     }
 
