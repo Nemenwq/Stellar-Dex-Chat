@@ -257,12 +257,17 @@ export function useTransactionFilters(
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchParamsRef = useRef(searchParams);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const pendingFilterStateRef = useRef<FilterState | null>(null);
-  const lastUpdateTimeRef = useRef<number>(0);
   const [optimisticFilterState, setOptimisticFilterState] = useState<FilterState | null>(
     null,
   );
+
+  // Keep ref in sync so debounce callbacks always read the latest searchParams
+  useEffect(() => {
+    searchParamsRef.current = searchParams;
+  }, [searchParams]);
 
   // Parse filter state from URL (with fallback for SSR)
   const urlFilterState = useMemo(() => {
@@ -325,15 +330,16 @@ export function useTransactionFilters(
       pendingFilterStateRef.current = newFilterState;
       setOptimisticFilterState(newFilterState);
 
-      // Set new timer
+      // Set new timer — reads searchParamsRef at flush time so it always
+      // uses the latest params (including non-filter params like `tab`).
       debounceTimerRef.current = setTimeout(() => {
-        const newParams = mergeFilterParams(searchParams, newFilterState);
+        const newParams = mergeFilterParams(searchParamsRef.current, newFilterState);
         const queryString = newParams.toString();
         const newUrl = queryString ? `${pathname}?${queryString}` : pathname;
         router.push(newUrl, { scroll: false });
       }, DEBOUNCE_DELAY);
     },
-    [router, pathname, searchParams],
+    [router, pathname],
   );
 
   // Toggle a filter value

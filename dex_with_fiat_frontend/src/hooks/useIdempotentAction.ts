@@ -15,7 +15,9 @@ export function useIdempotentAction(options: IdempotentActionOptions = {}) {
 
   const [isProcessing, setIsProcessing] = useState(false);
   const isProcessingRef = useRef(false);
-  const lastExecutionTime = useRef(0);
+  // Initialize to -(cooldownMs) so the very first call is never throttled,
+  // even when Date.now() returns 0 (e.g. with vi.useFakeTimers()).
+  const lastExecutionTime = useRef(-(cooldownMs ?? 2000));
   const idempotencyKey = useRef<string>('');
   const isMountedRef = useRef(true);
 
@@ -69,9 +71,9 @@ export function useIdempotentAction(options: IdempotentActionOptions = {}) {
   const reset = useCallback(() => {
     isProcessingRef.current = false;
     if (isMountedRef.current) setIsProcessing(false);
-    lastExecutionTime.current = 0;
+    lastExecutionTime.current = -(cooldownMs ?? 2000);
     idempotencyKey.current = '';
-  }, []);
+  }, [cooldownMs]);
 
   return {
     execute,

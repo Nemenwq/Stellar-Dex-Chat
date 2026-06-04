@@ -985,7 +985,7 @@ impl FiatBridge {
         let cooldown: u32 = env
             .storage()
             .instance()
-            .get(&DataKey::DepositCooldown)
+            .get(&DataKey::CooldownLedgers)
             .unwrap_or(0);
         if cooldown > 0 {
             let last_key = DataKey::LastDepositLedger(admin.clone());
@@ -1084,15 +1084,7 @@ impl FiatBridge {
         Self::validate_memo_hash(&env, &memo_hash)?;
         from.require_auth();
 
-// ── Pause check ───────────────────────────────────────────────
-        if env
-            .storage()
-            .instance()
-            .get::<DataKey, bool>(&DataKey::Paused)
-            .unwrap_or(false)
-        {
-            return Err(Error::Paused);
-        }
+        Self::require_not_paused(&env)?;
 
         // ── Allowlist check ───────────────────────────────────────────
         if is_denied(&env, &from) {
@@ -1103,7 +1095,7 @@ impl FiatBridge {
         let cooldown: u32 = env
             .storage()
             .instance()
-            .get(&DataKey::DepositCooldown)
+            .get(&DataKey::CooldownLedgers)
             .unwrap_or(0);
         let anti_sandwich: u32 = env
             .storage()
@@ -1112,7 +1104,7 @@ impl FiatBridge {
             .unwrap_or(0);
         if cooldown > 0 {
             let last_key = DataKey::LastDepositLedger(from.clone());
-            if let Some(last_ledger) = env.storage().instance().get::<DataKey, u32>(&last_key) {
+            if let Some(last_ledger) = env.storage().temporary().get::<DataKey, u32>(&last_key) {
                 if env.ledger().sequence() - last_ledger < cooldown {
                     return Err(Error::CooldownActive);
                 }
@@ -2489,8 +2481,11 @@ impl FiatBridge {
         };
 
         if let Some(limit) = fiat_limit {
-            // ── Issue #220: use precision-safe fixed-point math ───────────
-            let usd_cents = crate::math::mul_div_floor(amount, price, ORACLE_PRICE_DECIMALS / 100);
+            // ── Issue #220: use overflow-safe fixed-point math ────────────
+            let usd_cents = amount
+                .checked_mul(price)
+                .map(|product| product / (ORACLE_PRICE_DECIMALS / 100))
+                .ok_or(Error::ExceedsFiatLimit)?;
             let curr = env.ledger().sequence();
             let mut vol: UserDailyVolume = env
                 .storage()
@@ -2505,26 +2500,20 @@ impl FiatBridge {
                 vol.usd_cents = 0;
                 vol.window_start = curr;
             }
-            if vol.usd_cents + usd_cents > limit {
+            let new_vol = vol
+                .usd_cents
+                .checked_add(usd_cents)
+                .ok_or(Error::ExceedsFiatLimit)?;
+            if new_vol > limit {
                 return Err(Error::ExceedsFiatLimit);
             }
-            vol.usd_cents += usd_cents;
+            vol.usd_cents = new_vol;
             env.storage()
                 .instance()
                 .set(&DataKey::UserDailyVolume(depositor.clone()), &vol);
         }
 
-// Oracle returns price per token unit in USD with 7 decimal places.
-        // usd_value = amount * price / ORACLE_PRICE_DECIMALS
-        // usd_cents = usd_value * 100 = (amount * price) / (ORACLE_PRICE_DECIMALS / 100)
-        //
-        // Overflow safety: both `amount` and `price` are i128. Their product can
-        // overflow if both are near i128::MAX. We use checked_mul and fall back to
-        // ExceedsFiatLimit (conservative rejection) to prevent silent wrapping.
-        let _usd_cents = amount
-            .checked_mul(price)
-            .map(|product| product / (ORACLE_PRICE_DECIMALS / 100))
-            .ok_or(Error::ExceedsFiatLimit)?;
+        // Return the price for use by the slippage check.
         Ok(price)
     }
 
@@ -2542,51 +2531,6 @@ impl FiatBridge {
         // Get current ledger for window calculations
         let curr = env.ledger().sequence();
         
-        // Get user daily volume record
-        let vol_key = DataKey::UserDailyVolume(depositor.clone());
-        let mut volume = env.storage().instance().get(&vol_key).unwrap_or(UserDailyVolume {
-            window_start: curr.saturating_sub(WINDOW_LEDGERS),
-            usd_cents: 0,
-        });
-
-// Get oracle price for USD conversion
-        let oracle_addr = env.storage().instance().get(&DataKey::Oracle);
-        let price = if let Some(addr) = oracle_addr {
-            let oracle = crate::oracle::OracleClient::new(env, &addr);
-            let p = oracle.get_price(token).unwrap_or(0);
-            if p <= 0 {
-                return Err(Error::OraclePriceInvalid);
-            }
-            p
-        } else {
-            return Err(Error::OracleNotSet);
-        };
-
-        // Calculate USD cents from amount and price
-        let usd_cents = amount
-            .checked_mul(price)
-            .map(|product| product / (ORACLE_PRICE_DECIMALS / 100))
-            .ok_or(Error::ExceedsFiatLimit)?;
-
-        // Get fiat limit from storage
-        let fiat_limit: Option<i128> = env.storage().instance().get(&DataKey::FiatLimit);
-
-// Overflow safety: use checked_add so that a near-max accumulated volume
-        // cannot wrap around and bypass the fiat limit check.
-        let new_total = volume
-            .usd_cents
-            .checked_add(usd_cents)
-            .ok_or(Error::ExceedsFiatLimit)?;
-
-        if let Some(limit) = fiat_limit {
-            if new_total > limit {
-                return Err(Error::ExceedsFiatLimit);
-            }
-        }
-
-        volume.usd_cents = new_total;
-        env.storage().instance().set(&vol_key, &volume);
-
         // Check daily deposit limit
         let key = DataKey::UserDailyDeposit(depositor.clone(), token.clone());
         let mut record = env.storage().instance().get(&key).unwrap_or(UserDailyDepositRecord {
@@ -3727,7 +3671,7 @@ impl FiatBridge {
             .map(|q| env.ledger().sequence().saturating_sub(q))
     }
     pub fn get_last_deposit_ledger(env: Env, user: Address) -> Option<u32> {
-        env.storage().temporary().get(&DataKey::LastDeposit(user))
+        env.storage().temporary().get(&DataKey::LastDepositLedger(user))
     }
     pub fn get_pending_renounce_ledger(env: Env) -> Option<u32> {
         env.storage()
@@ -4720,6 +4664,9 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        if ledgers < MIN_UPGRADE_DELAY {
+            return Err(Error::UpgradeDelayTooShort);
+        }
         env.storage()
             .instance()
             .set(&DataKey::UpgradeDelay, &ledgers);
@@ -5123,3 +5070,6 @@ mod test_init_validation;
 
 #[cfg(test)]
 mod test_get_receipt_by_index;
+
+#[cfg(test)]
+mod test_request_withdrawal;
