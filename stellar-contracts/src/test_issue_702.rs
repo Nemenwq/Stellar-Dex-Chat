@@ -95,7 +95,10 @@ fn test_unpause_invariant_emits_correct_event() {
     
     // Last event should be unpause event containing admin address
     let last_event = &event_vec[event_vec.len() - 1];
-    assert!(last_event.topics.len() > 0);
+    use soroban_sdk::xdr::ContractEventBody;
+    if let ContractEventBody::V0(body) = &last_event.body {
+        assert!(body.topics.len() > 0);
+    }
 }
 
 /// Test that unpause preserves all contract state
