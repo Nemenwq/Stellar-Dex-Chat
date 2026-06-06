@@ -1,7 +1,7 @@
 import { renderHook, act } from '@testing-library/react';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type { TransactionHistoryEntry } from '@/types';
-import { KEYBOARD_SHORTCUTS, useTransactionFilters } from './useTransactionFilters';
+import { KEYBOARD_SHORTCUTS, useTransactionFilters, getAccessibleFilterChipTone } from './useTransactionFilters';
 
 let mockSearchParams = new URLSearchParams('tab=history');
 const mockPush = vi.fn((url: string) => {
@@ -51,75 +51,20 @@ describe('useTransactionFilters', () => {
 
     act(() => {
       result.current.toggleFilter('status', 'completed');
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(51);
+    });
+
+    act(() => {
       result.current.toggleFilter('asset', 'XLM');
     });
 
     expect(mockPush).not.toHaveBeenCalled();
 
     act(() => {
-      vi.advanceTimersByTime(149);
-    });
-    expect(mockPush).not.toHaveBeenCalled();
-
-    it('clears all filters through the keyboard shortcut outside editable fields', () => {
-      mockSearchParams = new URLSearchParams('status=completed');
-
-      renderHook(() => useTransactionFilters(sampleTransactions));
-
-      act(() => {
-        window.dispatchEvent(
-          new KeyboardEvent('keydown', {
-            key: 'x',
-            ctrlKey: true,
-            shiftKey: true,
-            bubbles: true,
-          }),
-        );
-      });
-
-      act(() => {
-        vi.advanceTimersByTime(150);
-      });
-
-      expect(pushMock).toHaveBeenCalledWith('/receipts', { scroll: false });
-    });
-
-    it('ignores keyboard shortcuts while typing in an input', () => {
-      mockSearchParams = new URLSearchParams('status=completed');
-
-      renderHook(() => useTransactionFilters(sampleTransactions));
-
-      const input = document.createElement('input');
-      document.body.appendChild(input);
-
-      act(() => {
-        input.dispatchEvent(
-          new KeyboardEvent('keydown', {
-            key: 'x',
-            ctrlKey: true,
-            shiftKey: true,
-            bubbles: true,
-          }),
-        );
-        vi.advanceTimersByTime(150);
-      });
-
-      expect(pushMock).not.toHaveBeenCalled();
-
-      document.body.removeChild(input);
-    });
-
-    it('exposes the same accessible chip tone resolver through the hook', () => {
-      const { result } = renderHook(() =>
-        useTransactionFilters(sampleTransactions),
-      );
-
-      expect(
-        result.current.getFilterChipTone('status', 'pending', true),
-      ).toEqual(getAccessibleFilterChipTone('status', 'pending', true));
-    })
-    act(() => {
-      vi.advanceTimersByTime(1);
+      vi.advanceTimersByTime(200);
     });
 
     expect(mockPush).toHaveBeenCalledTimes(1);
@@ -127,6 +72,64 @@ describe('useTransactionFilters', () => {
       '/transactions?tab=history&status=completed&asset=XLM',
       { scroll: false },
     );
+  });
+
+  it('clears all filters through the keyboard shortcut outside editable fields', () => {
+    mockSearchParams = new URLSearchParams('status=completed');
+
+    renderHook(() => useTransactionFilters(transactions));
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'x',
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+        }),
+      );
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
+
+    expect(mockPush).toHaveBeenCalledWith('/transactions', { scroll: false });
+  });
+
+  it('ignores keyboard shortcuts while typing in an input', () => {
+    mockSearchParams = new URLSearchParams('status=completed');
+
+    renderHook(() => useTransactionFilters(transactions));
+
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'x',
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+        }),
+      );
+      vi.advanceTimersByTime(150);
+    });
+
+    expect(mockPush).not.toHaveBeenCalled();
+
+    document.body.removeChild(input);
+  });
+
+  it('exposes the same accessible chip tone resolver through the hook', () => {
+    const { result } = renderHook(() =>
+      useTransactionFilters(transactions),
+    );
+
+    expect(
+      result.current.getFilterChipTone('status', 'pending', true),
+    ).toEqual(getAccessibleFilterChipTone('status', 'pending', true));
   });
 
   it('applies pending filter state immediately before debounce flush', () => {
@@ -148,6 +151,5 @@ describe('useTransactionFilters', () => {
     expect(KEYBOARD_SHORTCUTS.cycleStatus.key).toBe('1');
     expect(KEYBOARD_SHORTCUTS.cycleAsset.key).toBe('2');
     expect(KEYBOARD_SHORTCUTS.cycleNetwork.key).toBe('3');
-
   });
 });

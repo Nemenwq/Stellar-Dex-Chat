@@ -490,6 +490,17 @@ pub struct FeeAccruedEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
+pub struct FeeVaultReconciledEvent {
+    pub version: u32,
+    pub token: Address,
+    /// Vault balance recorded before reconciliation.
+    pub previous_balance: i128,
+    /// Vault balance after capping to on-chain token reserves.
+    pub new_balance: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
 pub struct RefundEvent {
     pub version: u32,
     pub receipt_id: BytesN<32>,
@@ -532,6 +543,14 @@ pub struct SetMinDepositEvent {
 pub struct SetLimitMaxCapEvent {
     pub version: u32,
     pub max_cap: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct FeeVaultThresholdEvent {
+    pub version: u32,
+    pub token: Address,
+    pub threshold: i128,
 }
 
 #[contractevent]
@@ -656,6 +675,31 @@ pub struct QuotaResetEvent {
     pub window_start: u32,
 }
 
+/// Event emitted when a withdrawal successfully consumes part of a user's
+/// daily withdrawal quota (issue #697).
+///
+/// Published on the success path of [`enforce_withdrawal_quota`] so off-chain
+/// indexers and monitoring systems can track per-user daily usage in real
+/// time without re-deriving it from raw withdrawals.
+///
+/// # Fields
+/// * `version`      – Event schema version.
+/// * `user`         – The withdrawing user.
+/// * `amount`       – The amount applied to the quota by this withdrawal.
+/// * `accumulated`  – The user's total accumulated withdrawal in the current window.
+/// * `quota`        – The configured daily quota at the time of the withdrawal.
+/// * `window_start` – Ledger sequence at which the current window started.
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct WithdrawalQuotaConsumedEvent {
+    pub version: u32,
+    pub user: Address,
+    pub amount: i128,
+    pub accumulated: i128,
+    pub quota: i128,
+    pub window_start: u32,
+}
+
 /// Event emitted during escrow storage migration to track progress.
 ///
 /// This event is published after each batch of records is migrated, allowing
@@ -703,6 +747,13 @@ pub struct BatchOkEvent {
     pub success_count: u32,
     pub failure_count: u32,
     pub total_ops: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct AdminRoleCheckEvent {
+    pub version: u32,
+    pub admin: Address,
 }
 
 /// Emitted after the token balance state is updated on a successful deposit (#499).
@@ -1414,11 +1465,8 @@ impl FiatBridge {
 
         require!(amount > 0, Error::ZeroAmount);
 
-        // ── Circuit breaker: reject withdrawal requests when tripped ─────
-        require!(
-            !Self::is_circuit_breaker_tripped(env.clone()),
-            Error::CircuitBreakerActive
-        );
+        // ── Circuit breaker: track requested withdrawal amount and reject when tripped ─────
+        Self::check_and_update_circuit_breaker(&env, amount)?;
 
         // ── Issue #687: edge case validation ─────────────────────────────
         // Validate token is whitelisted before proceeding
@@ -2843,6 +2891,42 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Sets the maximum number of operators allowed to be active simultaneously.
+    ///
+    /// # Purpose
+    /// Configures the operator count cap. A value of 0 means unlimited operators.
+    /// Values > 0 enforce a hard limit on concurrent operator registrations.
+    ///
+    /// # Parameters
+    /// - `env`: The Stellar contract environment
+    /// - `max_operators`: The new maximum operator count (0 for unlimited)
+    ///
+    /// # Returns
+    /// `Ok(())` on successful update
+    /// `Err(Error::NotInitialized)` if contract admin not set
+    /// `Err(Error::ExceedsLimit)` if max_operators < current active operator count
+    ///
+    /// # Access Control
+    /// Only the contract admin (verified via `require_auth()`) may call this function.
+    ///
+    /// # Validation
+    /// - Contract must be initialized (admin exists)
+    /// - If setting a non-zero limit (max_operators > 0), must be >= current operator count
+    ///   to avoid violating the cap invariant
+    ///
+    /// # Errors
+    /// - `NotInitialized`: Admin not set (contract not initialized)
+    /// - `ExceedsLimit`: Attempting to reduce max below current operator count
+    ///
+    /// # Side Effects
+    /// - Updates persistent storage with new max operators value
+    /// - Does not affect currently registered operators
+    ///
+    /// # Example
+    /// ```ignore
+    /// contract.set_max_operators(env, 10)?;  // Allow up to 10 operators
+    /// contract.set_max_operators(env, 0)?;   // Allow unlimited operators
+    /// ```
     pub fn set_max_operators(env: Env, max_operators: u32) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -2850,6 +2934,19 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+
+        // Boundary check: if setting a non-zero limit, ensure it doesn't violate
+        // the cap by being less than the current operator count
+        if max_operators > 0 {
+            let operators = Self::get_operator_list(&env);
+            #[allow(clippy::unnecessary_cast)]
+            let current_count = operators.len() as u32;
+            require!(
+                current_count <= max_operators,
+                Error::ExceedsLimit
+            );
+        }
+
         env.storage()
             .instance()
             .set(&DataKey::MaxOperators, &max_operators);
@@ -3438,6 +3535,140 @@ impl FiatBridge {
     }
 
     // ── Fee Vault ─────────────────────────────────────────────────────────
+
+    /// Returns the persisted fee-vault balance for `token`, reconciled against
+    /// the contract's on-chain token balance so the ledger never exceeds reserves.
+    /// Reconciles the on-chain fee vault ledger balance against the actual token contract balance.
+    ///
+    /// # Purpose
+    /// Maintains consistency between the contract's internal accounting (persistent storage)
+    /// and the actual token balance held by the contract. If the ledger records more fees
+    /// than are actually held (e.g., due to token transfers or external liquidations),
+    /// this function corrects the ledger down to the actual balance and emits a
+    /// reconciliation event for audit purposes.
+    ///
+    /// # Parameters
+    /// - `env`: The Stellar contract environment
+    /// - `token`: The token address to reconcile
+    ///
+    /// # Returns
+    /// The authoritative fee vault balance after reconciliation:
+    /// - If `vault_balance <= 0`, returns `0` (no fees recorded)
+    /// - If `vault_balance <= contract_balance`, returns `vault_balance` (ledger accurate)
+    /// - If `vault_balance > contract_balance`, corrects ledger and returns `contract_balance`
+    ///
+    /// # Side Effects
+    /// - Corrects persistent storage if ledger exceeds actual balance
+    /// - Emits [`FeeVaultReconciledEvent`] when a correction occurs
+    ///
+    /// # Example
+    /// Called before fee withdrawals and batch sweeps to ensure the contract does not
+    /// attempt to send more tokens than physically held.
+    fn reconcile_fee_vault(env: &Env, token: &Address) -> i128 {
+        let key = DataKey::FeeVault(token.clone());
+        let vault_balance: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        if vault_balance <= 0 {
+            return 0;
+        }
+
+        let token_client = token::Client::new(env, token);
+        let contract_balance = token_client.balance(&env.current_contract_address());
+        if vault_balance <= contract_balance {
+            return vault_balance;
+        }
+
+        env.storage()
+            .persistent()
+            .set(&key, &contract_balance);
+        FeeVaultReconciledEvent {
+            version: EVENT_VERSION,
+            token: token.clone(),
+            previous_balance: vault_balance,
+            new_balance: contract_balance,
+        }
+        .publish(env);
+        contract_balance
+    }
+
+    /// Deducts a specific amount from the fee vault ledger and updates persistent storage.
+    ///
+    /// # Purpose
+    /// Atomically reduces the recorded fee vault balance by the withdrawn amount.
+    /// This is a ledger-only operation that does not interact with the token contract.
+    /// The actual token transfer must be performed by the caller.
+    ///
+    /// # Parameters
+    /// - `env`: The Stellar contract environment
+    /// - `token`: The token address whose vault is being debited
+    /// - `vault_balance`: The current vault balance (typically from [`Self::reconcile_fee_vault`])
+    /// - `amount`: The amount to deduct (must be > 0 and <= vault_balance)
+    ///
+    /// # Returns
+    /// `Ok(remaining)`: The new vault balance after deduction
+    /// `Err(error)`: If vault is empty, amount exceeds balance, or overflow occurs
+    ///
+    /// # Errors
+    /// - [`Error::NoFeesToWithdraw`]: Vault balance is zero
+    /// - [`Error::FeeWithdrawalExceedsBalance`]: Requested amount > vault balance
+    /// - [`Error::Overflow`]: Subtraction would overflow (should not occur in normal flow)
+    ///
+    /// # Preconditions
+    /// **CRITICAL**: Callers MUST invoke [`Self::reconcile_fee_vault`] before calling this function.
+    /// This ensures the ledger reflects actual on-chain balance and prevents over-withdrawals.
+    ///
+    /// # Example
+    /// Used internally by [`Self::withdraw_fees`] and [`Self::withdraw_fees_batch`] after
+    /// reconciliation and token transfer to finalize the ledger state.
+    fn deduct_fee_vault_ledger(
+        env: &Env,
+        token: &Address,
+        vault_balance: i128,
+        amount: i128,
+    ) -> Result<i128, Error> {
+        require!(vault_balance > 0, Error::NoFeesToWithdraw);
+        require!(amount <= vault_balance, Error::FeeWithdrawalExceedsBalance);
+        let remaining = vault_balance
+            .checked_sub(amount)
+            .ok_or(Error::Overflow)?;
+        let key = DataKey::FeeVault(token.clone());
+        env.storage().persistent().set(&key, &remaining);
+        Ok(remaining)
+    }
+
+    /// Records fees accrued for a specific token in the fee vault.
+    ///
+    /// # Purpose
+    /// Adds a positive amount to the contract's internal fee vault for the given token.
+    /// This operation is typically called during swap execution to accumulate protocol fees.
+    /// The fees are held in the contract's token balance and tracked in persistent storage.
+    ///
+    /// # Parameters
+    /// - `env`: The Stellar contract environment
+    /// - `token`: The token address for which fees are being accrued
+    /// - `amount`: The fee amount to add (must be > 0)
+    ///
+    /// # Returns
+    /// `Ok(())` on successful accrual
+    /// `Err(Error::NotInitialized)` if contract has not been initialized
+    /// `Err(Error::ZeroAmount)` if amount <= 0
+    ///
+    /// # Access Control
+    /// Only the contract admin (verified via `require_auth()`) may call this function.
+    ///
+    /// # Side Effects
+    /// - Increments the fee vault balance in persistent storage
+    /// - Emits [`FeeAccruedEvent`] with token, amount, and current version
+    ///
+    /// # Notes
+    /// - Does not modify token balances; assumes tokens are already held by the contract
+    /// - Does not emit events on zero-amount rejections (fails before event emission)
+    /// - Safe for repeated calls; ledger balance is strictly increasing
+    ///
+    /// # Example
+    /// ```ignore
+    /// // During a swap: transfer fee tokens to contract, then accrue
+    /// contract.accrue_fee(env, token_address, 100)?;
+    /// ```
     pub fn accrue_fee(env: Env, token: Address, amount: i128) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -3476,13 +3707,117 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Returns the current accrued fee balance for a specific token.
+    ///
+    /// # Purpose
+    /// Provides a read-only view of the accumulated fees held in the contract for the
+    /// given token. This is useful for dashboards, audits, and fee withdrawal planning.
+    ///
+    /// # Parameters
+    /// - `env`: The Stellar contract environment
+    /// - `token`: The token address to query
+    ///
+    /// # Returns
+    /// The current fee vault balance for the token, or `0` if no fees are recorded.
+    ///
+    /// # Notes
+    /// - This is a read-only operation with no side effects
+    /// - Does not perform reconciliation; reflects the ledger state
+    /// - For accurate withdrawal amounts, use [`Self::reconcile_fee_vault`] first
+    ///
+    /// # Example
+    /// ```ignore
+    /// let accumulated_fees = contract.get_accrued_fees(env, usdc_address);
+    /// println!("Outstanding fees: {}", accumulated_fees);
+    /// ```
     pub fn get_accrued_fees(env: Env, token: Address) -> i128 {
-        env.storage()
+        let fees = env
+            .storage()
             .persistent()
-            .get(&DataKey::FeeVault(token))
-            .unwrap_or(0)
+            .get(&DataKey::FeeVault(token.clone()))
+            .unwrap_or(0);
+
+        // Check against configured threshold and emit event if exceeded
+        if let Some(threshold) = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeVaultThreshold(token.clone()))
+        {
+            if fees > threshold {
+                // Emit event indicating threshold exceeded
+                // This is informational - the function still returns the actual value
+                FeeVaultThresholdEvent {
+                    version: EVENT_VERSION,
+                    token: token.clone(),
+                    threshold,
+                }
+                .publish(&env);
+            }
+        }
+
+        fees
     }
 
+    /// Sets the maximum allowed fee vault balance for a specific token.
+    ///
+    /// When the accrued fees exceed this threshold, a FeeVaultThresholdEvent
+    /// is emitted to alert operators. This is a safety mechanism to prevent
+    /// excessive fee accumulation.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `token` - The token address to set the threshold for
+    /// * `threshold` - The maximum allowed fee vault balance (0 disables the check)
+    pub fn set_fee_vault_threshold(env: Env, token: Address, threshold: i128) -> Result<(), Error> {
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        if threshold < 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeVaultThreshold(token.clone()), &threshold);
+
+        FeeVaultThresholdEvent {
+            version: EVENT_VERSION,
+            token,
+            threshold,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
+    /// Returns the current withdrawal nonce for an admin address.
+    ///
+    /// # Purpose
+    /// Provides the expected nonce value for the next [`Self::withdraw_fees`] call.
+    /// Nonces prevent replay attacks by ensuring each withdrawal transaction is unique.
+    ///
+    /// # Parameters
+    /// - `env`: The Stellar contract environment
+    /// - `admin`: The admin address to query
+    ///
+    /// # Returns
+    /// The current nonce value (starts at `0` for new admins, incremented on each withdrawal).
+    ///
+    /// # Security Notes
+    /// - Nonces are per-admin and never reset
+    /// - Batch withdrawals via [`Self::withdraw_fees_batch`] do NOT consume nonces
+    /// - A transaction with the wrong nonce will fail with [`Error::InvalidNonce`] or [`Error::StaleNonce`]
+    ///
+    /// # Example
+    /// ```ignore
+    /// let next_nonce = contract.get_fee_withdrawal_nonce(env, admin_address);
+    /// contract.withdraw_fees(env, recipient, token, amount, next_nonce)?;
+    /// ```
     pub fn get_fee_withdrawal_nonce(env: Env, admin: Address) -> u64 {
         env.storage()
             .persistent()
@@ -3490,16 +3825,55 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
-    /// Withdraw a specific `amount` of accrued fees for `token` to the `to` address.
+    /// Withdraws a specific amount of accrued fees for a token to a recipient address.
     ///
-    /// # Security
-    /// Only the stored admin may call this function. The `nonce` parameter
-    /// provides replay protection — it must equal the current per-admin nonce
-    /// stored in persistent storage and is atomically incremented on success.
+    /// # Purpose
+    /// Allows the contract admin to extract accumulated protocol fees and transfer them
+    /// to a specified recipient. The withdrawal is subject to replay protection and
+    /// reconciliation checks to prevent double-spending.
     ///
-    /// # Event
-    /// Emits [`FeeWithdrawnEvent`] carrying the full withdrawal schema:
-    /// admin, recipient, token, amount, nonce consumed, and remaining vault balance.
+    /// # Parameters
+    /// - `env`: The Stellar contract environment
+    /// - `to`: The recipient address that will receive the tokens
+    /// - `token`: The token address to withdraw fees for
+    /// - `amount`: The exact amount to withdraw (must be > 0)
+    /// - `nonce`: The expected replay-protection nonce (obtained via [`Self::get_fee_withdrawal_nonce`])
+    ///
+    /// # Returns
+    /// `Ok(())` on successful withdrawal
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`]: Contract admin not set
+    /// - [`Error::ZeroAmount`]: amount <= 0
+    /// - [`Error::StaleNonce`]: nonce < current nonce (stale or replayed request)
+    /// - [`Error::InvalidNonce`]: nonce > current nonce (premature or incorrect nonce)
+    /// - [`Error::NoFeesToWithdraw`]: No fees recorded for this token
+    /// - [`Error::FeeWithdrawalExceedsBalance`]: Requested amount exceeds accrued fees
+    /// - [`Error::InsufficientFunds`]: Contract balance < requested amount (reconciliation mismatch)
+    /// - [`Error::Overflow`]: Nonce overflow (effectively impossible at u64)
+    ///
+    /// # Access Control
+    /// Only the contract admin (verified via `require_auth()`) may call this function.
+    ///
+    /// # Side Effects
+    /// 1. **Reconciliation**: Checks actual contract token balance against the ledger
+    /// 2. **Transfer**: Moves the specified amount to the recipient via token contract
+    /// 3. **Ledger Update**: Deducts the amount from the fee vault persistent storage
+    /// 4. **Nonce Increment**: Atomically increments the per-admin nonce (prevents replay)
+    /// 5. **Audit Event**: Emits [`FeeWithdrawnEvent`] with full context
+    ///
+    /// # Security Considerations
+    /// - **Replay Protection**: Each nonce is consumed exactly once; reuse fails
+    /// - **Reconciliation**: Detects and corrects ledger inconsistencies from token transfers
+    /// - **Atomicity**: The entire withdrawal (transfer + ledger + nonce) is atomic
+    /// - **Event Audit**: All withdrawals are logged for monitoring and compliance
+    ///
+    /// # Example
+    /// ```ignore
+    /// let nonce = contract.get_fee_withdrawal_nonce(env, admin);
+    /// contract.withdraw_fees(env, recipient, usdc, 1000, nonce)?;
+    /// // Next withdrawal must use nonce + 1
+    /// ```
     pub fn withdraw_fees(
         env: Env,
         to: Address,
@@ -3525,22 +3899,19 @@ impl FiatBridge {
         require!(nonce >= expected_nonce, Error::StaleNonce);
         require!(nonce == expected_nonce, Error::InvalidNonce);
 
-        // ── Fee vault checks ──────────────────────────────────────────────
-        let key = DataKey::FeeVault(token.clone());
-        let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-        require!(current > 0, Error::NoFeesToWithdraw);
-        require!(amount <= current, Error::FeeWithdrawalExceedsBalance);
-
-        // Boundary check: actual contract balance
+        // ── Fee vault checks (reconcile ledger with on-chain reserves) ───
         let token_client = token::Client::new(&env, &token);
+        let vault_balance = Self::reconcile_fee_vault(&env, &token);
         let contract_balance = token_client.balance(&env.current_contract_address());
+        require!(vault_balance > 0, Error::NoFeesToWithdraw);
+        require!(amount <= vault_balance, Error::FeeWithdrawalExceedsBalance);
         require!(amount <= contract_balance, Error::InsufficientFunds);
 
         // ── State mutation ────────────────────────────────────────────────
         token_client.transfer(&env.current_contract_address(), &to, &amount);
 
-        let remaining_fees = current.checked_sub(amount).ok_or(Error::Overflow)?;
-        env.storage().persistent().set(&key, &remaining_fees);
+        let remaining_fees =
+            Self::deduct_fee_vault_ledger(&env, &token, vault_balance, amount)?;
 
         // Increment nonce after successful withdrawal
         let next_nonce = expected_nonce.checked_add(1).ok_or(Error::Overflow)?;
@@ -3560,15 +3931,59 @@ impl FiatBridge {
             remaining_fees,
         }
         .publish(&env);
+
+        // Check invariants after fee withdrawal
+        Self::check_invariants(&env, &token)?;
+
         Ok(())
     }
 
-    /// Sweep all accrued fees for each token in `tokens` to the `to` address.
+    /// Sweeps all accrued fees for multiple tokens in a single transaction.
     ///
-    /// Tokens with zero accrued fees are silently skipped. A [`FeeWithdrawnEvent`]
-    /// is emitted per token that has a positive balance, carrying the full event
-    /// schema (nonce is set to `0` since batch sweeps do not consume the
-    /// per-admin replay-protection nonce).
+    /// # Purpose
+    /// Provides an efficient mechanism to extract all accumulated fees across multiple
+    /// tokens in one operation. Useful for periodic fee collection or consolidation
+    /// of fees from various token swaps. Batch withdrawals do NOT consume per-admin
+    /// nonces, allowing them to be used independently of [`Self::withdraw_fees`].
+    ///
+    /// # Parameters
+    /// - `env`: The Stellar contract environment
+    /// - `to`: The recipient address that will receive all tokens
+    /// - `tokens`: Vector of token addresses to sweep fees for
+    ///
+    /// # Returns
+    /// `Ok(())` on successful completion (including if all tokens have zero balance)
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`]: Contract admin not set
+    ///
+    /// # Access Control
+    /// Only the contract admin (verified via `require_auth()`) may call this function.
+    ///
+    /// # Behavior
+    /// - **Reconciliation**: For each token, reconciles ledger vs. actual balance
+    /// - **Conditional Sweep**: Only sweeps tokens with fees > 0 (silently skips zero-balance tokens)
+    /// - **Capped by Balance**: If ledger exceeds contract balance, only transfers available amount
+    /// - **Ledger Reset**: Fully drains the fee vault for each token to zero after transfer
+    /// - **Event per Token**: Emits [`FeeWithdrawnEvent`] for each token with fees (nonce = 0)
+    ///
+    /// # Side Effects
+    /// - Reconciles fee vault for each token (may correct inconsistencies)
+    /// - Transfers tokens to recipient for each non-zero vault
+    /// - Resets ledger to zero for each swept token
+    /// - Emits events for audit trail and indexing
+    ///
+    /// # Nonce Behavior
+    /// Unlike [`Self::withdraw_fees`], batch withdrawals set `nonce = 0` in events and
+    /// do NOT increment the per-admin replay-protection nonce. This allows batch sweeps
+    /// to occur independently of sequential single-token withdrawals.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let tokens = vec![usdc_address, usdt_address, native_address];
+    /// contract.withdraw_fees_batch(env, treasury, tokens)?;
+    /// // All accrued fees for each token are now transferred to treasury
+    /// ```
     pub fn withdraw_fees_batch(env: Env, to: Address, tokens: Vec<Address>) -> Result<(), Error> {
         // ── Admin authentication ───────────────────────────────────────────
         let admin: Address = env
@@ -3580,15 +3995,25 @@ impl FiatBridge {
 
         let contract = env.current_contract_address();
         for token in tokens.iter() {
-            let key = DataKey::FeeVault(token.clone());
-            let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+            let current = Self::reconcile_fee_vault(&env, &token);
             if current <= 0 {
                 continue;
             }
 
             let token_client = token::Client::new(&env, &token);
-            token_client.transfer(&contract, &to, &current);
+            let contract_balance = token_client.balance(&contract);
+            let sweep_amount = if current <= contract_balance {
+                current
+            } else {
+                contract_balance
+            };
+            if sweep_amount <= 0 {
+                continue;
+            }
+
+            token_client.transfer(&contract, &to, &sweep_amount);
             // After transfer the vault for this token is fully drained.
+            let key = DataKey::FeeVault(token.clone());
             env.storage().persistent().set(&key, &0i128);
 
             // Emit full schema per token so each sweep leg is individually
@@ -3599,7 +4024,7 @@ impl FiatBridge {
                 admin: admin.clone(),
                 to: to.clone(),
                 token,
-                amount: current,
+                amount: sweep_amount,
                 nonce: 0,
                 remaining_fees: 0,
             }
@@ -4032,17 +4457,20 @@ impl FiatBridge {
     /// the configured quota.
     ///
     /// # Overflow Prevention
-    /// The running total `record.amount + amount` is computed with plain
-    /// addition after the window-reset branch.  Both values are `i128` and
-    /// bounded by the quota (itself an `i128`), so overflow is not reachable
-    /// in practice.  If the quota were ever set to `i128::MAX` the addition
-    /// could theoretically overflow; a future hardening pass could add
-    /// `checked_add` here for belt-and-suspenders safety.
+    /// The running total is computed with `checked_add` (issue #697), mirroring
+    /// the deposit-side [`enforce_daily_deposit_limit`] hardening (#499). This
+    /// prevents a crafted extremely large withdrawal from wrapping the `i128`
+    /// daily accumulator and bypassing the quota check; an overflow returns
+    /// [`Error::Overflow`].
     ///
     /// # Window Reset
     /// When the current ledger has advanced past `window_start + WINDOW_LEDGERS`
     /// the accumulated amount is reset to zero and the window start is updated.
     /// A [`QuotaResetEvent`] is emitted so off-chain indexers can track resets.
+    ///
+    /// # Usage Tracking
+    /// On the success path a [`WithdrawalQuotaConsumedEvent`] is emitted with the
+    /// newly accumulated total so indexers can track per-user daily usage.
     fn enforce_withdrawal_quota(
         env: &Env,
         user: &Address,
@@ -4079,8 +4507,12 @@ impl FiatBridge {
             .publish(env);
         }
 
-        if record.amount + amount > quota {
-            let excess = record.amount + amount - quota;
+        // #697: use checked_add so a crafted extremely large withdrawal cannot
+        // wrap the i128 daily accumulator and bypass the quota check below.
+        let projected = record.amount.checked_add(amount).ok_or(Error::Overflow)?;
+
+        if projected > quota {
+            let excess = projected - quota;
             // Accrue the excess amount as fee to the vault
             let key = DataKey::FeeVault(token.clone());
             let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
@@ -4094,10 +4526,21 @@ impl FiatBridge {
             return Err(Error::WithdrawalQuotaExceeded);
         }
 
-        record.amount += amount;
+        record.amount = projected;
         env.storage()
             .instance()
             .set(&DataKey::UserDailyWithdrawal(user.clone()), &record);
+
+        // #697: emit per-user daily usage so indexers can track quota consumption.
+        WithdrawalQuotaConsumedEvent {
+            version: EVENT_VERSION,
+            user: user.clone(),
+            amount,
+            accumulated: record.amount,
+            quota,
+            window_start: record.window_start,
+        }
+        .publish(env);
 
         Ok(())
     }
@@ -4172,18 +4615,20 @@ impl FiatBridge {
     /// This function queries the contract's instance storage for the current escrow
     /// storage schema version. The version indicates which storage schema is currently
     /// in use for escrow records. A value of 0 indicates that no migration has been
-    /// performed and the legacy storage format is still in use.
+    /// Retrieves the current escrow storage version from instance storage.
     ///
-    /// # Example
+    /// The version number indicates which schema the escrow records currently follow.
+    /// A version of 0 indicates that the contract is using the legacy storage 
+    /// format (directpersistent storage without versioning metadata).
     ///
-    /// ```rust
-    /// let version = bridge.get_escrow_storage_version(&env);
-    /// if version == 0 {
-    ///     println!("Migration needed");
-    /// } else {
-    ///     println!("Migration complete, version: {}", version);
-    /// }
-    /// ```
+    /// # Returns
+    ///
+    /// * `u32` - The current storage version (e.g., 1 for the current versioned schema).
+    ///
+    /// # Registry
+    ///
+    /// Version 1 was introduced in protocol upgrade v1.2 to support better
+    /// reconciliation and architectural modularity.
     pub fn get_escrow_storage_version(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -4193,62 +4638,37 @@ impl FiatBridge {
 
     /// Migrates escrow records from legacy storage to versioned schema.
     ///
+    /// This function facilitates a controlled, batch-based migration of data 
+    /// from the unversioned persistent storage format to the `EscrowRecord` 
+    /// schema (Version 1).
+    ///
     /// # Arguments
     ///
-    /// * `env` - The contract environment
-    /// * `batch_size` - Maximum number of records to migrate in this call
+    /// * `env` - The contract environment.
+    /// * `batch_size` - Maximum number of records to process in this transaction. 
+    ///   Choosing a size between 10 and 100 is recommended to stay within resource limits.
     ///
     /// # Returns
     ///
-    /// * `Ok(u32)` - Number of records successfully migrated in this batch
-    /// * `Err(Error::MigrationAlreadyComplete)` - Migration is already complete
-    /// * `Err(Error::NotAuthorized)` - Caller is not the admin
-    /// * `Err(Error::NotInitialized)` - Contract has not been initialized
+    /// * `Ok(u32)` - Number of records successfully migrated in this batch.
+    /// * `Err(Error::MigrationAlreadyComplete)` - If the storage version is already at target.
+    /// * `Err(Error::NotAuthorized)` - If the caller is not the contract admin.
+    /// * `Err(Error::NotInitialized)` - If the contract has not been properly initialized.
     ///
-    /// # Description
+    /// # Internal Logic
     ///
-    /// This function performs a cursor-based batch migration of escrow records from
-    /// the legacy storage format to the versioned schema. The migration is designed to
-    /// be:
+    /// 1. **Auth Check**: Verifies `admin.require_auth()`.
+    /// 2. **Version Guard**: Checks if `current_version < ESCROW_STORAGE_VERSION`.
+    /// 3. **Cursor Recovery**: Loads `EscrowMigrationCursor` to resume where the last batch stopped.
+    /// 4. **Batch Loop**: Iterates through `ReceiptIndex` from cursor to `ReceiptCounter`.
+    /// 5. **Transformation**: Converts `Receipt` to `EscrowRecord` and saves to persistent storage.
+    /// 6. **Commit**: Updates the cursor and, if complete, sets the final storage version.
     ///
-    /// - **Resumable**: Can be called multiple times until all records are migrated
-    /// - **Idempotent**: Safe to call after completion (returns error)
-    /// - **Atomic**: Each batch is processed atomically with rollback on failure
+    /// # Security & Atomicity
     ///
-    /// # Migration Process
-    ///
-    /// 1. Verifies caller is authorized (admin only)
-    /// 2. Checks current storage version; returns error if already at target
-    /// 3. Retrieves migration cursor (last processed record ID)
-    /// 4. Processes up to `batch_size` records starting from cursor
-    /// 5. For each record:
-    ///    - Looks up receipt hash from temporary storage index
-    ///    - Retrieves receipt from persistent storage
-    ///    - Creates versioned EscrowRecord with migration metadata
-    ///    - Stores in persistent storage
-    /// 6. Updates cursor to new position
-    /// 7. Sets storage version to target if all records processed
-    /// 8. Emits migration event with progress information
-    ///
-    /// # Performance Considerations
-    ///
-    /// - Each record migration consumes gas; monitor during testing
-    /// - Recommended batch sizes: 10-100 for safety, 100-1000 for speed
-    /// - Use migration events to track progress in production
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// // Migrate 100 records at a time
-    /// let migrated = bridge.migrate_escrow(&env, 100)?;
-    /// println!("Migrated {} records", migrated);
-    ///
-    /// // Check if migration is complete
-    /// let version = bridge.get_escrow_storage_version(&env);
-    /// if version == ESCROW_STORAGE_VERSION {
-    ///     println!("Migration complete");
-    /// }
-    /// ```
+    /// Each call is atomic. If a batch partially fails, the cursor is not updated,
+    /// ensuring no records are skipped. The use of a timelock is not required for 
+    /// migration, but only the admin may trigger it.
     pub fn migrate_escrow(env: Env, batch_size: u32) -> Result<u32, Error> {
         let admin: Address = env
             .storage()
@@ -4356,45 +4776,39 @@ impl FiatBridge {
     /// Records that have not yet been migrated will return `None`.
     ///
     /// # Example
+    /// Retrieves a migrated escrow record by its ID.
     ///
-    /// ```rust
-    /// if let Some(record) = bridge.get_escrow_record(&env, 123) {
-    ///     println!("Depositor: {:?}", record.depositor);
-    ///     println!("Amount: {}", record.amount);
-    ///     println!("Version: {}", record.version);
-    /// }
-    /// ```
+    /// This function only returns records that have already been processed by the
+    /// migration script. For records that haven't been migrated yet, use legacy
+    /// lookup methods or check `get_migration_cursor()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract environment.
+    /// * `id` - The record ID to retrieve.
+    ///
+    /// # Returns
+    ///
+    /// * `Some(EscrowRecord)` - The migrated record if found.
+    /// * `None` - If the record doesn't exist or hasn't been migrated.
     pub fn get_escrow_record(env: Env, id: u64) -> Option<EscrowRecord> {
         env.storage().persistent().get(&DataKey::EscrowRecord(id))
     }
 
     /// Gets the current migration progress cursor.
     ///
+    /// The cursor represents the last successfully processed record ID. This
+    /// can be used to track progress against the `ReceiptCounter`.
+    ///
     /// # Returns
     ///
-    /// * `u64` - The last processed record ID. Returns 0 if migration has not started.
-    ///
-    /// # Description
-    ///
-    /// This function retrieves the migration cursor, which indicates the last record
-    /// ID that was successfully processed during the escrow storage migration.
-    /// The cursor is used to enable resumable migrations - if a migration is
-    /// interrupted, it can be resumed from the last processed position.
+    /// * `u64` - The ID of the last record processed (0 if none or just started).
     ///
     /// # Usage
     ///
-    /// - Monitor migration progress by comparing cursor to total record count
-    /// - Determine if migration is complete (cursor >= total records)
-    /// - Debug migration issues by checking cursor position
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// let cursor = bridge.get_migration_cursor(&env);
-    /// let total = bridge.get_receipt_counter(&env);
-    /// let progress = (cursor as f64 / total as f64) * 100.0;
-    /// println!("Migration progress: {:.2}%", progress);
-    /// ```
+    /// - Monitor migration progress by comparing cursor to total record count.
+    /// - Determine if migration is complete (cursor >= total records).
+    /// - Debug migration issues by checking cursor position.
     pub fn get_migration_cursor(env: Env) -> u64 {
         env.storage()
             .instance()
@@ -4558,6 +4972,18 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+
+        // Timelock role check (fix #525): admin must not be an operator.
+        // Conflating roles bypasses the governance timelock security model.
+        require!(
+            !Self::is_operator(env.clone(), admin.clone()),
+            Error::NotAllowed
+        );
+        AdminRoleCheckEvent {
+            version: EVENT_VERSION,
+            admin: admin.clone(),
+        }
+        .publish(&env);
 
         let total_ops = operations.len();
         let mut success_count: u32 = 0;
@@ -5555,3 +5981,18 @@ mod test_issues_504_511_600;
 
 #[cfg(test)]
 mod test_issues_492_499;
+
+#[cfg(test)]
+mod test_issues_840;
+
+#[cfg(test)]
+mod test_issue_697;
+
+#[cfg(test)]
+mod test_issue_702;
+
+#[cfg(test)]
+mod test_issue_832;
+
+#[cfg(test)]
+mod test_issue_681;

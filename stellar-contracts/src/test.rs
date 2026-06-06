@@ -1305,6 +1305,104 @@ fn test_operator_cap_recovers_after_deactivation() {
 }
 
 #[test]
+fn test_set_max_operators_boundary_check_rejects_reduction_below_current_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    let op1 = Address::generate(&env);
+    let op2 = Address::generate(&env);
+    let op3 = Address::generate(&env);
+
+    // Set max to 3 and add 3 operators
+    bridge.set_max_operators(&3);
+    bridge.set_operator(&op1, &true);
+    bridge.set_operator(&op2, &true);
+    bridge.set_operator(&op3, &true);
+
+    assert!(bridge.is_operator(&op1));
+    assert!(bridge.is_operator(&op2));
+    assert!(bridge.is_operator(&op3));
+
+    // Attempt to reduce max below current count (3) should fail
+    let result = bridge.try_set_max_operators(&2);
+    assert_eq!(result, Err(Ok(Error::ExceedsLimit)));
+
+    // Max should remain unchanged
+    assert!(bridge.is_operator(&op1));
+    assert!(bridge.is_operator(&op2));
+    assert!(bridge.is_operator(&op3));
+}
+
+#[test]
+fn test_set_max_operators_allows_increase_above_current_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    let op1 = Address::generate(&env);
+    let op2 = Address::generate(&env);
+
+    // Set max to 2 and add 2 operators
+    bridge.set_max_operators(&2);
+    bridge.set_operator(&op1, &true);
+    bridge.set_operator(&op2, &true);
+
+    // Increasing max should succeed
+    bridge.set_max_operators(&5);
+
+    // Both operators should still be active
+    assert!(bridge.is_operator(&op1));
+    assert!(bridge.is_operator(&op2));
+}
+
+#[test]
+fn test_set_max_operators_allows_exact_match_with_current_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    let op1 = Address::generate(&env);
+    let op2 = Address::generate(&env);
+
+    // Set max to 2 and add 2 operators
+    bridge.set_max_operators(&2);
+    bridge.set_operator(&op1, &true);
+    bridge.set_operator(&op2, &true);
+
+    // Setting max to exact current count should succeed
+    bridge.set_max_operators(&2);
+
+    // Both operators should remain active
+    assert!(bridge.is_operator(&op1));
+    assert!(bridge.is_operator(&op2));
+}
+
+#[test]
+fn test_set_max_operators_zero_remains_unlimited() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    let op1 = Address::generate(&env);
+    let op2 = Address::generate(&env);
+    let op3 = Address::generate(&env);
+
+    // Set max to 0 (unlimited) with multiple operators should always work
+    bridge.set_max_operators(&0);
+    bridge.set_operator(&op1, &true);
+    bridge.set_operator(&op2, &true);
+    bridge.set_operator(&op3, &true);
+
+    // Setting max to 0 again should always succeed (unlimited is always valid)
+    bridge.set_max_operators(&0);
+
+    assert!(bridge.is_operator(&op1));
+    assert!(bridge.is_operator(&op2));
+    assert!(bridge.is_operator(&op3));
+}
+
+#[test]
 fn test_prune_inactive_operators_keeps_active_operator() {
     let env = Env::default();
     env.mock_all_auths();
@@ -5223,6 +5321,46 @@ fn test_withdraw_fees_event_remaining_fees_reflects_vault_balance() {
     assert_eq!(result, Err(Ok(Error::NoFeesToWithdraw)));
 }
 
+// ── Issue #840: fee vault reconciliation in withdraw_fees ───────────────
+
+#[test]
+fn test_withdraw_fees_emits_vault_reconciled_event_issue_840() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let recipient = Address::generate(&env);
+
+    token_sac.mint(&contract_id, &200);
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::FeeVault(token_addr.clone()), &400i128);
+    });
+
+    bridge.withdraw_fees(&recipient, &token_addr, &100, &0);
+
+    let events = env.events().all().filter_by_contract(&contract_id);
+    let raw = events.events();
+    let topic_symbol = soroban_sdk::xdr::ScVal::Symbol(soroban_sdk::xdr::ScSymbol(
+        soroban_sdk::xdr::StringM::try_from("fee_vault_reconciled_event").expect("topic"),
+    ));
+    let mut found = false;
+    for event in raw.iter() {
+        use soroban_sdk::xdr::ContractEventBody;
+        if let ContractEventBody::V0(body) = &event.body {
+            if body.topics.iter().any(|t| *t == topic_symbol) {
+                found = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        found,
+        "FeeVaultReconciledEvent must be emitted when vault ledger exceeds on-chain reserves"
+    );
+}
+
 // ── Issue #619: Edge case validation for request_withdrawal ────────────
 
 #[test]
@@ -5942,4 +6080,64 @@ fn test_set_operator_circuit_breaker_not_affected_by_admin_role_confusion() {
 
     // Circuit breaker state should be unaffected
     assert!(!bridge.is_circuit_breaker_tripped());
+}
+
+#[test]
+fn test_execute_batch_admin_rejects_operator_as_admin_issue_841() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, admin, _, _, _) = setup_bridge(&env, 10_000);
+
+    // Manually grant operator role to admin (bypassing normal checks to test invariant)
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::Operator(admin.clone()), &true);
+    });
+
+    let mut ops = soroban_sdk::Vec::new(&env);
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "pause"),
+        payload: Bytes::new(&env),
+    });
+
+    // Attempting to execute batch as an admin who is also an operator must fail
+    let result = bridge.try_execute_batch_admin(&ops);
+    assert_eq!(result, Err(Ok(Error::NotAllowed)));
+}
+
+#[test]
+fn test_execute_batch_admin_emits_role_check_event_issue_841() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, _, _, _, _) = setup_bridge(&env, 10_000);
+
+    let mut ops = soroban_sdk::Vec::new(&env);
+    ops.push_back(BatchAdminOp {
+        op_type: Symbol::new(&env, "pause"),
+        payload: Bytes::new(&env),
+    });
+
+    bridge.execute_batch_admin(&ops);
+
+    let events = env.events().all().filter_by_contract(&contract_id);
+    let raw = events.events();
+    
+    let topic_symbol = soroban_sdk::xdr::ScVal::Symbol(soroban_sdk::xdr::ScSymbol(
+        soroban_sdk::xdr::StringM::try_from("admin_role_check_event").expect("topic"),
+    ));
+    
+    let mut found = false;
+    for event in raw.iter() {
+        use soroban_sdk::xdr::ContractEventBody;
+        if let ContractEventBody::V0(body) = &event.body {
+            if body.topics.iter().any(|t| *t == topic_symbol) {
+                found = true;
+                break;
+            }
+        }
+    }
+    assert!(found, "AdminRoleCheckEvent must be emitted on successful batch execution");
 }
