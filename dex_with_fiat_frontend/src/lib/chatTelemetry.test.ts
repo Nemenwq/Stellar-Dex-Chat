@@ -327,9 +327,7 @@ describe('Error boundary behavior', () => {
   it('handles invalid color values in normalizeHexColor gracefully', () => {
     expect(calculateContrastRatio('invalid', '#FFFFFF')).toBeNull();
     expect(calculateContrastRatio('#FFFFFF', 'invalid')).toBeNull();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(calculateContrastRatio(null as unknown as any, '#FFFFFF')).toBeNull();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(calculateContrastRatio('#FFFFFF', null as unknown as any)).toBeNull();
   });
 
@@ -360,7 +358,6 @@ describe('Error boundary behavior', () => {
       messageLength: 5,
       hasWallet: true,
       avatarBackgroundColor: 'invalid-color',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as unknown as any);
 
     // Wait for requestAnimationFrame to execute

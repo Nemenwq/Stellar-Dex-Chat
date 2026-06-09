@@ -57,7 +57,6 @@ describe('BankDetailsModal - Telemetry Tracking', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global.fetch as unknown as any).mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, data: [] }),
@@ -77,7 +76,6 @@ describe('BankDetailsModal - Telemetry Tracking', () => {
   });
 
   it('tracks step changes', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global.fetch as unknown as any).mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -110,7 +108,6 @@ describe('BankDetailsModal - Telemetry Tracking', () => {
   });
 
   it('tracks bank selection', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global.fetch as unknown as any).mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -150,7 +147,6 @@ describe('BankDetailsModal - Telemetry Tracking', () => {
   });
 
   it('tracks account verification success', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global.fetch as unknown as any)
       .mockResolvedValueOnce({
         ok: true,
@@ -208,7 +204,6 @@ describe('BankDetailsModal - Telemetry Tracking', () => {
   });
 
   it('tracks account verification failure', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global.fetch as unknown as any)
       .mockResolvedValueOnce({
         ok: true,

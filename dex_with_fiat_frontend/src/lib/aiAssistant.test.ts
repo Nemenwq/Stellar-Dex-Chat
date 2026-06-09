@@ -259,6 +259,8 @@ function makeAnalysis(
   };
 }
 
+});
+
 describe('aiAssistant framer-motion animation', () => {
   // ── ASSISTANT_ANIMATION_VARIANTS constant ────────────────────────────
 
@@ -451,4 +453,5 @@ describe('aiAssistant framer-motion animation', () => {
     });
 
   });
+});
 });

@@ -22,7 +22,6 @@ describe('AdminGuard', () => {
   it('renders landing page when connection address is empty', async () => {
     vi.mocked(useStellarWallet).mockReturnValue({
       connection: { address: '' },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as unknown as any);
 
     render(
@@ -38,7 +37,6 @@ describe('AdminGuard', () => {
   it('shows error if connected address has invalid format (Zod validation)', async () => {
     vi.mocked(useStellarWallet).mockReturnValue({
       connection: { address: 'invalid-address-not-starting-with-g-or-correct-length' },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as unknown as any);
 
     render(
@@ -53,7 +51,6 @@ describe('AdminGuard', () => {
   it('shows error if contract admin address has invalid format (Zod validation)', async () => {
     vi.mocked(useStellarWallet).mockReturnValue({
       connection: { address: 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDE' }, // 56 chars
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as unknown as any);
     vi.mocked(getAdmin).mockResolvedValue('invalid-admin-address');
 
@@ -70,7 +67,6 @@ describe('AdminGuard', () => {
     const validAddr = 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABC';
     vi.mocked(useStellarWallet).mockReturnValue({
       connection: { address: validAddr },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as unknown as any);
     vi.mocked(getAdmin).mockResolvedValue(validAddr);
 
@@ -114,7 +110,6 @@ describe('AdminGuard — auto-scroll on access granted (#490)', () => {
     Object.defineProperty(window, 'scrollTo', { value: scrollToSpy, writable: true });
     vi.mocked(useStellarWallet).mockReturnValue({
       connection: { address: validAddr },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as unknown as any);
   });
 
@@ -175,7 +170,6 @@ describe('AdminGuard — offline retry queue', () => {
     vi.clearAllMocks();
     vi.mocked(useStellarWallet).mockReturnValue({
       connection: { address: validAddr },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as unknown as any);
   });
 

@@ -113,7 +113,6 @@ async function navigateToConfirm() {
 describe('BankDetailsModal - Rapid Click Protection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.spyOn(global, 'fetch').mockImplementation(makeFetch() as any);
     // Re-apply after clearAllMocks wipes the implementation
     vi.spyOn(cryptoPriceService, 'fetchLockedQuote').mockResolvedValue({
@@ -121,7 +120,6 @@ describe('BankDetailsModal - Rapid Click Protection', () => {
       xlmAmount: 10,
       rate: 100,
       expiresAt: Date.now() + 120000,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as unknown as any);
   });
 
@@ -139,7 +137,6 @@ describe('BankDetailsModal - Rapid Click Protection', () => {
     fireEvent.click(confirmButton);
 
     await waitFor(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const calls = (global.fetch as unknown as any).mock.calls.filter((c: any[]) => c[0].includes('/api/create-recipient'));
       expect(calls.length).toBe(1);
     });
@@ -151,7 +148,6 @@ describe('BankDetailsModal - Rapid Click Protection', () => {
     fireEvent.click(confirmButton);
 
     await waitFor(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const call = (global.fetch as unknown as any).mock.calls.find((c: any[]) => c[0].includes('/api/create-recipient'));
       expect(call).toBeDefined();
       expect(call[1].headers['X-Idempotency-Key']).toBeDefined();

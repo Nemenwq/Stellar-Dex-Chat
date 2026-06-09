@@ -73,14 +73,12 @@ describe(
 
     it('should trigger error toast when request fails after MAX_RETRY', async () => {
       let isOnline = true;
-      let _attemptCount = 0;
       Object.defineProperty(window.navigator, 'onLine', {
         configurable: true,
         get: () => isOnline,
       });
 
       const mockTask = vi.fn().mockImplementation(async () => {
-        _attemptCount++;
         // Always fail with network error
         throw new Error('failed to fetch');
       });
@@ -107,7 +105,7 @@ describe(
 
       try {
         await promise;
-      } catch (_error) {
+      } catch {
         // Expected to fail
       }
 
@@ -170,7 +168,7 @@ describe(
 
       try {
         await promise;
-      } catch (_error) {
+      } catch {
         // Expected to fail
       }
 
