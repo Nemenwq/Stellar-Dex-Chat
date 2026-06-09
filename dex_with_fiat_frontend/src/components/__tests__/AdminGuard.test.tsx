@@ -86,7 +86,6 @@ describe('AdminGuard', () => {
 
     vi.mocked(useStellarWallet).mockReturnValue({
       connection: { address: userAddr },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as unknown as any);
     vi.mocked(getAdmin).mockResolvedValue(adminAddr);
 

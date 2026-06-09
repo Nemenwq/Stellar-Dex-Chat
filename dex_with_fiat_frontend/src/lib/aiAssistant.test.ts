@@ -242,6 +242,8 @@ describe('AIAssistant abort signal support', () => {
     consoleErrorSpy.mockRestore();
 
 
+});
+
 /**
  * Helper to build a minimal AIAnalysisResult for a given intent.
  */
@@ -258,8 +260,6 @@ function makeAnalysis(
     ...overrides,
   };
 }
-
-});
 
 describe('aiAssistant framer-motion animation', () => {
   // ── ASSISTANT_ANIMATION_VARIANTS constant ────────────────────────────

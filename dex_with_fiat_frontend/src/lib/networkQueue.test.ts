@@ -195,7 +195,7 @@ describe(
 
       try {
         await withNetworkReadQueue(mockTask, 'test');
-      } catch (_error) {
+      } catch {
         // Expected to fail immediately
       }
 

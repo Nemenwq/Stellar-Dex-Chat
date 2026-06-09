@@ -92,7 +92,7 @@ fn heartbeat_rejected_when_circuit_breaker_tripped() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract_id, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 1_000_000);
+    let (_contract_id, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 1_000_000);
 
     let operator = Address::generate(&env);
 
