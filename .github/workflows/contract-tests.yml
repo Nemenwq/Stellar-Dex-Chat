@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - add_Soroban_invariant_test
 
 jobs:
   test:

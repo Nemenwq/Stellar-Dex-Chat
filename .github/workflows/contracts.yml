@@ -2,12 +2,12 @@ name: Smart Contract CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, add_Soroban_invariant_test]
     paths:
       - "stellar-contracts/**"
       - ".github/workflows/contracts.yml"
   push:
-    branches: [main]
+    branches: [main, add_Soroban_invariant_test]
     paths:
       - "stellar-contracts/**"
 

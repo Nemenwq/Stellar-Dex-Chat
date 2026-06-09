@@ -2,12 +2,12 @@ name: Frontend CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, add_Soroban_invariant_test]
     paths:
       - "dex_with_fiat_frontend/**"
       - ".github/workflows/frontend.yml"
   push:
-    branches: [main]
+    branches: [main, add_Soroban_invariant_test]
     paths:
       - "dex_with_fiat_frontend/**"
 
