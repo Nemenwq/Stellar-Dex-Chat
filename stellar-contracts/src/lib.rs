@@ -75,6 +75,7 @@ pub enum Error {
     NotOperator = 205,
     SameAdmin = 207,
     OperatorCapReached = 206,
+    MaxSignersReached = 208,
 
     // --- 300 series: Constraints & Limits ---
     ZeroAmount = 301,
