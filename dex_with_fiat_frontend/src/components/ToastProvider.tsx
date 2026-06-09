@@ -77,8 +77,8 @@ export function ToastProvider({ children }: ToastProviderProps) {
   const { isDarkMode } = useTheme();
 
   useEffect(() => {
-    const unsubscribe = toastStore.subscribe((updatedToasts) => {
-      setToasts(updatedToasts);
+    const unsubscribe = toastStore.subscribe(() => {
+      setToasts(toastStore.getToasts());
     });
 
     return () => unsubscribe();

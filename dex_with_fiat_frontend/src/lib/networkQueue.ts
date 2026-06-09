@@ -94,7 +94,9 @@ if (typeof window !== 'undefined') {
 export function subscribeToQueue(fn: (count: number) => void) {
   listeners.add(fn);
   fn(queue.length);
-  return () => listeners.delete(fn);
+  return () => {
+    listeners.delete(fn);
+  };
 }
 
 export { processQueue };

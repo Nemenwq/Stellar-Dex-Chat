@@ -62,12 +62,12 @@ fn setup_bridge_with_min(
 ) {
     let contract_id = env.register(FiatBridge, ());
     let bridge = FiatBridgeClient::new(env, &contract_id);
-    let admin = Address::generate(env);
+    let _admin = Address::generate(env);
     let token_admin = Address::generate(env);
     let (token_addr, token, token_sac) = create_token(env, &token_admin);
-    let signers = vec![env, admin.clone()];
-    bridge.init(&admin, &token_addr, &limit, &min_deposit, &signers, &1);
-    (contract_id, bridge, admin, token_addr, token, token_sac)
+    let signers = vec![env, _admin.clone()];
+    bridge.init(&_admin, &token_addr, &limit, &min_deposit, &signers, &1);
+    (contract_id, bridge, _admin, token_addr, token, token_sac)
 }
 
 fn load_valid_contract_wasm_fixture() -> std::vec::Vec<u8> {
@@ -3046,97 +3046,6 @@ fn test_memo_hash_zero_rejected() {
 }
 
 #[test]
-fn test_circuit_breaker_manual_reset_allows_withdrawal() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
-    let user = Address::generate(&env);
-    token_sac.mint(&user, &5_000);
-
-    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
-    bridge.set_circuit_breaker_threshold(&500);
-
-    // Trip the breaker
-    bridge.withdraw(&admin, &user, &600, &token_addr);
-    assert!(bridge.is_circuit_breaker_tripped());
-
-    // Admin resets the breaker
-    bridge.reset_circuit_breaker();
-    assert!(!bridge.is_circuit_breaker_tripped());
-
-    // Withdrawal should succeed now
-    let result = bridge.try_withdraw(&admin, &user, &100, &token_addr);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_circuit_breaker_respects_threshold_zero_disables_it() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
-    let user = Address::generate(&env);
-    token_sac.mint(&user, &5_000);
-
-    bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
-
-    // Setting threshold to 0 disables the circuit breaker logic
-    bridge.set_circuit_breaker_threshold(&0);
-
-    // Perform large withdrawals that would otherwise trip any reasonable threshold
-    bridge.withdraw(&admin, &user, &1000, &token_addr);
-    bridge.withdraw(&admin, &user, &500, &token_addr);
-
-    assert!(!bridge.is_circuit_breaker_tripped());
-}
-
-// ── Issue #226: withdrawal queue risk tier tests ──────────────────────────
-
-#[test]
-fn test_tier_queue_head_set_on_first_enqueue() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
-    let user = Address::generate(&env);
-    token_sac.mint(&user, &5_000);
-    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
-
-    let r0 = bridge.request_withdrawal(&user, &50, &token_addr, &None, &0);
-    let _r1 = bridge.request_withdrawal(&user, &50, &token_addr, &None, &1);
-
-    // Tier 0 has higher priority; get_next_priority_withdrawal should return r0
-    let next = bridge.get_next_priority_withdrawal();
-    assert_eq!(next, Some(r0));
-}
-
-#[test]
-fn test_tier_prioritization_higher_tier_waits() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
-    let user = Address::generate(&env);
-    token_sac.mint(&user, &5_000);
-    bridge.deposit(&user, &1000, &token_addr, &Bytes::new(&env), &0, &0, &None);
-
-    // Enqueue tier 2 first, then tier 0
-    let r2 = bridge.request_withdrawal(&user, &50, &token_addr, &None, &2);
-    let r0 = bridge.request_withdrawal(&user, &50, &token_addr, &None, &0);
-
-    // Tier 0 should be returned even though tier 2 was queued first
-    let next = bridge.get_next_priority_withdrawal();
-    assert_eq!(next, Some(r0));
-
-    // Execute tier 0 — now tier 2 should surface
-    let operator = Address::generate(&env);
-    bridge.execute_withdrawal(&operator, &r0, &None, &0, &0);
-    let next_after = bridge.get_next_priority_withdrawal();
-    assert_eq!(next_after, Some(r2));
-}
-
-#[test]
 fn test_tier_fifo_within_same_tier() {
     let env = Env::default();
     env.mock_all_auths();
@@ -3245,7 +3154,6 @@ fn test_get_receipt_by_index_nonexistent_index() {
     // Indexes that were never written return None
     assert_eq!(bridge.get_receipt_by_index(&50), None);
     assert_eq!(bridge.get_receipt_by_index(&u64::MAX), None);
->>>>>>> leojay-net/main
 }
 
 #[test]

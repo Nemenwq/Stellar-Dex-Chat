@@ -69,11 +69,11 @@ fn test_heartbeat_blocked_by_circuit_breaker() {
     // For this test, we verify heartbeat checks for circuit breaker state
 
     // Normal heartbeat should work when circuit breaker is not tripped
-    let result = bridge.try_heartbeat(&operator, &0);
+    let _result = bridge.try_heartbeat(&operator, &0);
     
     // If circuit breaker is active, should fail
     // The actual implementation checks is_circuit_breaker_tripped
-    // assert_eq!(result, Err(Ok(Error::CircuitBreakerActive)));
+    // assert_eq!(_result, Err(Ok(Error::CircuitBreakerActive)));
     
     // For now, verify heartbeat requires the check
     // The existing code already has this check in the heartbeat function
