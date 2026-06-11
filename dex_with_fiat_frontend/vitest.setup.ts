@@ -43,6 +43,10 @@ global.ResizeObserver = vi.fn().mockImplementation(() => ({
   disconnect: vi.fn(),
 }));
 
+// Mock scrollIntoView for all elements
+Element.prototype.scrollIntoView = vi.fn();
+window.scrollTo = vi.fn();
+
 const originalError = console.error;
 console.error = (...args: unknown[]) => {
   if (
