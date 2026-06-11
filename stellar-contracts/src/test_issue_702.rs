@@ -230,7 +230,8 @@ fn test_unpause_invariant_maintains_queue_integrity() {
     bridge.unpause();
 
     // Verify queue remains intact - can execute pending requests
-    bridge.execute_withdrawal(&request_id1, &None, &0, &0);
-    bridge.execute_withdrawal(&request_id2, &None, &0, &0);
+    let operator = Address::generate(&env);
+    bridge.execute_withdrawal(&operator, &request_id1, &None, &0, &0);
+    bridge.execute_withdrawal(&operator, &request_id2, &None, &0, &0);
 }
 

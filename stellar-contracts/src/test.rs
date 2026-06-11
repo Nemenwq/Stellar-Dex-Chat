@@ -705,7 +705,7 @@ fn test_set_emergency_recovery_event_records_admin() {
     let operator = Address::generate(&env);
     bridge.withdraw(&admin, &user, &200, &token_addr);
     assert_eq!(bridge.get_total_withdrawn(), 200);
-    assert_eq!(token.balance(&contract_id), 300);
+    assert_eq!(token_sac.balance(&contract_id), 300);
 
     let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
     bridge.execute_withdrawal(&operator, &req_id, &None, &0, &0);
@@ -723,6 +723,8 @@ fn test_set_emergency_recovery_overwrites_previous_recovery() {
 
     let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 1000);
     let user = Address::generate(&env);
+    let recovery_v1 = Address::generate(&env);
+    let recovery_v2 = Address::generate(&env);
     token_sac.mint(&user, &1_000);
 
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
@@ -740,6 +742,12 @@ fn test_set_emergency_recovery_overwrites_previous_recovery() {
 
     bridge.execute_withdrawal(&operator, &req1, &None, &0, &0);
     assert_eq!(bridge.get_total_liabilities(), 50);
+
+    // Second configuration overwrites the first
+    bridge.set_emergency_recovery(&recovery_v2, &400);
+    let snapshot_v2 = bridge.get_config_snapshot();
+    assert_eq!(snapshot_v2.emergency_recovery, Some(recovery_v2.clone()));
+    assert_eq!(bridge.get_emergency_recovery_cap(), Some(400));
 
     // Old address must no longer be returned
     assert_ne!(snapshot_v2.emergency_recovery, Some(recovery_v1));
@@ -759,7 +767,7 @@ fn test_set_emergency_recovery_non_admin_cannot_call() {
     // Set up the bridge with a real admin; mock all auths only for init.
     env.mock_all_auths();
 
-    let (contract_id, bridge, _admin, _, _, _) = setup_bridge(&env, 1_000);
+    let (contract_id, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 1_000);
 
     // Generate a completely different address that was never the admin.
     let non_admin = Address::generate(&env);
@@ -1586,11 +1594,8 @@ fn test_validate_withdrawal_quota_migration_check() {
     // Check that MigrationCheckEvent was emitted
     let events = env.events().all().filter_by_contract(&contract_id);
     let has_migration_check = events.events().iter().any(|e| {
-        if let soroban_sdk::xdr::ContractEventBody::V0(body) = &e.body {
-            body.topics.len() > 0 && matches!(&body.topics[0], soroban_sdk::xdr::ScVal::Symbol(sym) if std::str::from_utf8(sym.0.as_slice()).unwrap() == "migration_check_event")
-        } else {
-            false
-        }
+        let soroban_sdk::xdr::ContractEventBody::V0(body) = &e.body;
+        body.topics.len() > 0 && matches!(&body.topics[0], soroban_sdk::xdr::ScVal::Symbol(sym) if std::str::from_utf8(sym.0.as_slice()).unwrap() == "migration_check_event")
     });
 
     // Verify it still enforces quota (validate_withdrawal_quota is working)
