@@ -18,7 +18,7 @@ describe('useIdempotentAction', () => {
 
     let actionResult;
     await act(async () => {
-      actionResult = await result.current.execute(mockAction, 'test_action');
+      actionResult = await result.current?.execute(mockAction, 'test_action');
     });
 
     expect(mockAction).toHaveBeenCalledTimes(1);
@@ -34,13 +34,13 @@ describe('useIdempotentAction', () => {
 
     // First execution
     await act(async () => {
-      await result.current.execute(mockAction, 'test_action');
+      await result.current?.execute(mockAction, 'test_action');
     });
 
     // Second execution (should be suppressed)
     let secondResult;
     await act(async () => {
-      secondResult = await result.current.execute(mockAction, 'test_action');
+      secondResult = await result.current?.execute(mockAction, 'test_action');
     });
 
     expect(mockAction).toHaveBeenCalledTimes(1);
@@ -55,7 +55,7 @@ describe('useIdempotentAction', () => {
 
     // First execution
     await act(async () => {
-      await result.current.execute(mockAction, 'test_action');
+      await result.current?.execute(mockAction, 'test_action');
     });
 
     // Wait for cooldown
@@ -65,7 +65,7 @@ describe('useIdempotentAction', () => {
 
     // Second execution (should succeed)
     await act(async () => {
-      await result.current.execute(mockAction, 'test_action');
+      await result.current?.execute(mockAction, 'test_action');
     });
 
     expect(mockAction).toHaveBeenCalledTimes(2);
@@ -80,7 +80,7 @@ describe('useIdempotentAction', () => {
     expect(result.current.isProcessing).toBe(false);
 
     const executePromise = act(async () => {
-      return result.current.execute(mockAction, 'test_action');
+      return result.current?.execute(mockAction, 'test_action');
     });
 
     // Should be processing during execution
@@ -104,11 +104,11 @@ describe('useIdempotentAction', () => {
     const mockAction = vi.fn().mockResolvedValue('success');
 
     await act(async () => {
-      await result.current.execute(mockAction, 'test_action');
+      await result.current?.execute(mockAction, 'test_action');
     });
 
     await act(async () => {
-      await result.current.execute(mockAction, 'test_action');
+      await result.current?.execute(mockAction, 'test_action');
     });
 
     expect(consoleWarnSpy).toHaveBeenCalledWith(
@@ -128,11 +128,11 @@ describe('useIdempotentAction', () => {
     const mockAction = vi.fn().mockResolvedValue('success');
 
     await act(async () => {
-      await result.current.execute(mockAction, 'test_action');
+      await result.current?.execute(mockAction, 'test_action');
     });
 
     await act(async () => {
-      await result.current.execute(mockAction, 'test_action');
+      await result.current?.execute(mockAction, 'test_action');
     });
 
     expect(consoleWarnSpy).not.toHaveBeenCalled();
@@ -147,7 +147,7 @@ describe('useIdempotentAction', () => {
     });
 
     await act(async () => {
-      await result.current.execute(mockAction, 'test_action');
+      await result.current?.execute(mockAction, 'test_action');
     });
 
     await act(async () => {
@@ -155,7 +155,7 @@ describe('useIdempotentAction', () => {
     });
 
     await act(async () => {
-      await result.current.execute(mockAction, 'test_action');
+      await result.current?.execute(mockAction, 'test_action');
     });
 
     expect(capturedKeys).toHaveLength(2);
@@ -169,13 +169,13 @@ describe('useIdempotentAction', () => {
     const mockAction = vi.fn().mockResolvedValue('success');
 
     await act(async () => {
-      await result.current.execute(mockAction, 'test_action');
+      await result.current?.execute(mockAction, 'test_action');
     });
 
     expect(result.current.state.lastExecutionTime).toBeGreaterThan(0);
 
     act(() => {
-      result.current.reset();
+      result.current?.reset();
     });
 
     expect(result.current.isProcessing).toBe(false);
@@ -188,7 +188,7 @@ describe('useIdempotentAction', () => {
 
     await act(async () => {
       try {
-        await result.current.execute(mockAction, 'test_action');
+        await result.current?.execute(mockAction, 'test_action');
       } catch (error) {
         expect(error).toEqual(new Error('Action failed'));
       }
@@ -207,7 +207,7 @@ describe('useIdempotentAction', () => {
     // Simulate rapid clicks
     const clicks = Array.from({ length: 5 }, () =>
       act(async () => {
-        return result.current.execute(mockAction, 'button_click');
+        return result.current?.execute(mockAction, 'button_click');
       })
     );
 
@@ -225,7 +225,7 @@ describe('useIdempotentAction', () => {
 
     // Start first execution
     const firstExecution = act(async () => {
-      return result.current.execute(mockAction, 'test_action');
+      return result.current?.execute(mockAction, 'test_action');
     });
 
     // Try to execute again while first is still processing
@@ -235,7 +235,7 @@ describe('useIdempotentAction', () => {
 
     let secondResult;
     await act(async () => {
-      secondResult = await result.current.execute(mockAction, 'test_action');
+      secondResult = await result.current?.execute(mockAction, 'test_action');
     });
 
     await firstExecution;
