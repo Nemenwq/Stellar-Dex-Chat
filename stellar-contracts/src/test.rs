@@ -797,7 +797,7 @@ fn test_set_emergency_recovery_non_admin_cannot_call() {
 
     // Manually burn some tokens from the contract to break invariant
     env.as_contract(&contract_id, || {
-        token.transfer(&contract_id, &user, &100);
+        token_sac.transfer(&contract_id, &user, &100);
     });
 
     // Now balance < net_deposited (400 < 500)
@@ -1278,7 +1278,9 @@ fn test_request_withdrawal_extends_matching_receipt_ttl() {
 fn test_operator_cap_enforced() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 1_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &1_000);
 
     let op1 = Address::generate(&env);
     let op2 = Address::generate(&env);
@@ -4421,8 +4423,6 @@ fn test_deposit_invariant_receipt_issued_event() {
 
     // Verify receipt was created (receipts are indexed, so we get by index 0)
     let receipt = bridge.get_receipt_by_index(&0);
-    assert!(receipt.is_ok());
-    let receipt = receipt.unwrap();
     assert_eq!(receipt.depositor, user);
     assert_eq!(receipt.amount, 100);
     assert!(!receipt.refunded);

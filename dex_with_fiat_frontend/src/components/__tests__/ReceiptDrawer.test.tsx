@@ -12,6 +12,7 @@ vi.mock('@/contexts/TranslationContext', () => ({
 
 vi.mock('@/contexts/ThemeContext', () => ({
   useTheme: () => ({ isDarkMode: false }),
+  ThemeProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 vi.mock('@/hooks/useTransactionFilters', () => ({

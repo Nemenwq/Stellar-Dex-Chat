@@ -33,6 +33,7 @@ const mockChatState: {
 
 vi.mock('@/contexts/ThemeContext', () => ({
   useTheme: () => ({ isDarkMode: false, toggleDarkMode: vi.fn() }),
+  ThemeProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 vi.mock('@/contexts/TranslationContext', () => ({

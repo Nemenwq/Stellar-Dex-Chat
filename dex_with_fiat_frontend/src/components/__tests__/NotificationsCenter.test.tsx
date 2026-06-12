@@ -21,6 +21,7 @@ vi.mock('@/hooks/useNotifications', () => ({
 
 vi.mock('@/contexts/ThemeContext', () => ({
   useTheme: vi.fn(() => ({ isDarkMode: true })),
+  ThemeProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 vi.mock('lucide-react', () => ({

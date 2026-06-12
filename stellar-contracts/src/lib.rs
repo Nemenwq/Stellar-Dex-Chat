@@ -3928,7 +3928,7 @@ impl FiatBridge {
             version: EVENT_VERSION,
             admin,
             to,
-            token,
+            token: token.clone(),
             amount,
             nonce,
             remaining_fees,
