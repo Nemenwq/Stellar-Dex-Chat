@@ -84,7 +84,7 @@ fn test_withdraw_fees_fails_when_vault_insufficient() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract_id, bridge, _, token_addr, token_client, token_admin) = setup_bridge(&env);
+    let (contract_id, bridge, _, token_addr, _token_client, token_admin) = setup_bridge(&env);
     let recipient = Address::generate(&env);
 
     // Accrue only 1000 fees
@@ -103,7 +103,7 @@ fn test_withdraw_fees_emits_vault_event() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract_id, bridge, _admin, token_addr, token_client, token_admin) = setup_bridge(&env);
+    let (contract_id, bridge, _admin, token_addr, _token_client, token_admin) = setup_bridge(&env);
     let recipient = Address::generate(&env);
 
     // Accrue fees
@@ -153,7 +153,7 @@ fn test_withdraw_fees_vault_nonce_protection() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract_id, bridge, _, token_addr, token_client, token_admin) = setup_bridge(&env);
+    let (contract_id, bridge, _, token_addr, _token_client, token_admin) = setup_bridge(&env);
     let recipient = Address::generate(&env);
 
     bridge.accrue_fee(&token_addr, &5_000);
@@ -249,7 +249,7 @@ fn test_withdraw_fees_vault_persistence() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract_id, bridge, _, token_addr, token_client, token_admin) = setup_bridge(&env);
+    let (contract_id, bridge, _, token_addr, _token_client, token_admin) = setup_bridge(&env);
     let recipient = Address::generate(&env);
 
     // Accrue fees in multiple steps

@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Events as _, Ledger},
+    testutils::{Address as _, Ledger},
     vec, Address, Env,
 };
 

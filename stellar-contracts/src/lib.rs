@@ -548,6 +548,28 @@ pub struct SetLimitMaxCapEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
+pub struct UpgradeProposedEvent {
+    pub version: u32,
+    pub wasm_hash: BytesN<32>,
+    pub executable_after: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct UpgradeExecutedEvent {
+    pub version: u32,
+    pub wasm_hash: BytesN<32>,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct UpgradeCancelledEvent {
+    pub version: u32,
+    pub wasm_hash: BytesN<32>,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
 pub struct FeeVaultThresholdEvent {
     pub version: u32,
     pub token: Address,
@@ -950,6 +972,8 @@ pub enum DataKey {
     SetLimitMaxCap,
     // ── Issue #fee_withdrawal_nonce: replay-protection nonce per admin ────
     FeeWithdrawalNonce(Address),
+    // ── Issue #fee_vault_threshold: per-token fee vault threshold ────────
+    FeeVaultThreshold(Address),
 
 }
 
@@ -5708,10 +5732,14 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::UpgradeProposal, &proposal);
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "upg_prop")),
-            (wasm_hash, executable_after),
-        );
+
+        UpgradeProposedEvent {
+            version: EVENT_VERSION,
+            wasm_hash: wasm_hash.clone(),
+            executable_after,
+        }
+        .publish(&env);
+
         Ok(())
     }
 
@@ -5778,10 +5806,12 @@ impl FiatBridge {
         env.deployer()
             .update_current_contract_wasm(proposal.wasm_hash.clone());
 
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "upg_exec")),
-            proposal.wasm_hash,
-        );
+        UpgradeExecutedEvent {
+            version: EVENT_VERSION,
+            wasm_hash: proposal.wasm_hash,
+        }
+        .publish(&env);
+
         Ok(())
     }
 
@@ -5813,10 +5843,13 @@ impl FiatBridge {
             .ok_or(Error::UpgradeProposalMissing)?;
 
         env.storage().instance().remove(&DataKey::UpgradeProposal);
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "upg_can")),
-            proposal.wasm_hash,
-        );
+
+        UpgradeCancelledEvent {
+            version: EVENT_VERSION,
+            wasm_hash: proposal.wasm_hash,
+        }
+        .publish(&env);
+
         Ok(())
     }
 
