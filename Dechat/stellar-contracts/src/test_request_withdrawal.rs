@@ -497,7 +497,7 @@ fn rw_withdrawal_requested_event_emitted() {
     fund_and_deposit(&bridge, &sac, &user, &token, 500);
     bridge.request_withdrawal(&user, &100, &token, &None, &0);
     let events = env.events().all().filter_by_contract(&contract_id);
-    assert!(events.events().len() > 0, "no events emitted after request");
+    assert!(!events.events().is_empty(), "no events emitted after request");
 }
 
 // ── Cooldown cleared / pause-unpause tests ────────────────────────────────────

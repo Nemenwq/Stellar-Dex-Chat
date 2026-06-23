@@ -21,11 +21,11 @@ fn setup_bridge(
     env: &Env,
 ) -> (
     Address,
-    FiatBridgeClient,
+    FiatBridgeClient<'_>,
     Address,
     Address,
-    token::Client,
-    token::StellarAssetClient,
+    token::Client<'_>,
+    token::StellarAssetClient<'_>,
 ) {
     let admin = Address::generate(env);
     let (token_client, token_admin) = create_token_contract(env, &admin);
@@ -115,7 +115,7 @@ fn test_heartbeat_circuit_breaker_event() {
 
     // Verify event was emitted
     let events = env.events().all().filter_by_contract(&contract_id);
-    assert!(events.events().len() > 0);
+    assert!(!events.events().is_empty());
 }
 
 /// Test circuit breaker auto-reset allows heartbeat after window
@@ -273,7 +273,7 @@ fn test_heartbeat_event_emission_with_circuit_breaker() {
     let event_vec = events.events();
     
     // Should have heartbeat event
-    assert!(event_vec.len() > 0);
+    assert!(!event_vec.is_empty());
 }
 
 /// Test circuit breaker state persists across heartbeats
@@ -344,6 +344,6 @@ fn test_heartbeat_circuit_breaker_blocked_event() {
     
     let events = env.events().all().filter_by_contract(&contract_id);
     // Should have heartbeat event, not blocked event
-    assert!(events.events().len() > 0);
+    assert!(!events.events().is_empty());
 }
 

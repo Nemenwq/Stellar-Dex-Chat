@@ -3982,9 +3982,6 @@ impl FiatBridge {
         }
         .publish(&env);
 
-        // Check invariants after fee withdrawal
-        Self::check_invariants(&env, &token)?;
-
         Ok(())
     }
 

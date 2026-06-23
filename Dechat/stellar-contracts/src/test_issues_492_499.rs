@@ -40,11 +40,11 @@ fn setup_bridge(
     env: &Env,
 ) -> (
     Address,
-    FiatBridgeClient,
+    FiatBridgeClient<'_>,
     Address,
     Address,
-    TokenClient,
-    StellarAssetClient,
+    TokenClient<'_>,
+    StellarAssetClient<'_>,
 ) {
     let contract_id = env.register(FiatBridge, ());
     let bridge = FiatBridgeClient::new(env, &contract_id);

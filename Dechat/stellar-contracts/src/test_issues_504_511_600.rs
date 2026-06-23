@@ -35,11 +35,11 @@ fn setup_bridge(
     limit: i128,
 ) -> (
     Address,
-    FiatBridgeClient,
+    FiatBridgeClient<'_>,
     Address,
     Address,
-    TokenClient,
-    StellarAssetClient,
+    TokenClient<'_>,
+    StellarAssetClient<'_>,
 ) {
     let contract_id = env.register(FiatBridge, ());
     let bridge = FiatBridgeClient::new(env, &contract_id);
@@ -54,8 +54,8 @@ fn setup_bridge(
 /// Deposits `amount` tokens for `user` and returns the resulting receipt hash.
 fn fund_and_deposit(
     env: &Env,
-    bridge: &FiatBridgeClient,
-    token_sac: &StellarAssetClient,
+    bridge: &FiatBridgeClient<'_>,
+    token_sac: &StellarAssetClient<'_>,
     user: &Address,
     token_addr: &Address,
     amount: i128,

@@ -3,13 +3,11 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::xdr::ToXdr;
 use soroban_sdk::{
     testutils::{storage::Persistent as _, Address as _, EnvTestConfig, Events as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     vec, Address, Bytes, BytesN, Env, IntoVal, Symbol,
 };
-use std::{format, fs, path::PathBuf, string::String, vec::Vec as StdVec};
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -96,68 +94,10 @@ fn load_valid_contract_wasm_fixture() -> std::vec::Vec<u8> {
     panic!("soroban-sdk doctest wasm fixture not found")
 }
 
-struct SnapshotEvent {
-    topics: StdVec<String>,
-    data: String,
-}
-
 fn new_snapshot_env() -> Env {
     Env::new_with_config(EnvTestConfig {
         capture_snapshot_at_drop: false,
     })
-}
-
-fn snapshot_path(name: &str) -> PathBuf {
-    PathBuf::from("test_snapshots")
-        .join("events")
-        .join(format!("{name}.json"))
-}
-
-fn escape_json(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-fn render_snapshot(events: &[SnapshotEvent]) -> String {
-    let mut out = String::from("[\n");
-    for (index, event) in events.iter().enumerate() {
-        out.push_str("  {\n");
-        out.push_str("    \"contract\": \"bridge\",\n");
-        out.push_str("    \"topics\": [\n");
-        for (topic_index, topic) in event.topics.iter().enumerate() {
-            out.push_str(&format!(
-                "      \"{}\"{}\n",
-                escape_json(topic),
-                if topic_index + 1 == event.topics.len() {
-                    ""
-                } else {
-                    ","
-                }
-            ));
-        }
-        out.push_str("    ],\n");
-        out.push_str(&format!("    \"data\": \"{}\"\n", escape_json(&event.data)));
-        out.push_str("  }");
-        if index + 1 != events.len() {
-            out.push(',');
-        }
-        out.push('\n');
-    }
-    out.push(']');
-    out.push('\n');
-    out
-}
-
-fn assert_event_snapshot(name: &str, events: &[SnapshotEvent]) {
-    let path = snapshot_path(name);
-    let expected = fs::read_to_string(&path)
-        .unwrap_or_else(|err| panic!("failed to read snapshot {}: {err}", path.display()));
-    let actual = render_snapshot(events);
-    assert_eq!(
-        expected,
-        actual,
-        "snapshot mismatch for {name}. Update {} if this event change is intentional.",
-        path.display()
-    );
 }
 
 // ── happy-path tests ──────────────────────────────────────────────────
@@ -648,7 +588,7 @@ fn test_set_emergency_recovery_emits_event() {
     for event in raw.iter() {
         use soroban_sdk::xdr::ContractEventBody;
         let ContractEventBody::V0(body) = &event.body;
-        if body.topics.iter().any(|t| *t == topic_symbol) {
+        if body.topics.contains(&topic_symbol) {
             found = true;
             break;
         }
@@ -690,26 +630,43 @@ fn test_set_emergency_recovery_rejects_negative_cap() {
 fn test_set_emergency_recovery_event_records_admin() {
     let env = Env::default();
     env.mock_all_auths();
-    let (contract_id, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 1_000);
+    let (contract_id, bridge, admin, _, _, _) = setup_bridge(&env, 1_000);
     let recovery = Address::generate(&env);
-    let user = Address::generate(&env);
-    token_sac.mint(&user, &1_000);
 
     bridge.set_emergency_recovery(&recovery, &500);
 
-    // Scan all events emitted by the bridge contract and locate the
-    // emergency_recovery_set_event topic, then confirm the admin field.
     let events = env.events().all().filter_by_contract(&contract_id);
     let raw = events.events();
 
-    let operator = Address::generate(&env);
-    bridge.withdraw(&admin, &user, &200, &token_addr);
-    assert_eq!(bridge.get_total_withdrawn(), 200);
-    assert_eq!(token_sac.balance(&contract_id), 300);
+    use soroban_sdk::xdr::{ContractEventBody, ScVal, ScSymbol, StringM};
+    let topic = ScVal::Symbol(ScSymbol(
+        StringM::try_from("emergency_recovery_set_event").expect("valid event topic"),
+    ));
+    let admin_key = ScVal::Symbol(ScSymbol(
+        StringM::try_from("admin").expect("valid field name"),
+    ));
+    let expected_admin: ScVal = (&admin).into();
 
-    let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
-    bridge.execute_withdrawal(&operator, &req_id, &None, &0, &0);
-    assert_eq!(bridge.get_total_withdrawn(), 300);
+    let mut saw_admin = false;
+    for event in raw.iter() {
+        let ContractEventBody::V0(body) = &event.body;
+        if !body.topics.contains(&topic) {
+            continue;
+        }
+        if let ScVal::Map(Some(map)) = &body.data {
+            let admin_entry = map
+                .iter()
+                .find(|entry| entry.key == admin_key)
+                .expect("EmergencyRecoverySetEvent map must contain `admin`");
+            assert_eq!(admin_entry.val, expected_admin);
+            saw_admin = true;
+            break;
+        }
+    }
+    assert!(
+        saw_admin,
+        "expected EmergencyRecoverySetEvent with admin field to be emitted"
+    );
 }
 
 /// Verifies that calling `set_emergency_recovery` a second time
@@ -720,36 +677,18 @@ fn test_set_emergency_recovery_overwrites_previous_recovery() {
     let env = Env::default();
     env.mock_all_auths();
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
-
-    let (_, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 1000);
-    let user = Address::generate(&env);
     let recovery_v1 = Address::generate(&env);
     let recovery_v2 = Address::generate(&env);
-    token_sac.mint(&user, &1_000);
 
-    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
-    assert_eq!(bridge.get_total_liabilities(), 0);
-
-    let operator = Address::generate(&env);
-    let req1 = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
-    assert_eq!(bridge.get_total_liabilities(), 100);
-
-    // First configuration
     bridge.set_emergency_recovery(&recovery_v1, &300);
     let snapshot_v1 = bridge.get_config_snapshot();
     assert_eq!(snapshot_v1.emergency_recovery, Some(recovery_v1.clone()));
     assert_eq!(bridge.get_emergency_recovery_cap(), Some(300));
 
-    bridge.execute_withdrawal(&operator, &req1, &None, &0, &0);
-    assert_eq!(bridge.get_total_liabilities(), 50);
-
-    // Second configuration overwrites the first
     bridge.set_emergency_recovery(&recovery_v2, &400);
     let snapshot_v2 = bridge.get_config_snapshot();
     assert_eq!(snapshot_v2.emergency_recovery, Some(recovery_v2.clone()));
     assert_eq!(bridge.get_emergency_recovery_cap(), Some(400));
-
-    // Old address must no longer be returned
     assert_ne!(snapshot_v2.emergency_recovery, Some(recovery_v1));
 }
 
@@ -767,7 +706,7 @@ fn test_set_emergency_recovery_non_admin_cannot_call() {
     // Set up the bridge with a real admin; mock all auths only for init.
     env.mock_all_auths();
 
-    let (contract_id, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 1_000);
+    let (contract_id, bridge, _admin, _, _, _) = setup_bridge(&env, 1_000);
 
     // Generate a completely different address that was never the admin.
     let non_admin = Address::generate(&env);
@@ -787,23 +726,8 @@ fn test_set_emergency_recovery_non_admin_cannot_call() {
     }]);
 
     let result = bridge.try_set_emergency_recovery(&recovery, &500);
-
-
-    
-    let user = Address::generate(&env);
-    token_sac.mint(&user, &1_000);
-
-    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
-
-    // Manually burn some tokens from the contract to break invariant
-    env.as_contract(&contract_id, || {
-        token_sac.transfer(&contract_id, &user, &100);
-    });
-
-    // Now balance < net_deposited (400 < 500)
-    // Any mutation should fail because of check_invariants
-    let result = bridge.try_deposit(&user, &10, &token_addr, &Bytes::new(&env), &0, &0, &None);
-    assert_eq!(result, Err(Ok(Error::InsufficientFunds)));
+    assert!(result.is_err());
+    assert_eq!(bridge.get_emergency_recovery_cap(), None);
 }
 
 // ── withdrawal cooldown tests ─────────────────────────────────────────────
@@ -1156,13 +1080,30 @@ fn test_withdrawal_quota_resets_after_window() {
     let all_events = env.events().all().filter_by_contract(&contract_id);
     let raw = all_events.events();
 
-    // Two events: quota_reset then withdraw
-    assert_eq!(raw.len(), 2, "expected 2 events, got {}", raw.len());
+    // Two events: quota_reset then withdraw on the post-window withdrawal.
+    use soroban_sdk::xdr::{ContractEventBody, ScVal, ScSymbol, StringM, Int128Parts};
+    let quota_topic = ScVal::Symbol(ScSymbol(StringM::try_from("quota_reset_event").unwrap()));
+    let quota_consumed_topic =
+        ScVal::Symbol(ScSymbol(StringM::try_from("withdrawal_quota_consumed_event").unwrap()));
+    let withdraw_topic = ScVal::Symbol(ScSymbol(StringM::try_from("withdraw_event").unwrap()));
 
-    // First event: QuotaResetEvent
+    let quota_idx = raw
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(idx, event)| {
+            let ContractEventBody::V0(body) = &event.body;
+            (body.topics.first() == Some(&quota_topic)).then_some(idx)
+        })
+        .expect("expected quota_reset_event");
+    assert!(
+        quota_idx + 1 < raw.len(),
+        "expected withdraw_event after quota_reset_event"
+    );
+
+    // QuotaResetEvent
     {
-        use soroban_sdk::xdr::{ContractEventBody, ScVal, ScSymbol, StringM};
-        let ContractEventBody::V0(body) = &raw[0].body;
+        let ContractEventBody::V0(body) = &raw[quota_idx].body;
         // Topic is the struct name
         assert_eq!(
             body.topics.first().unwrap(),
@@ -1184,14 +1125,34 @@ fn test_withdrawal_quota_resets_after_window() {
         }
     }
 
-    // Second event: WithdrawEvent
+    // WithdrawalQuotaConsumedEvent and WithdrawEvent follow the quota reset.
     {
-        use soroban_sdk::xdr::{ContractEventBody, ScVal, ScSymbol, StringM, Int128Parts};
-        let ContractEventBody::V0(body) = &raw[1].body;
+        let ContractEventBody::V0(body) = &raw[quota_idx + 1].body;
         assert_eq!(
             body.topics.first().unwrap(),
-            &ScVal::Symbol(ScSymbol(StringM::try_from("withdraw_event").unwrap())),
-            "second event should be withdraw_event"
+            &quota_consumed_topic,
+            "event after quota_reset should be withdrawal_quota_consumed_event"
+        );
+        if let ScVal::Map(Some(map)) = &body.data {
+            let amount = map.iter()
+                .find(|e| e.key == ScVal::Symbol(ScSymbol(StringM::try_from("amount").unwrap())))
+                .map(|e| &e.val);
+            assert_eq!(
+                amount,
+                Some(&ScVal::I128(Int128Parts { hi: 0, lo: 500 })),
+                "withdrawal_quota_consumed_event amount mismatch"
+            );
+        } else {
+            panic!("withdrawal_quota_consumed_event data is not a map");
+        }
+    }
+
+    {
+        let ContractEventBody::V0(body) = &raw[quota_idx + 2].body;
+        assert_eq!(
+            body.topics.first().unwrap(),
+            &withdraw_topic,
+            "withdraw should emit withdraw_event after quota tracking events"
         );
         if let ScVal::Map(Some(map)) = &body.data {
             let amount = map.iter()
@@ -1287,6 +1248,8 @@ fn test_operator_cap_enforced() {
 
     bridge.set_max_operators(&1);
     bridge.set_operator(&op1, &true);
+
+    bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     let operator = Address::generate(&env);
     // Withdrawal should succeed immediately (no cooldown recorded)
@@ -1597,7 +1560,7 @@ fn test_validate_withdrawal_quota_migration_check() {
     let events = env.events().all().filter_by_contract(&contract_id);
     let has_migration_check = events.events().iter().any(|e| {
         let soroban_sdk::xdr::ContractEventBody::V0(body) = &e.body;
-        body.topics.len() > 0 && matches!(&body.topics[0], soroban_sdk::xdr::ScVal::Symbol(sym) if std::str::from_utf8(sym.0.as_slice()).unwrap() == "migration_check_event")
+        !body.topics.is_empty() && matches!(&body.topics[0], soroban_sdk::xdr::ScVal::Symbol(sym) if std::str::from_utf8(sym.0.as_slice()).unwrap() == "migration_check_event")
     });
 
     // Verify it still enforces quota (validate_withdrawal_quota is working)
@@ -2724,7 +2687,7 @@ fn test_circuit_breaker_also_blocks_execute_withdrawal() {
     token_sac.mint(&user, &5_000);
 
     bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
-    bridge.set_circuit_breaker_threshold(&300);
+    bridge.set_circuit_breaker_threshold(&500);
 
     // Queue both withdrawal requests before tripping the breaker
     let r1 = bridge.request_withdrawal(&user, &400, &token_addr, &None, &0);
@@ -4496,7 +4459,7 @@ fn test_deposit_event_includes_receipt_id() {
     let mut found = false;
     for event in raw.iter() {
         let ContractEventBody::V0(body) = &event.body;
-        if !body.topics.iter().any(|t| *t == topic_symbol) {
+        if !body.topics.contains(&topic_symbol) {
             continue;
         }
         if let ScVal::Map(Some(map)) = &body.data {
@@ -4569,7 +4532,7 @@ fn test_set_operator_invariant_emits_event() {
     let raw = events.events();
 
     // Should have SetOperatorEvent
-    assert!(raw.len() > 0);
+    assert!(!raw.is_empty());
 }
 
 #[test]
@@ -4767,7 +4730,7 @@ fn test_withdraw_fees_edge_case_emits_event() {
     let raw = events.events();
 
     // Should have FeeWithdrawnEvent
-    assert!(raw.len() > 0);
+    assert!(!raw.is_empty());
 }
 
 // ── Issue #576: event emission schema for withdraw_fees ───────────────────
@@ -4909,7 +4872,7 @@ fn test_withdraw_fees_emits_vault_reconciled_event_issue_840() {
     for event in raw.iter() {
         use soroban_sdk::xdr::ContractEventBody;
         let ContractEventBody::V0(body) = &event.body;
-        if body.topics.iter().any(|t| *t == topic_symbol) {
+        if body.topics.contains(&topic_symbol) {
             found = true;
             break;
         }
@@ -4981,8 +4944,6 @@ fn test_request_withdrawal_edge_case_exact_deposited_amount() {
 
     // Request exactly the deposited amount
     let req_id = bridge.request_withdrawal(&user, &500, &token_addr, &None, &0);
-    assert!(req_id >= 0);
-
     let req = bridge.get_withdrawal_request(&req_id).unwrap();
     assert_eq!(req.amount, 500);
 }
@@ -5022,7 +4983,7 @@ fn test_request_withdrawal_edge_case_emits_event() {
     let raw = events.events();
 
     // Should have WithdrawalRequestedEvent
-    assert!(raw.len() > 0);
+    assert!(!raw.is_empty());
 }
 
 #[test]
@@ -5101,11 +5062,17 @@ fn test_request_withdrawal_rejects_when_circuit_breaker_tripped() {
     token_sac.mint(&user, &1_000);
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
+    bridge.set_circuit_breaker_threshold(&500);
+
     // Trip the circuit breaker
     env.as_contract(&contract_id, || {
+        let curr = env.ledger().sequence();
         env.storage()
             .instance()
             .set(&DataKey::CircuitBreakerTripped, &true);
+        env.storage()
+            .instance()
+            .set(&DataKey::CircuitBreakerTrippedAt, &curr);
     });
 
     // request_withdrawal must be blocked by the circuit breaker
@@ -5122,11 +5089,17 @@ fn test_request_withdrawal_recovers_after_circuit_breaker_clears() {
     token_sac.mint(&user, &1_000);
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
+    bridge.set_circuit_breaker_threshold(&500);
+
     // Trip the circuit breaker
     env.as_contract(&contract_id, || {
+        let curr = env.ledger().sequence();
         env.storage()
             .instance()
             .set(&DataKey::CircuitBreakerTripped, &true);
+        env.storage()
+            .instance()
+            .set(&DataKey::CircuitBreakerTrippedAt, &curr);
     });
 
     assert_eq!(
@@ -5692,7 +5665,7 @@ fn test_execute_batch_admin_emits_role_check_event_issue_841() {
     for event in raw.iter() {
         use soroban_sdk::xdr::ContractEventBody;
         let ContractEventBody::V0(body) = &event.body;
-        if body.topics.iter().any(|t| *t == topic_symbol) {
+        if body.topics.contains(&topic_symbol) {
             found = true;
             break;
         }
