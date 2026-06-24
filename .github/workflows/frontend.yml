@@ -59,8 +59,18 @@ jobs:
           PAYSTACK_SECRET_KEY: ${{ secrets.PAYSTACK_SECRET_KEY || 'PLACEHOLDER' }}
           PAYOUT_PROVIDER: ${{ secrets.PAYOUT_PROVIDER || 'paystack' }}
 
-      - name: Unit tests with coverage
-        run: pnpm test:coverage
+      - name: Unit tests with coverage (shard 1/2)
+        run: pnpm test:coverage:shard -- --shard=1/2 --coverage.clean
         env:
-          NODE_OPTIONS: --max-old-space-size=12288
+          NODE_OPTIONS: --max-old-space-size=8192
+
+      - name: Unit tests with coverage (shard 2/2)
+        run: pnpm test:coverage:shard -- --shard=2/2 --coverage.clean=false
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+
+      - name: Merge coverage reports
+        run: pnpm test:coverage:merge
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         # Fails the pipeline if coverage thresholds (stmt 70%, branch 65%, fn 70%) are not met
