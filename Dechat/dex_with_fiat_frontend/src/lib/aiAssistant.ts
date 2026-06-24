@@ -203,6 +203,8 @@ export class AIAssistant {
 
   static readonly LOW_CONFIDENCE_THRESHOLD = 0.7;
   static readonly DEFAULT_PAGE_SIZE = 20;
+  /** Maximum number of recent messages included in each API request. */
+  static readonly CONVERSATION_WINDOW_SIZE = 20;
 
   /**
    * Safe fallback response returned when AI analysis fails critically.
@@ -273,6 +275,25 @@ export class AIAssistant {
   }
 
   /**
+   * Trim a conversation history array to the most recent N messages.
+   *
+   * Sending the full history on every request causes unbounded token growth.
+   * This helper keeps only the tail of the array so the payload stays within
+   * the model's context window regardless of conversation length (#991).
+   *
+   * @param history - Full array of past messages in chronological order.
+   * @param windowSize - Maximum number of messages to include (default: CONVERSATION_WINDOW_SIZE).
+   * @returns A new array containing only the last `windowSize` messages.
+   */
+  static trimConversationHistory(
+    history: ChatMessage[],
+    windowSize: number = AIAssistant.CONVERSATION_WINDOW_SIZE,
+  ): ChatMessage[] {
+    if (!Array.isArray(history) || history.length === 0) return [];
+    return history.slice(-Math.max(1, Math.floor(windowSize)));
+  }
+
+  /**
    * Analyze the user message and produce a structured AI analysis result.
    * Includes guardrail checks, FAQ matching, deterministic parsing, AI model
    * generation, and merged extracted data.
@@ -284,6 +305,9 @@ export class AIAssistant {
    *
    * @param message - Incoming user query or request text.
    * @param context - Optional context values to include in the AI prompt.
+   *   When `context.history` is a ChatMessage array it is automatically trimmed
+   *   to the last {@link AIAssistant.CONVERSATION_WINDOW_SIZE} messages before
+   *   being sent, preventing unbounded token growth over long conversations (#991).
    * @param signal - Optional AbortSignal for cancellation (does not trigger fallback).
    * @returns AIAnalysisResult with determined intent and suggested response. On errors,
    *          returns a safe fallback result that allows conversation to continue.
@@ -305,10 +329,23 @@ export class AIAssistant {
         return AIAssistant.SAFE_FALLBACK_RESULT;
       }
 
+      // Trim conversation history to a sliding window before sending (#991).
+      // Full history grows without bound and will eventually exceed the model's
+      // context window; we keep only the most recent messages plus the new one.
+      let trimmedContext = context;
+      if (context && Array.isArray(context.history)) {
+        trimmedContext = {
+          ...context,
+          history: AIAssistant.trimConversationHistory(
+            context.history as ChatMessage[],
+          ),
+        };
+      }
+
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, context }),
+        body: JSON.stringify({ message, context: trimmedContext }),
         signal: controllerSignal,
       });
 
