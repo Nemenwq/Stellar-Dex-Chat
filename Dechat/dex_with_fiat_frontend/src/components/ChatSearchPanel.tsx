@@ -66,21 +66,32 @@ function HighlightedSnippet({
   );
 }
 
+const EMPTY_FILTERS: SearchFilters = {
+  keyword: '',
+  walletAddress: '',
+  dateFrom: '',
+  dateTo: '',
+};
+
 export default function ChatSearchPanel({
   sessions,
   onSelectResult,
   onClose,
 }: ChatSearchPanelProps) {
   const { isDarkMode } = useTheme();
-  const [filters, setFilters] = useState<SearchFilters>({
-    keyword: '',
-    walletAddress: '',
-    dateFrom: '',
-    dateTo: '',
-  });
+  const [filters, setFilters] = useState<SearchFilters>(EMPTY_FILTERS);
   const [results, setResults] = useState<MessageMatch[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Reset all search state whenever the panel is closed so stale results
+  // are never shown the next time the panel is opened (#947).
+  const handleClose = () => {
+    setFilters(EMPTY_FILTERS);
+    setResults([]);
+    setShowAdvanced(false);
+    onClose();
+  };
 
   // Debounced search — runs 300 ms after the last filter change
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -136,7 +147,7 @@ export default function ChatSearchPanel({
           </button>
         )}
         <button
-          onClick={onClose}
+          onClick={handleClose}
           className={`p-1 rounded transition-colors ${isDarkMode ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
           title="Close search"
           aria-label="Close search"
