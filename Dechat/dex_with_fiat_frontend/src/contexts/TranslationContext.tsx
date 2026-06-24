@@ -2,6 +2,8 @@
 
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import en from '../locales/en.json';
+import fr from '../locales/fr.json';
+import es from '../locales/es.json';
 
 type TranslationKeys = typeof en;
 type NestedKeyOf<T> = T extends object
@@ -10,25 +12,67 @@ type NestedKeyOf<T> = T extends object
 
 export type TKey = NestedKeyOf<TranslationKeys>;
 
+/** Supported locale codes. */
+export type SupportedLocale = 'en' | 'fr' | 'es';
+
+export const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'fr', 'es'];
+
 interface TranslationContextType {
   t: (key: string, params?: Record<string, string | number>) => string;
-  locale: string;
-  setLocale: (locale: string) => void;
+  locale: SupportedLocale;
+  setLocale: (locale: SupportedLocale) => void;
 }
 
-const translations: Record<string, TranslationKeys> = { en };
+const translations: Record<SupportedLocale, TranslationKeys> = { en, fr: fr as TranslationKeys, es: es as TranslationKeys };
 
 const TranslationContext = createContext<TranslationContextType | undefined>(undefined);
 
+/**
+ * Detect the best supported locale from the browser's language preferences.
+ * Falls back to 'en' when no supported language matches (#999).
+ */
+function detectBrowserLocale(): SupportedLocale {
+  if (typeof window === 'undefined') return 'en';
+  const preferred = navigator.languages ?? [navigator.language];
+  for (const lang of preferred) {
+    // Match on the primary language subtag (e.g. "fr" from "fr-FR").
+    const primary = lang.split('-')[0].toLowerCase() as SupportedLocale;
+    if (SUPPORTED_LOCALES.includes(primary)) {
+      return primary;
+    }
+  }
+  return 'en';
+}
+
 export function TranslationProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocale] = useState('en');
+  const [locale, setLocaleState] = useState<SupportedLocale>(detectBrowserLocale);
+
+  const setLocale = useCallback((next: SupportedLocale) => {
+    if (SUPPORTED_LOCALES.includes(next)) {
+      setLocaleState(next);
+    } else {
+      console.warn(`TranslationProvider: unsupported locale "${next}", falling back to "en"`);
+      setLocaleState('en');
+    }
+  }, []);
 
   const t = useCallback((key: string, params?: Record<string, string | number>) => {
     const keys = key.split('.');
-    let value: unknown = translations[locale];
-    
-    for (const k of keys) {
-      value = (value as Record<string, unknown>)?.[k];
+
+    // Resolve from the active locale; fall back to English for missing keys.
+    const resolveValue = (dict: Record<string, unknown>): unknown => {
+      let node: unknown = dict;
+      for (const k of keys) {
+        node = (node as Record<string, unknown>)?.[k];
+      }
+      return node;
+    };
+
+    let value = resolveValue(translations[locale] as unknown as Record<string, unknown>);
+
+    if (typeof value !== 'string' && locale !== 'en') {
+      // Fallback to English for missing translation keys (#999 acceptance criteria).
+      value = resolveValue(translations.en as unknown as Record<string, unknown>);
     }
 
     if (typeof value !== 'string') return key;
@@ -36,14 +80,14 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
     if (params) {
       return Object.entries(params).reduce(
         (acc: string, [k, v]) => acc.replace(`{${k}}`, String(v)),
-        value as string
+        value as string,
       );
     }
 
     return value;
   }, [locale]);
 
-  const value = useMemo(() => ({ t, locale, setLocale }), [t, locale]);
+  const value = useMemo(() => ({ t, locale, setLocale }), [t, locale, setLocale]);
 
   return (
     <TranslationContext.Provider value={value}>
