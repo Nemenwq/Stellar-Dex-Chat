@@ -59,13 +59,23 @@ jobs:
           PAYSTACK_SECRET_KEY: ${{ secrets.PAYSTACK_SECRET_KEY || 'PLACEHOLDER' }}
           PAYOUT_PROVIDER: ${{ secrets.PAYOUT_PROVIDER || 'paystack' }}
 
-      - name: Unit tests with coverage (shard 1/2)
-        run: pnpm test:coverage:shard -- --shard=1/2 --coverage.clean
+      - name: Unit tests with coverage (shard 1/4)
+        run: pnpm test:coverage:shard:1
         env:
           NODE_OPTIONS: --max-old-space-size=8192
 
-      - name: Unit tests with coverage (shard 2/2)
-        run: pnpm test:coverage:shard -- --shard=2/2 --coverage.clean=false
+      - name: Unit tests with coverage (shard 2/4)
+        run: pnpm test:coverage:shard:2
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+
+      - name: Unit tests with coverage (shard 3/4)
+        run: pnpm test:coverage:shard:3
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+
+      - name: Unit tests with coverage (shard 4/4)
+        run: pnpm test:coverage:shard:4
         env:
           NODE_OPTIONS: --max-old-space-size=8192
 

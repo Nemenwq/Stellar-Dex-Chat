@@ -16,9 +16,12 @@
     "test:e2e:debug": "playwright test --debug",
     "test:e2e:install": "playwright install",
     "test:unit:watch": "vitest",
-    "test:coverage:shard": "vitest run --coverage --maxWorkers=1 --reporter=blob --reporter=dot --coverage.reporter=json",
+    "test:coverage:shard:1": "vitest run --coverage --maxWorkers=1 --pool=threads --no-file-parallelism --reporter=blob --reporter=dot --coverage.reporter=json --shard=1/4 --coverage.clean",
+    "test:coverage:shard:2": "vitest run --coverage --maxWorkers=1 --pool=threads --no-file-parallelism --reporter=blob --reporter=dot --coverage.reporter=json --shard=2/4 --coverage.clean=false",
+    "test:coverage:shard:3": "vitest run --coverage --maxWorkers=1 --pool=threads --no-file-parallelism --reporter=blob --reporter=dot --coverage.reporter=json --shard=3/4 --coverage.clean=false",
+    "test:coverage:shard:4": "vitest run --coverage --maxWorkers=1 --pool=threads --no-file-parallelism --reporter=blob --reporter=dot --coverage.reporter=json --shard=4/4 --coverage.clean=false",
     "test:coverage:merge": "vitest run --mergeReports --coverage --reporter=text",
-    "test:coverage": "pnpm test:coverage:shard -- --shard=1/2 --coverage.clean && pnpm test:coverage:shard -- --shard=2/2 --coverage.clean=false && pnpm test:coverage:merge"
+    "test:coverage": "pnpm test:coverage:shard:1 && pnpm test:coverage:shard:2 && pnpm test:coverage:shard:3 && pnpm test:coverage:shard:4 && pnpm test:coverage:merge"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

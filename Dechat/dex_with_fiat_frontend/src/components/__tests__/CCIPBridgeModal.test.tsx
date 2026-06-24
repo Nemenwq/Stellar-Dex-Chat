@@ -283,23 +283,25 @@ describe('CCIPBridgeModal', () => {
 
       // Advance to next poll
       await act(async () => {
-        vi.advanceTimersByTime(15_000);
+        await vi.advanceTimersByTimeAsync(15_000);
       });
 
       // Should immediately show IN_PROGRESS
-      expect(
-        await screen.findByText('Latest status: IN_PROGRESS'),
-      ).toBeInTheDocument();
+      await waitFor(() => {
+        expect(
+          screen.getByText('Latest status: IN_PROGRESS'),
+        ).toBeInTheDocument();
+      });
 
       // Advance to final poll
       await act(async () => {
-        vi.advanceTimersByTime(15_000);
+        await vi.advanceTimersByTimeAsync(15_000);
       });
 
       // Should immediately transition to success
-      expect(
-        await screen.findByText('CCIP transfer confirmed'),
-      ).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText('CCIP transfer confirmed')).toBeInTheDocument();
+      });
     });
 
     it('immediately transitions to success state when SUCCESS status is received', async () => {
@@ -554,7 +556,7 @@ describe('CCIPBridgeModal', () => {
       await screen.findByText('Waiting for CCIP confirmation…');
 
       await act(async () => {
-        vi.advanceTimersByTime(5000);
+        await vi.advanceTimersByTimeAsync(5000);
       });
 
       await waitFor(() => {
