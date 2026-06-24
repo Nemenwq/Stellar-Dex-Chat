@@ -21,7 +21,17 @@ const translations: Record<string, TranslationKeys> = { en };
 const TranslationContext = createContext<TranslationContextType | undefined>(undefined);
 
 export function TranslationProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocale] = useState('en');
+  const [locale, setLocale] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('locale') || 'en';
+    }
+    return 'en';
+  });
+
+  const handleSetLocale = useCallback((newLocale: string) => {
+    setLocale(newLocale);
+    localStorage.setItem('locale', newLocale);
+  }, []);
 
   const t = useCallback((key: string, params?: Record<string, string | number>) => {
     const keys = key.split('.');
@@ -43,7 +53,7 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
     return value;
   }, [locale]);
 
-  const value = useMemo(() => ({ t, locale, setLocale }), [t, locale]);
+  const value = useMemo(() => ({ t, locale, setLocale: handleSetLocale }), [t, locale, handleSetLocale]);
 
   return (
     <TranslationContext.Provider value={value}>
