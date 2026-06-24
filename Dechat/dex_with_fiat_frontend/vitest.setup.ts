@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
 
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
@@ -57,3 +57,8 @@ console.error = (...args: unknown[]) => {
   }
   originalError.apply(console, args);
 };
+
+afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
+});

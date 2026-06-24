@@ -16,10 +16,15 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     testTimeout: 15000,
     hookTimeout: 15000,
-    pool: 'forks',
+    pool: 'threads',
+    fileParallelism: false,
+    fakeTimers: {
+      // Avoid mocking queueMicrotask (Vitest 3+ default) — prevents memory growth in CI.
+      toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+    },
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json'],
+      reporter: ['text'],
       cleanOnRerun: true,
       exclude: [
         '**/*.{test,spec}.{ts,tsx}',

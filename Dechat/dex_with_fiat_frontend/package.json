@@ -16,7 +16,7 @@
     "test:e2e:debug": "playwright test --debug",
     "test:e2e:install": "playwright install",
     "test:unit:watch": "vitest",
-    "test:coverage": "vitest run --coverage --maxWorkers=1"
+    "test:coverage": "vitest run --coverage --maxWorkers=1 --pool=threads --no-file-parallelism --no-isolate"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
