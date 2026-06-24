@@ -18,10 +18,17 @@ export default defineConfig({
     hookTimeout: 15000,
     pool: 'forks',
     maxWorkers: 1,
+    fileParallelism: false,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json'],
       cleanOnRerun: true,
+      all: false,
+      exclude: [
+        '**/*.{test,spec}.{ts,tsx}',
+        '**/node_modules/**',
+        '**/.next/**',
+      ],
     },
   },
 });
