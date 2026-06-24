@@ -17,8 +17,6 @@ export default defineConfig({
     testTimeout: 15000,
     hookTimeout: 15000,
     pool: 'forks',
-    maxWorkers: 1,
-    fileParallelism: false,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json'],

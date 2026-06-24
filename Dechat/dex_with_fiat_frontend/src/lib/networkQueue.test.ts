@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { withNetworkReadQueue } from './networkQueue';
+import { withNetworkReadQueue, resetNetworkQueueForTests } from './networkQueue';
 import { toastStore } from './toastStore';
 
 // Mock toastStore
@@ -22,6 +22,7 @@ describe(
     });
 
     afterEach(() => {
+      resetNetworkQueueForTests();
       vi.clearAllMocks();
     });
 
@@ -84,7 +85,9 @@ describe(
       });
 
       isOnline = false;
-      const promise = withNetworkReadQueue(mockTask, 'failing-request');
+      const promise = withNetworkReadQueue(mockTask, 'failing-request').catch(
+        () => undefined,
+      );
 
       // Wait for queue
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -154,7 +157,9 @@ describe(
       );
 
       isOnline = false;
-      const promise = withNetworkReadQueue(mockTask, 'test');
+      const promise = withNetworkReadQueue(mockTask, 'test').catch(
+        () => undefined,
+      );
 
       await new Promise((resolve) => setTimeout(resolve, 50));
 

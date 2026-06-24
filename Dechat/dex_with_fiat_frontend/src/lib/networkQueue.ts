@@ -105,6 +105,12 @@ export function getQueuedReadRequestsCount(): number {
   return queue.length;
 }
 
+export function resetNetworkQueueForTests(): void {
+  queue.length = 0;
+  processing = false;
+  notifyListeners();
+}
+
 export function withNetworkReadQueue<T>(
   task: () => Promise<T>,
   name?: string,
