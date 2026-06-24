@@ -16,7 +16,7 @@
     "test:e2e:debug": "playwright test --debug",
     "test:e2e:install": "playwright install",
     "test:unit:watch": "vitest",
-    "test:coverage:shard": "vitest run --coverage --maxWorkers=1 --no-file-parallelism --reporter=blob --reporter=dot --coverage.reporter=json",
+    "test:coverage:shard": "vitest run --coverage --maxWorkers=1 --reporter=blob --reporter=dot --coverage.reporter=json",
     "test:coverage:merge": "vitest run --mergeReports --coverage --reporter=text",
     "test:coverage": "pnpm test:coverage:shard -- --shard=1/2 --coverage.clean && pnpm test:coverage:shard -- --shard=2/2 --coverage.clean=false && pnpm test:coverage:merge"
   },
