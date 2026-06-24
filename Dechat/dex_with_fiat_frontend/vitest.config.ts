@@ -21,7 +21,6 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json'],
       cleanOnRerun: true,
-      all: false,
       exclude: [
         '**/*.{test,spec}.{ts,tsx}',
         '**/node_modules/**',
