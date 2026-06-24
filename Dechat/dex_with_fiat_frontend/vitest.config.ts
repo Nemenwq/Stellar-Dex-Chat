@@ -16,8 +16,6 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     testTimeout: 15000,
     hookTimeout: 15000,
-    pool: 'threads',
-    fileParallelism: false,
     fakeTimers: {
       // Avoid mocking queueMicrotask (Vitest 3+ default) — prevents memory growth in CI.
       toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
