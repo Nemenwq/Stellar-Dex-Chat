@@ -51,6 +51,7 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
       if (stored && SUPPORTED_LOCALES.includes(stored as SupportedLocale)) {
         return stored as SupportedLocale;
       }
+      return detectBrowserLocale();
     }
     return 'en';
   });

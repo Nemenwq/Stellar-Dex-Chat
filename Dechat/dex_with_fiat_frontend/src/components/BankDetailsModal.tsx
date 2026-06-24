@@ -420,7 +420,7 @@ export default function BankDetailsModal({
     } finally {
       setVerifying(false);
     }
-  }, [accountNumber, iban, ibanTouched, selectedBank, xlmAmount]);
+  }, [accountNumber, iban, selectedBank, xlmAmount]);
 
   const handleConfirmPayout = async () => {
     if (
