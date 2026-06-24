@@ -106,8 +106,10 @@ export default function StellarFiatModal({
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
 
-  // Helper to avoid type narrowing issues
+  // Helpers avoid JSX branch narrowing (pending/loading render a separate view).
   const isStatusPending = (status as TxStatus) === 'pending';
+  const isStatusLoading = (status as TxStatus) === 'loading';
+  const isTransactionBusy = isStatusPending || isStatusLoading;
 
   useEffect(() => {
     if (!isOpen || !connection.isConnected || !connection.publicKey) {
@@ -405,7 +407,7 @@ export default function StellarFiatModal({
       ? bridgeLimit - stroopsAmount
       : BigInt(0);
   const isSubmitDisabled =
-    status === 'loading' ||
+    isStatusLoading ||
     isStatusPending ||
     !connection.isConnected ||
     isAmountInvalid ||
@@ -713,7 +715,7 @@ export default function StellarFiatModal({
               </button>
             )}
           </div>
-        ) : isStatusPending || status === 'loading' ? (
+        ) : isTransactionBusy ? (
           <div className="text-center py-6">
             <Loader2 className="w-14 h-14 text-blue-400 mx-auto mb-4 animate-spin" />
             <p className="text-white font-semibold text-lg mb-2">
@@ -742,11 +744,11 @@ export default function StellarFiatModal({
                     key={preset}
                     type="button"
                     onClick={() => handlePreset(preset)}
-                    disabled={isStatusPending || status === 'loading'}
+                    disabled={isTransactionBusy}
                     className={`flex-1 py-1.5 rounded-md text-xs font-medium border transition-colors ${activePreset === preset
                         ? 'bg-blue-600 border-blue-500 text-white'
                         : 'bg-gray-800 border-gray-600 text-gray-300 hover:border-blue-500 hover:text-white'
-                      } ${isStatusPending || status === 'loading' ? 'opacity-60 cursor-not-allowed' : ''}`}
+                      } ${isTransactionBusy ? 'opacity-60 cursor-not-allowed' : ''}`}
                   >
                     {preset}
                   </button>
@@ -762,7 +764,7 @@ export default function StellarFiatModal({
                   setActivePreset(null);
                 }}
                 placeholder="0.00"
-                disabled={isStatusPending || status === 'loading'}
+                disabled={isTransactionBusy}
                 aria-invalid={isAmountInvalid || isOverLimit ? true : undefined}
                 className={`w-full bg-gray-800 border rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed ${isAmountInvalid || isOverLimit
                     ? 'border-red-500 focus:border-red-400'
@@ -865,7 +867,7 @@ export default function StellarFiatModal({
               </div>
             )}
 
-            {requiresPreSignConfirmation && status !== 'loading' && (
+            {requiresPreSignConfirmation && !isStatusLoading && (
               <div className="theme-surface-muted theme-border mb-4 rounded-xl border px-4 py-3">
                 <h3 className="theme-text-muted text-[10px] font-bold uppercase tracking-widest mb-3">
                   Pre-Sign Transaction Summary
@@ -1023,7 +1025,7 @@ export default function StellarFiatModal({
                   value={recipient}
                   onChange={(e) => setRecipient(e.target.value)}
                   placeholder="G..."
-                  disabled={isStatusPending || status === 'loading'}
+                  disabled={isTransactionBusy}
                   className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed font-mono text-sm"
                 />
               </div>
@@ -1059,7 +1061,7 @@ export default function StellarFiatModal({
                 disabled={isSubmitDisabled || isTxProcessing}
                 className="theme-primary-button w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-lg font-semibold transition-all"
               >
-                {status === 'loading' || isTxProcessing ? (
+                {isStatusLoading || isTxProcessing ? (
                   <>
                     <Loader2
                       data-testid="loading-spinner"
