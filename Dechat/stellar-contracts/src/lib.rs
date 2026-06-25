@@ -995,6 +995,24 @@ pub struct FiatBridge;
 
 #[contractimpl]
 impl FiatBridge {
+    /// Initialises the FiatBridge contract. Must be called exactly once.
+    ///
+    /// # Parameters
+    /// - `admin`       – Address that will hold admin privileges.
+    /// - `token`       – Primary token address managed by this bridge.
+    /// - `limit`       – Maximum single-deposit cap in token units (must be > 0).
+    /// - `min_deposit` – Minimum accepted deposit amount (must be ≥ 1 and < `limit`).
+    /// - `signers`     – Initial multisig signer set (max [`MAX_SIGNERS`]).
+    /// - `threshold`   – Minimum approvals required to execute a multisig action.
+    ///
+    /// # Errors
+    /// - [`Error::AlreadyInitialized`] if the contract has already been initialised.
+    /// - [`Error::Unauthorized`]       if `admin` equals the contract address.
+    /// - [`Error::ZeroAmount`]         if `limit` is 0.
+    /// - [`Error::BelowMinimum`]       if `min_deposit` < 1 or ≥ `limit`.
+    /// - [`Error::MaxSignersReached`]  if `signers.len()` > [`MAX_SIGNERS`].
+    /// - [`Error::InvalidThreshold`]   if `threshold` is 0 or > `signers.len()`.
+    /// - [`Error::DuplicateSigner`]    if `signers` contains duplicate addresses.
     pub fn init(
         env: Env,
         admin: Address,
@@ -1106,6 +1124,32 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Deposits tokens into the bridge escrow.
+    ///
+    /// Requires dual authentication from both the depositor (`from`) and the
+    /// admin (off-chain KYC/AML gate). The oracle price is checked against
+    /// `expected_price` within `max_slippage` basis points.
+    ///
+    /// # Parameters
+    /// - `from`           – Depositor address; must authenticate.
+    /// - `amount`         – Token amount to deposit (must be ≥ min deposit and ≤ daily limit).
+    /// - `token`          – Token address to deposit.
+    /// - `reference`      – Off-chain reference string (max [`MAX_REFERENCE_LEN`] bytes).
+    /// - `expected_price` – Oracle price the caller expects in [`ORACLE_PRICE_DECIMALS`] units.
+    /// - `max_slippage`   – Maximum tolerated price deviation in basis points (0–10 000).
+    /// - `memo_hash`      – Optional 32-byte memo hash for idempotency; rejected if already used.
+    ///
+    /// # Returns
+    /// A `BytesN<32>` receipt hash that uniquely identifies this deposit.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`]   if the contract has not been initialised.
+    /// - [`Error::Paused`]           if the contract is paused.
+    /// - [`Error::BelowMinimum`]     if `amount` < min deposit.
+    /// - [`Error::ExceedsLimit`]     if `amount` > per-token limit or daily cap.
+    /// - [`Error::SlippageExceeded`] if the oracle price deviates beyond `max_slippage`.
+    /// - [`Error::DuplicateMemo`]    if `memo_hash` has already been recorded.
+    /// - [`Error::Denied`]           if `from` is on the deny-list.
     pub fn deposit(
         env: Env,
         from: Address,
@@ -1428,6 +1472,22 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Withdraws tokens directly from escrow to `to` (admin or operator only).
+    ///
+    /// Bypasses the withdrawal queue; intended for operator-initiated payouts.
+    /// The oracle price is verified within the given slippage tolerance.
+    ///
+    /// # Parameters
+    /// - `caller`         – Admin or authorised operator; must authenticate.
+    /// - `to`             – Recipient address.
+    /// - `amount`         – Amount to withdraw in token units.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`]       if the contract has not been initialised.
+    /// - [`Error::Paused`]               if the contract is paused.
+    /// - [`Error::Unauthorized`]         if `caller` is not admin or an active operator.
+    /// - [`Error::InsufficientBalance`]  if escrow balance < `amount`.
+    /// - [`Error::CircuitBreakerTripped`] if the 48-hour withdrawal volume is exceeded.
     pub fn withdraw(
         env: Env,
         caller: Address,
@@ -1505,6 +1565,30 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Queues a withdrawal request for operator execution.
+    ///
+    /// The caller (depositor) places a request that an operator must later
+    /// fulfil via [`execute_withdrawal`]. The requested amount is reserved
+    /// as a liability immediately.
+    ///
+    /// # Parameters
+    /// - `to`        – Recipient address for the payout.
+    /// - `amount`    – Amount requested in token units.
+    /// - `token`     – Token to withdraw.
+    /// - `memo_hash` – Optional 32-byte memo hash for idempotency.
+    /// - `risk_tier` – Operator-assigned risk tier (0 = highest priority).
+    ///
+    /// # Returns
+    /// A `u64` request ID that uniquely identifies this withdrawal request.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`]      if the contract has not been initialised.
+    /// - [`Error::Paused`]              if the contract is paused.
+    /// - [`Error::ZeroAmount`]          if `amount` is 0.
+    /// - [`Error::InsufficientBalance`] if user deposited < `amount`.
+    /// - [`Error::ExceedsQuota`]        if the 24-hour user withdrawal quota would be exceeded.
+    /// - [`Error::DuplicateMemo`]       if `memo_hash` has already been recorded.
+    /// - [`Error::Denied`]              if the caller is on the deny-list.
     pub fn request_withdrawal(
         env: Env,
         to: Address,
@@ -1669,6 +1753,26 @@ impl FiatBridge {
         Ok(request_id)
     }
 
+    /// Executes a queued withdrawal request.
+    ///
+    /// Called by an authorised operator to fulfil a [`request_withdrawal`]
+    /// request. Optionally accepts a `partial_amount` smaller than the full
+    /// requested amount; the remainder stays queued.
+    ///
+    /// # Parameters
+    /// - `operator`       – Active operator address; must authenticate.
+    /// - `request_id`     – ID returned by [`request_withdrawal`].
+    /// - `partial_amount` – If `Some`, pay only this amount; `None` pays the full request.
+    /// - `expected_price` – Oracle price the operator expects.
+    /// - `max_slippage`   – Maximum tolerated price deviation in basis points.
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`]              if `request_id` does not exist.
+    /// - [`Error::Unauthorized`]          if `operator` is not an active operator.
+    /// - [`Error::Expired`]               if the request has passed its expiry ledger.
+    /// - [`Error::SlippageExceeded`]      if the oracle price deviates beyond `max_slippage`.
+    /// - [`Error::CircuitBreakerTripped`] if the 48-hour circuit-breaker volume is exceeded.
+    /// - [`Error::CooldownActive`]        if the withdrawal cooldown has not elapsed.
     pub fn execute_withdrawal(
         env: Env,
         operator: Address,
@@ -1832,6 +1936,18 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Cancels a pending withdrawal request (admin only).
+    ///
+    /// Removes the request from the queue and releases the reserved liability.
+    /// Funds remain in escrow and are credited back to the depositor's balance.
+    ///
+    /// # Parameters
+    /// - `request_id` – ID of the withdrawal request to cancel.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
+    /// - [`Error::NotFound`]       if `request_id` does not exist in the queue.
     pub fn cancel_withdrawal(env: Env, request_id: u64) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -2128,6 +2244,18 @@ impl FiatBridge {
             .unwrap_or(i128::MAX)
     }
 
+    /// Enables or disables the per-token depositor allowlist (admin only).
+    ///
+    /// When enabled, only addresses added via [`add_token_allowlist`] may
+    /// deposit the given token. When disabled, any address may deposit.
+    ///
+    /// # Parameters
+    /// - `token`   – Token address whose allowlist gating to toggle.
+    /// - `enabled` – `true` to require allowlist membership; `false` to open deposits.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn set_token_allowlist_enabled(
         env: Env,
         token: Address,
@@ -2145,6 +2273,13 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Adds `address` to the depositor allowlist for `token` (admin only).
+    ///
+    /// Has no effect if `address` is already present.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn add_token_allowlist(env: Env, token: Address, address: Address) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -2158,6 +2293,13 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Removes `address` from the depositor allowlist for `token` (admin only).
+    ///
+    /// Has no effect if `address` is not on the list.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn remove_token_allowlist(env: Env, token: Address, address: Address) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -2172,6 +2314,15 @@ impl FiatBridge {
     }
 
     // ── Issue #113: minimum deposit floor ────────────────────────────
+    /// Sets the minimum accepted deposit amount (admin only).
+    ///
+    /// # Parameters
+    /// - `min` – New minimum deposit in token units (must be ≥ 1).
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
+    /// - [`Error::BelowMinimum`]   if `min` < 1.
     pub fn set_min_deposit(env: Env, min: i128) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
@@ -2192,6 +2343,7 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Returns the current minimum accepted deposit amount in token units.
     pub fn get_min_deposit(env: Env) -> i128 {
         env.storage()
             .instance()
@@ -2243,6 +2395,15 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Sets the 24-hour withdrawal limit for a specific operator (admin only).
+    ///
+    /// # Parameters
+    /// - `operator` – Operator address whose daily limit to configure.
+    /// - `limit`    – Maximum tokens the operator may withdraw per 24-hour window.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn set_operator_daily_limit(env: Env, operator: Address, limit: i128) -> Result<(), Error> {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(Error::NotInitialized)?;
         admin.require_auth();
@@ -2253,10 +2414,22 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Returns the 24-hour withdrawal limit configured for `operator` (0 = unlimited).
     pub fn get_operator_daily_limit(env: Env, operator: Address) -> i128 {
         env.storage().instance().get(&DataKey::OperatorDailyLimit(operator)).unwrap_or(0)
     }
 
+    /// Sets the global deposit cooldown period (admin only).
+    ///
+    /// After a deposit, the same address must wait `ledgers` ledgers before
+    /// depositing again.
+    ///
+    /// # Parameters
+    /// - `ledgers` – Cooldown length in ledgers.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn set_cooldown(env: Env, ledgers: u32) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -2290,6 +2463,17 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Sets the withdrawal lock period (admin only).
+    ///
+    /// Deposited funds must remain in escrow for at least `ledgers` ledgers
+    /// before a withdrawal request may be queued.
+    ///
+    /// # Parameters
+    /// - `ledgers` – Lock duration in ledgers.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn set_lock_period(env: Env, ledgers: u32) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -2341,6 +2525,17 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Sets the anti-sandwich delay between consecutive deposits (admin only).
+    ///
+    /// Enforces a minimum ledger gap between a deposit and the next deposit
+    /// from the same address, mitigating sandwich-attack vectors.
+    ///
+    /// # Parameters
+    /// - `ledgers` – Minimum ledger gap required between deposits.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn set_anti_sandwich_delay(env: Env, ledgers: u32) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -2522,6 +2717,14 @@ impl FiatBridge {
     }
 
     // ── Fiat Limits & Oracle ──────────────────────────────────────────────
+    /// Sets the price oracle address used for slippage checks (admin only).
+    ///
+    /// # Parameters
+    /// - `oracle` – Address of the oracle contract implementing the price feed.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn set_oracle(env: Env, oracle: Address) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -2533,6 +2736,16 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Sets the maximum fiat-equivalent deposit limit in USD cents (admin only).
+    ///
+    /// Used to cap the USD value of deposits when oracle pricing is enabled.
+    ///
+    /// # Parameters
+    /// - `limit_usd_cents` – Maximum fiat value per deposit in USD cents.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn set_fiat_limit(env: Env, limit_usd_cents: i128) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -3194,6 +3407,7 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Returns `true` if `operator` is currently an active operator.
     pub fn is_operator(env: Env, operator: Address) -> bool {
         env.storage()
             .instance()
@@ -3201,6 +3415,7 @@ impl FiatBridge {
             .unwrap_or(false)
     }
 
+    /// Returns the ledger number of `operator`'s last heartbeat, or `None` if never sent.
     pub fn get_operator_heartbeat(env: Env, operator: Address) -> Option<u32> {
         env.storage()
             .instance()
@@ -3577,6 +3792,13 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Removes `address` from the deny-list (admin only).
+    ///
+    /// After removal the address may deposit and withdraw again.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn remove_denied_address(env: Env, address: Address) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -3633,6 +3855,11 @@ impl FiatBridge {
         env.storage().persistent().has(&DataKey::Denied(address))
     }
 
+    /// Returns a paginated slice of denied addresses.
+    ///
+    /// # Parameters
+    /// - `offset` – Zero-based index to start reading from.
+    /// - `limit`  – Maximum number of addresses to return.
     pub fn get_denied_addresses(env: Env, offset: u64, limit: u32) -> Vec<Address> {
         let count: u64 = env
             .storage()
@@ -3816,6 +4043,13 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Cancels a pending admin renouncement (admin only).
+    ///
+    /// Clears the queued renounce ledger so admin privileges are retained.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn cancel_renounce_admin(env: Env) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -4202,6 +4436,17 @@ impl FiatBridge {
     }
 
     // ── Emergency Token Rescue ────────────────────────────────────────────
+    /// Transfers `amount` of `token` out of escrow to `to` without updating
+    /// internal accounting (admin only). For recovering mistakenly sent tokens.
+    ///
+    /// # Parameters
+    /// - `token`  – Token address to rescue.
+    /// - `to`     – Recipient address.
+    /// - `amount` – Amount to transfer in token units.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn rescue_token(env: Env, token: Address, to: Address, amount: i128) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -4268,6 +4513,7 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)
     }
 
+    /// Returns the pending admin address and the ledger it was proposed on, or `None`.
     pub fn get_pending_admin(env: Env) -> Option<(Address, u64)> {
         let pending: Address = env.storage().instance().get(&DataKey::PendingAdmin)?;
         let expiry_timestamp = env
@@ -4278,12 +4524,21 @@ impl FiatBridge {
         Some((pending, expiry_timestamp))
     }
 
+    /// Returns the primary token address managed by this bridge.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
     pub fn get_token(env: Env) -> Result<Address, Error> {
         env.storage()
             .instance()
             .get(&DataKey::Token)
             .ok_or(Error::NotInitialized)
     }
+    /// Returns the current per-deposit liability limit in token units.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`]      if the contract has not been initialised.
+    /// - [`Error::TokenNotWhitelisted`] if no limit has been set for the primary token.
     pub fn get_limit(env: Env) -> Result<i128, Error> {
         let tok = env
             .storage()
@@ -4298,6 +4553,7 @@ impl FiatBridge {
             .limit)
     }
 
+    /// Returns the total amount `user` has deposited into the bridge (all time).
     pub fn get_user_deposited(env: Env, user: Address) -> i128 {
         env.storage()
             .instance()
@@ -4305,6 +4561,7 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
+    /// Returns the rolling 24-hour deposit record for `user`, or `None` if no deposit made.
     pub fn get_daily_deposit_record(env: Env, user: Address) -> Option<UserDailyVolume> {
         let mut vol: UserDailyVolume = env
             .storage()
@@ -4319,6 +4576,11 @@ impl FiatBridge {
         Some(vol)
     }
 
+    /// Returns the cumulative amount deposited across all users.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`]      if the contract has not been initialised.
+    /// - [`Error::TokenNotWhitelisted`] if no token config exists.
     pub fn get_total_deposited(env: Env) -> Result<i128, Error> {
         let tok = env
             .storage()
@@ -4332,30 +4594,41 @@ impl FiatBridge {
             .ok_or(Error::InternalError)?
             .total_deposited)
     }
+    /// Returns the current withdrawal lock period in ledgers.
     pub fn get_lock_period(env: Env) -> u32 {
         env.storage()
             .instance()
             .get(&DataKey::LockPeriod)
             .unwrap_or(0)
     }
+    /// Returns the current deposit cooldown period in ledgers.
     pub fn get_cooldown(env: Env) -> u32 {
         env.storage()
             .instance()
             .get(&DataKey::CooldownLedgers)
             .unwrap_or(0)
     }
+    /// Returns the cooldown between consecutive withdrawals (in ledgers).
     pub fn get_withdrawal_cooldown(env: Env) -> u32 {
         env.storage()
             .instance()
             .get(&DataKey::WithdrawCooldownLedgers)
             .unwrap_or(0)
     }
+    /// Returns the amount threshold above which the withdrawal cooldown applies.
     pub fn get_withdrawal_threshold(env: Env) -> i128 {
         env.storage()
             .instance()
             .get(&DataKey::WithdrawCooldownThreshold)
             .unwrap_or(0)
     }
+    /// Returns the deposit receipt at sequential index `idx`.
+    ///
+    /// # Parameters
+    /// - `idx` – Zero-based receipt index.
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`] if no receipt exists at `idx`.
     pub fn get_receipt_by_index(env: Env, idx: u64) -> Result<Receipt, Error> {
         // ── Issue #511: circuit breaker guard ────────────────────────────
         if Self::is_circuit_breaker_tripped(env.clone()) {
@@ -4385,10 +4658,12 @@ impl FiatBridge {
             .ok_or(Error::ReceiptNotFound)
     }
 
+    /// Returns the withdrawal request with the given `id`, or `None` if not found.
     pub fn get_withdrawal_request(env: Env, id: u64) -> Option<WithdrawRequest> {
         env.storage().persistent().get(&DataKey::WithdrawQueue(id))
     }
 
+    /// Returns the number of withdrawal requests currently in the queue.
     pub fn get_wq_depth(env: Env) -> u64 {
         env.storage()
             .instance()
@@ -4396,6 +4671,7 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
+    /// Returns the ledger number when the oldest queued withdrawal was submitted, or `None`.
     pub fn get_wq_oldest_queued_ledger(env: Env) -> Option<u32> {
         let head: Option<u64> = env
             .storage()
@@ -4412,19 +4688,23 @@ impl FiatBridge {
         }
     }
 
+    /// Returns the age (in ledgers) of the oldest queued withdrawal request, or `None`.
     pub fn get_wq_oldest_age_ledgers(env: Env) -> Option<u32> {
         Self::get_wq_oldest_queued_ledger(env.clone())
             .map(|q| env.ledger().sequence().saturating_sub(q))
     }
+    /// Returns the ledger number of `user`'s most recent deposit, or `None`.
     pub fn get_last_deposit_ledger(env: Env, user: Address) -> Option<u32> {
         env.storage().temporary().get(&DataKey::LastDeposit(user))
     }
+    /// Returns the ledger at which the admin renouncement was queued, or `None`.
     pub fn get_pending_renounce_ledger(env: Env) -> Option<u32> {
         env.storage()
             .instance()
             .get(&DataKey::PendingRenounceLedger)
     }
 
+    /// Returns the current anti-sandwich delay between deposits in ledgers.
     pub fn get_anti_sandwich_delay(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -4432,6 +4712,11 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
+    /// Returns the cumulative total amount withdrawn from the bridge.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`]      if the contract has not been initialised.
+    /// - [`Error::TokenNotWhitelisted`] if no token config exists.
     pub fn get_total_withdrawn(env: Env) -> Result<i128, Error> {
         let tok = env
             .storage()
@@ -4446,6 +4731,11 @@ impl FiatBridge {
             .total_withdrawn)
     }
 
+    /// Returns the current total reserved liabilities (pending withdrawal requests).
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`]      if the contract has not been initialised.
+    /// - [`Error::TokenNotWhitelisted`] if no token config exists.
     pub fn get_total_liabilities(env: Env) -> Result<i128, Error> {
         let tok = env
             .storage()
@@ -4460,6 +4750,13 @@ impl FiatBridge {
             .total_liabilities)
     }
 
+    /// Returns a snapshot of the current contract configuration.
+    ///
+    /// Useful for off-chain indexers and admin dashboards to read all key
+    /// parameters in a single call.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
     pub fn get_config_snapshot(env: Env) -> Result<ConfigSnapshot, Error> {
         let admin: Address = env
             .storage()
@@ -4512,6 +4809,14 @@ impl FiatBridge {
     }
 
     // ── Withdrawal Quota ──────────────────────────────────────────────────
+    /// Sets the 24-hour per-user withdrawal quota in token units (admin only).
+    ///
+    /// # Parameters
+    /// - `quota` – Maximum amount a single user may withdraw in a 24-hour window (0 = unlimited).
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn set_withdrawal_quota(env: Env, quota: i128) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -4530,6 +4835,7 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Returns the current 24-hour per-user withdrawal quota (0 = unlimited).
     pub fn get_withdrawal_quota(env: Env) -> i128 {
         env.storage()
             .instance()
@@ -4537,6 +4843,7 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
+    /// Returns the emergency recovery withdrawal cap, or `None` if unset.
     pub fn get_emergency_recovery_cap(env: Env) -> Option<i128> {
         env.storage().instance().get(&DataKey::EmergencyRecoveryCap)
     }
@@ -4557,6 +4864,7 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Returns the number of ledgers after which an unexecuted withdrawal request expires.
     pub fn get_withdrawal_expiry(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -4564,6 +4872,7 @@ impl FiatBridge {
             .unwrap_or(WITHDRAWAL_EXPIRY_WINDOW_LEDGERS)
     }
 
+    /// Returns the amount `user` has withdrawn in the current 24-hour window.
     pub fn get_user_daily_withdrawal(env: Env, user: Address) -> i128 {
         let curr = env.ledger().sequence();
         let record: UserDailyWithdrawal = env
@@ -5338,6 +5647,7 @@ impl FiatBridge {
         Ok(i128::from_be_bytes(arr))
     }
 
+    /// Returns the event version tag embedded in all contract events.
     pub fn get_event_version(_env: Env) -> u32 {
         EVENT_VERSION
     }
@@ -5384,6 +5694,7 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Returns the circuit-breaker auto-reset window in ledgers (~48 hours by default).
     pub fn get_circuit_breaker_reset_window(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -5410,6 +5721,7 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Returns the circuit-breaker trip threshold in token units.
     pub fn get_circuit_breaker_threshold(env: Env) -> i128 {
         env.storage()
             .instance()
@@ -5417,6 +5729,7 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
+    /// Returns `true` if the circuit breaker is currently tripped (withdrawals halted).
     pub fn is_circuit_breaker_tripped(env: Env) -> bool {
         env.storage()
             .instance()
@@ -5659,6 +5972,14 @@ impl FiatBridge {
 
     // ── Single Withdraw Operator Role (Issue #118) ─────────────────────────
 
+    /// Sets a dedicated withdrawal operator address (admin only).
+    ///
+    /// The withdrawal operator may execute withdrawals without being in the
+    /// main operator set. Only one withdrawal operator may be set at a time.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn set_withdraw_operator(env: Env, operator: Address) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
@@ -5679,6 +6000,11 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Removes the dedicated withdrawal operator (admin only).
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if the caller is not the admin.
     pub fn remove_withdraw_operator(env: Env) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
@@ -5696,6 +6022,7 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Returns the dedicated withdrawal operator address, or `None` if unset.
     pub fn get_withdraw_operator(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::WithdrawOperator)
     }
@@ -5947,6 +6274,22 @@ impl FiatBridge {
 
     // ── Issue #100: Multi-sig Logic ──────────────────────────────────────────
 
+    /// Proposes a new multisig governance action (any signer).
+    ///
+    /// Creates a pending proposal that requires `threshold` approvals before
+    /// it can be executed via [`execute_multisig_action`].
+    ///
+    /// # Parameters
+    /// - `signer`      – Proposer address; must be in the signer set.
+    /// - `action_type` – Symbol identifying the governance action type.
+    /// - `payload`     – Binary-encoded action parameters.
+    ///
+    /// # Returns
+    /// A `u64` proposal ID.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if `signer` is not in the signer set.
     pub fn propose_multisig_action(
         env: Env,
         proposer: Address,
@@ -5993,6 +6336,17 @@ impl FiatBridge {
         Ok(id)
     }
 
+    /// Approves a pending multisig proposal (any signer, once per proposal).
+    ///
+    /// # Parameters
+    /// - `signer` – Approving address; must be in the signer set.
+    /// - `id`     – Proposal ID returned by [`propose_multisig_action`].
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`]    if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]      if `signer` is not in the signer set.
+    /// - [`Error::NotFound`]          if `id` does not reference a live proposal.
+    /// - [`Error::AlreadyApproved`]   if `signer` has already approved this proposal.
     pub fn approve_multisig_action(env: Env, signer: Address, id: u64) -> Result<(), Error> {
         signer.require_auth();
 
@@ -6030,6 +6384,16 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Revokes a previously submitted approval for a multisig proposal.
+    ///
+    /// # Parameters
+    /// - `signer` – The signer revoking their approval.
+    /// - `id`     – Proposal ID.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] if the contract has not been initialised.
+    /// - [`Error::Unauthorized`]   if `signer` is not in the signer set.
+    /// - [`Error::NotFound`]       if `id` does not reference a live proposal.
     pub fn revoke_multisig_approval(env: Env, signer: Address, id: u64) -> Result<(), Error> {
         signer.require_auth();
 
@@ -6063,6 +6427,15 @@ impl FiatBridge {
         }
     }
 
+    /// Executes a multisig proposal that has reached the required threshold of approvals.
+    ///
+    /// # Parameters
+    /// - `id` – Proposal ID returned by [`propose_multisig_action`].
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`]      if the contract has not been initialised.
+    /// - [`Error::NotFound`]            if `id` does not reference a live proposal.
+    /// - [`Error::InsufficientApprovals`] if the approval count is below the threshold.
     pub fn execute_multisig_action(env: Env, id: u64) -> Result<(), Error> {
         let mut proposal: MultisigProposal = env
             .storage()
@@ -6096,10 +6469,12 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Returns the multisig proposal for `id`, or `None` if it does not exist.
     pub fn get_multisig_proposal(env: Env, id: u64) -> Option<MultisigProposal> {
         env.storage().instance().get(&DataKey::MultisigProposal(id))
     }
 
+    /// Returns the current list of multisig signer addresses.
     pub fn get_multisig_signers(env: Env) -> Vec<Address> {
         env.storage()
             .instance()
@@ -6107,6 +6482,7 @@ impl FiatBridge {
             .unwrap_or_else(|| Vec::new(&env))
     }
 
+    /// Returns the minimum number of approvals required to execute a multisig proposal.
     pub fn get_multisig_threshold(env: Env) -> u32 {
         env.storage()
             .instance()
