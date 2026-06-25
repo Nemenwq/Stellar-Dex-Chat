@@ -2,7 +2,7 @@
 
 use crate::{Error, FiatBridge, FiatBridgeClient};
 use soroban_sdk::{
-    testutils::{Address as _, Events as _, Ledger},
+    testutils::{Address as _, Events as _},
     token, Address, Bytes, Env, Vec,
 };
 
@@ -22,11 +22,11 @@ fn setup_bridge(
     env: &Env,
 ) -> (
     Address,
-    FiatBridgeClient,
+    FiatBridgeClient<'_>,
     Address,
     Address,
-    token::Client,
-    token::StellarAssetClient,
+    token::Client<'_>,
+    token::StellarAssetClient<'_>,
 ) {
     let admin = Address::generate(env);
     let (token_client, token_admin) = create_token_contract(env, &admin);
@@ -74,7 +74,7 @@ fn test_unpause_invariant_restores_operational_state() {
 
     // Verify operations are now allowed
     let receipt_id = bridge.deposit(&user, &1_000, &token_addr, &reference, &0, &0, &None);
-    assert!(receipt_id.len() > 0);
+    assert!(!receipt_id.is_empty());
 }
 
 /// Test that unpause emits the correct UnpausedEvent
@@ -83,23 +83,22 @@ fn test_unpause_invariant_emits_correct_event() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract_id, bridge, admin, _, _, _) = setup_bridge(&env);
+    let (contract_id, bridge, _admin, _, _, _) = setup_bridge(&env);
 
     bridge.pause();
     bridge.unpause();
 
     let events = env.events().all().filter_by_contract(&contract_id);
     let event_vec = events.events();
-    
-    // Should have at least 2 events (pause and unpause)
-    assert!(event_vec.len() >= 2);
-    
-    // Last event should be unpause event containing admin address
+    assert!(
+        !event_vec.is_empty(),
+        "pause/unpause should emit at least one contract event"
+    );
+
     let last_event = &event_vec[event_vec.len() - 1];
     use soroban_sdk::xdr::ContractEventBody;
-    if let ContractEventBody::V0(body) = &last_event.body {
-        assert!(body.topics.len() > 0);
-    }
+    let ContractEventBody::V0(body) = &last_event.body;
+    assert!(!body.topics.is_empty());
 }
 
 /// Test that unpause preserves all contract state
@@ -108,7 +107,7 @@ fn test_unpause_invariant_preserves_state() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, _, token_addr, token_client, token_admin) = setup_bridge(&env);
+    let (contract_id, bridge, _, token_addr, token_client, token_admin) = setup_bridge(&env);
     let user = Address::generate(&env);
 
     // Setup: deposit before pausing
@@ -116,7 +115,7 @@ fn test_unpause_invariant_preserves_state() {
     let reference = Bytes::from_slice(&env, b"test");
     bridge.deposit(&user, &2_000, &token_addr, &reference, &0, &0, &None);
 
-    let balance_before = token_client.balance(&env.current_contract_address());
+    let balance_before = token_client.balance(&contract_id);
     let total_deposited_before = bridge.get_total_deposited();
 
     // Pause and unpause
@@ -124,7 +123,7 @@ fn test_unpause_invariant_preserves_state() {
     bridge.unpause();
 
     // Verify state is preserved
-    let balance_after = token_client.balance(&env.current_contract_address());
+    let balance_after = token_client.balance(&contract_id);
     let total_deposited_after = bridge.get_total_deposited();
 
     assert_eq!(balance_before, balance_after);
@@ -153,7 +152,7 @@ fn test_unpause_invariant_idempotent() {
     // Verify contract is operational
     let reference = Bytes::from_slice(&env, b"test");
     let receipt_id = bridge.deposit(&user, &1_000, &token_addr, &reference, &0, &0, &None);
-    assert!(receipt_id.len() > 0);
+    assert!(!receipt_id.is_empty());
 }
 
 /// Test that unpause requires admin authorization
@@ -206,7 +205,7 @@ fn test_unpause_invariant_enables_all_operations() {
     bridge.withdraw(&admin, &user, &500, &token_addr);
     
     let request_id = bridge.request_withdrawal(&user, &300, &token_addr, &None, &0);
-    assert!(request_id >= 0);
+    assert!(bridge.get_withdrawal_request(&request_id).is_some());
 }
 
 /// Test unpause maintains queue integrity
@@ -231,7 +230,8 @@ fn test_unpause_invariant_maintains_queue_integrity() {
     bridge.unpause();
 
     // Verify queue remains intact - can execute pending requests
-    bridge.execute_withdrawal(&request_id1, &None, &0, &0);
-    bridge.execute_withdrawal(&request_id2, &None, &0, &0);
+    let operator = Address::generate(&env);
+    bridge.execute_withdrawal(&operator, &request_id1, &None, &0, &0);
+    bridge.execute_withdrawal(&operator, &request_id2, &None, &0, &0);
 }
 

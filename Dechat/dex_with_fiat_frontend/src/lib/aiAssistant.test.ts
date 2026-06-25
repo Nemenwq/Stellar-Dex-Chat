@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { toastAddMock } = vi.hoisted(() => ({
@@ -243,6 +242,8 @@ describe('AIAssistant abort signal support', () => {
     consoleErrorSpy.mockRestore();
 
 
+});
+
 /**
  * Helper to build a minimal AIAnalysisResult for a given intent.
  */
@@ -452,4 +453,5 @@ describe('aiAssistant framer-motion animation', () => {
     });
 
   });
+});
 });

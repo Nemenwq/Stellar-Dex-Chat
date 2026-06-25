@@ -2,7 +2,7 @@
 
 use crate::{Error, FiatBridge, FiatBridgeClient};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
+    testutils::Address as _,
     token, Address, Env, Vec,
 };
 
@@ -41,7 +41,8 @@ fn test_withdraw_fees_replay_protection() {
     // Simulate fee accrual by depositing
     token_admin.mint(&user, &5_000);
     let reference = soroban_sdk::Bytes::from_slice(&env, b"test");
-    client.deposit(&user, &5_000, &token_address, &reference, &100, &500, &None);
+    client.deposit(&user, &5_000, &token_address, &reference, &0, &0, &None);
+    client.accrue_fee(&token_address, &1_000);
 
     // Get initial nonce (should be 0)
     let nonce = client.get_fee_withdrawal_nonce(&admin);
@@ -56,7 +57,7 @@ fn test_withdraw_fees_replay_protection() {
 
     // Try to replay with old nonce - should fail
     let result = client.try_withdraw_fees(&user, &token_address, &100, &0);
-    assert_eq!(result, Err(Ok(Error::InvalidNonce)));
+    assert_eq!(result, Err(Ok(Error::StaleNonce)));
 
     // Using correct nonce should work
     client.withdraw_fees(&user, &token_address, &100, &1);
@@ -85,7 +86,8 @@ fn test_withdraw_fees_nonce_skipping_fails() {
     token_admin.mint(&contract_id, &10_000);
     token_admin.mint(&user, &5_000);
     let reference = soroban_sdk::Bytes::from_slice(&env, b"test");
-    client.deposit(&user, &5_000, &token_address, &reference, &100, &500, &None);
+    client.deposit(&user, &5_000, &token_address, &reference, &0, &0, &None);
+    client.accrue_fee(&token_address, &1_000);
 
     // Try to use nonce 5 when current is 0 - should fail
     let result = client.try_withdraw_fees(&user, &token_address, &100, &5);
@@ -117,7 +119,7 @@ fn test_request_withdrawal_edge_cases() {
     // Test 2: Deposit some funds
     token_admin.mint(&user, &5_000);
     let reference = soroban_sdk::Bytes::from_slice(&env, b"test");
-    client.deposit(&user, &5_000, &token_address, &reference, &100, &500, &None);
+    client.deposit(&user, &5_000, &token_address, &reference, &0, &0, &None);
 
     // Test 3: Request withdrawal to contract itself should fail
     let result = client.try_request_withdrawal(&contract_id, &1_000, &token_address, &None, &0);
@@ -153,7 +155,7 @@ fn test_request_withdrawal_liability_overflow() {
     // Deposit funds
     token_admin.mint(&user, &5_000);
     let reference = soroban_sdk::Bytes::from_slice(&env, b"test");
-    client.deposit(&user, &5_000, &token_address, &reference, &100, &500, &None);
+    client.deposit(&user, &5_000, &token_address, &reference, &0, &0, &None);
 
     // Request withdrawal that would exceed net deposited
     // This should fail because liabilities can't exceed net deposits

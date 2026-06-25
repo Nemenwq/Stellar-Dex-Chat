@@ -27,7 +27,6 @@ import {
   CartesianGrid,
 } from 'recharts';
 import Link from 'next/link';
-import { useEffect as useThemeEffect, useState as useThemeState } from 'react';
 
 type AuditLogResponse = {
   entries: AdminAuditLogEntry[];
@@ -67,7 +66,7 @@ function escapeCsvValue(value: string): string {
 // Hook to get theme-aware colors for charts using CSS custom properties (#452).
 // All values are read exclusively from CSS variables — no raw hex values.
 function useChartColors() {
-  const [colors, setColors] = useThemeState({
+  const [colors, setColors] = useState({
     primary: 'var(--color-chart-primary)',
     textMuted: 'var(--color-chart-text)',
     border: 'var(--color-chart-grid)',
@@ -75,7 +74,7 @@ function useChartColors() {
     surfaceBorder: 'var(--color-chart-grid)',
   });
 
-  useThemeEffect(() => {
+  useEffect(() => {
     const updateColors = () => {
       const computedStyle = getComputedStyle(document.documentElement);
       setColors({
@@ -181,8 +180,8 @@ export default function AdminDashboard() {
       }
 
       const payload: AuditLogResponse = await response.json();
-      setAuditEntries(payload.entries);
-      setAuditActions(payload.actions);
+      setAuditEntries(payload.entries ?? []);
+      setAuditActions(payload.actions ?? []);
       setAuditPage(payload.page);
       setAuditPageSize(payload.pageSize);
       setAuditTotal(payload.total);
@@ -654,13 +653,12 @@ export default function AdminDashboard() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                           <span
-                            className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
-                              entry.result === 'success'
-                                ? 'theme-soft-success'
-                                : entry.result === 'failed'
-                                  ? 'theme-soft-danger'
-                                  : 'theme-soft-warning'
-                            }`}
+                            className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${entry.result === 'success'
+                              ? 'theme-soft-success'
+                              : entry.result === 'failed'
+                                ? 'theme-soft-danger'
+                                : 'theme-soft-warning'
+                              }`}
                           >
                             {entry.result}
                           </span>

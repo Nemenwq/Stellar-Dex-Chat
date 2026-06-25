@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { withNetworkReadQueue } from './networkQueue';
+import { withNetworkReadQueue, resetNetworkQueueForTests } from './networkQueue';
 import { toastStore } from './toastStore';
 
 // Mock toastStore
@@ -22,6 +22,7 @@ describe(
     });
 
     afterEach(() => {
+      resetNetworkQueueForTests();
       vi.clearAllMocks();
     });
 
@@ -73,20 +74,20 @@ describe(
 
     it('should trigger error toast when request fails after MAX_RETRY', async () => {
       let isOnline = true;
-      let attemptCount = 0;
       Object.defineProperty(window.navigator, 'onLine', {
         configurable: true,
         get: () => isOnline,
       });
 
       const mockTask = vi.fn().mockImplementation(async () => {
-        attemptCount++;
         // Always fail with network error
         throw new Error('failed to fetch');
       });
 
       isOnline = false;
-      const promise = withNetworkReadQueue(mockTask, 'failing-request');
+      const promise = withNetworkReadQueue(mockTask, 'failing-request').catch(
+        () => undefined,
+      );
 
       // Wait for queue
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -107,7 +108,7 @@ describe(
 
       try {
         await promise;
-      } catch (_error) {
+      } catch {
         // Expected to fail
       }
 
@@ -122,7 +123,7 @@ describe(
     });
 
     it('should use success variant for retry success toast', async () => {
-      let isOnline = true;
+      const isOnline = true;
       Object.defineProperty(window.navigator, 'onLine', {
         configurable: true,
         get: () => isOnline,
@@ -156,7 +157,9 @@ describe(
       );
 
       isOnline = false;
-      const promise = withNetworkReadQueue(mockTask, 'test');
+      const promise = withNetworkReadQueue(mockTask, 'test').catch(
+        () => undefined,
+      );
 
       await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -170,7 +173,7 @@ describe(
 
       try {
         await promise;
-      } catch (_error) {
+      } catch {
         // Expected to fail
       }
 
@@ -185,7 +188,7 @@ describe(
     });
 
     it('should not trigger toast for immediate non-network errors', async () => {
-      let isOnline = true;
+      const isOnline = true;
       Object.defineProperty(window.navigator, 'onLine', {
         configurable: true,
         get: () => isOnline,
@@ -197,7 +200,7 @@ describe(
 
       try {
         await withNetworkReadQueue(mockTask, 'test');
-      } catch (_error) {
+      } catch {
         // Expected to fail immediately
       }
 

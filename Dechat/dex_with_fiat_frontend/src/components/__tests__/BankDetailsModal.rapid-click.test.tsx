@@ -41,6 +41,15 @@ vi.mock('@/hooks/useIdempotentAction', () => ({
 vi.mock('@/lib/chatTelemetry', () => ({
   chatTelemetry: { fiatPayoutStep: vi.fn() },
 }));
+vi.mock('framer-motion', () => ({
+  motion: {
+    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+    button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
+    span: ({ children, ...props }: any) => <span {...props}>{children}</span>,
+    p: ({ children, ...props }: any) => <p {...props}>{children}</p>,
+  },
+  AnimatePresence: ({ children }: any) => <>{children}</>,
+}));
 
 const defaultProps = {
   isOpen: true,
@@ -68,14 +77,19 @@ function makeFetch() {
 
 async function navigateToConfirm() {
   // Wait for banks to load
-  await waitFor(() => {
-    expect(screen.getByText('Test Bank')).toBeDefined();
-  });
+  await screen.findByText('Test Bank');
   
   // Step 1: select bank, then click Next
   fireEvent.click(screen.getByText('Test Bank'));
-  const nextBtn1 = screen.getByRole('button', { name: /next/i });
-  fireEvent.click(nextBtn1);
+  
+  await waitFor(() => {
+    const nextBtn = screen.getAllByRole('button', { name: /next/i }).find(btn => !btn.hasAttribute('disabled'));
+    if (!nextBtn) throw new Error('Next button 1 not enabled');
+    fireEvent.click(nextBtn);
+  });
+
+  // Wait for Step 2 to appear
+  await screen.findByText(/Enter your account number/i);
 
   // Step 2: enter account number, blur to trigger verification
   const accountInput = await screen.findByPlaceholderText(/0000000000/i);
@@ -83,26 +97,22 @@ async function navigateToConfirm() {
   fireEvent.blur(accountInput);
 
   // Wait for account name to appear after verification
-  await waitFor(() => {
-    expect(screen.getByText(/Test Account/i)).toBeDefined();
-  });
+  await screen.findByText(/Test Account/i);
 
   // Click Next on step 2
-  const nextBtn2 = screen.getByRole('button', { name: /next/i });
-  fireEvent.click(nextBtn2);
-
-  // Wait for confirm page
   await waitFor(() => {
-    expect(screen.getByRole('button', { name: /confirm payout/i })).toBeDefined();
+    const nextBtn = screen.getAllByRole('button', { name: /next/i }).find(btn => !btn.hasAttribute('disabled'));
+    if (!nextBtn) throw new Error('Next button 2 not enabled');
+    fireEvent.click(nextBtn);
   });
 
-  return screen.getByRole('button', { name: /confirm payout/i });
+  // Wait for confirm page
+  return await screen.findByRole('button', { name: /confirm payout/i });
 }
 
 describe('BankDetailsModal - Rapid Click Protection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.spyOn(global, 'fetch').mockImplementation(makeFetch() as any);
     // Re-apply after clearAllMocks wipes the implementation
     vi.spyOn(cryptoPriceService, 'fetchLockedQuote').mockResolvedValue({
@@ -110,7 +120,6 @@ describe('BankDetailsModal - Rapid Click Protection', () => {
       xlmAmount: 10,
       rate: 100,
       expiresAt: Date.now() + 120000,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as unknown as any);
   });
 
@@ -128,7 +137,6 @@ describe('BankDetailsModal - Rapid Click Protection', () => {
     fireEvent.click(confirmButton);
 
     await waitFor(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const calls = (global.fetch as unknown as any).mock.calls.filter((c: any[]) => c[0].includes('/api/create-recipient'));
       expect(calls.length).toBe(1);
     });
@@ -140,7 +148,6 @@ describe('BankDetailsModal - Rapid Click Protection', () => {
     fireEvent.click(confirmButton);
 
     await waitFor(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const call = (global.fetch as unknown as any).mock.calls.find((c: any[]) => c[0].includes('/api/create-recipient'));
       expect(call).toBeDefined();
       expect(call[1].headers['X-Idempotency-Key']).toBeDefined();

@@ -11,7 +11,6 @@ export default function NotificationsCenter() {
   const [isOpen, setIsOpen] = useState(false);
   const {
     notifications,
-    unreadCount,
     markAsRead,
     markAllAsRead,
     clearNotifications,

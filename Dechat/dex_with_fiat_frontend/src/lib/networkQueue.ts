@@ -94,13 +94,21 @@ if (typeof window !== 'undefined') {
 export function subscribeToQueue(fn: (count: number) => void) {
   listeners.add(fn);
   fn(queue.length);
-  return () => listeners.delete(fn);
+  return () => {
+    listeners.delete(fn);
+  };
 }
 
 export { processQueue };
 
 export function getQueuedReadRequestsCount(): number {
   return queue.length;
+}
+
+export function resetNetworkQueueForTests(): void {
+  queue.length = 0;
+  processing = false;
+  notifyListeners();
 }
 
 export function withNetworkReadQueue<T>(

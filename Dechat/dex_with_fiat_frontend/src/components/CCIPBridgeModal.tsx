@@ -58,6 +58,7 @@ export default function CCIPBridgeModal({
   const [networkChangedWhileActive, setNetworkChangedWhileActive] = useState(false);
 
   // Keep ref in sync with state.
+  // Keep ref in sync with state.
   useEffect(() => {
     transactionHashRef.current = transactionHash;
   }, [transactionHash]);
@@ -124,13 +125,14 @@ export default function CCIPBridgeModal({
       }
 
       pollingStartedAtRef.current = Date.now();
+      transactionHashRef.current = nextHash;
       setTransactionHash(nextHash);
-      
+
       // Optimistic UI: set explorer URL immediately for better UX
       const explorerUrlValue = result.explorerUrl ?? buildCCIPExplorerTransactionUrl(nextHash);
       setExplorerUrl(explorerUrlValue);
-      
-      // Optimistic UI: transition to polling state immediately
+
+      // Transition to polling state now that we have a hash
       setBridgeState('polling');
     } catch (error) {
       // Rollback optimistic updates on error
@@ -152,11 +154,12 @@ export default function CCIPBridgeModal({
     if (!hash) return;
 
     const pollingStartedAt = pollingStartedAtRef.current;
-    if (
+    const hasTimedOut =
       pollingStartedAt !== null &&
-      Date.now() - pollingStartedAt >= timeoutMs
-    ) {
-      if (signal.aborted) return;
+      Date.now() - pollingStartedAt >= timeoutMs;
+
+    if (hasTimedOut) {
+      signal.aborted = true;
       setBridgeState('error');
       setErrorMessage(
         'CCIP confirmation timed out after 10 minutes. Please verify the transaction in the explorer and try again.',
@@ -167,6 +170,18 @@ export default function CCIPBridgeModal({
     try {
       const result = await fetchTransferStatus(hash);
       if (signal.aborted) return;
+
+      if (
+        pollingStartedAtRef.current !== null &&
+        Date.now() - pollingStartedAtRef.current >= timeoutMs
+      ) {
+        signal.aborted = true;
+        setBridgeState('error');
+        setErrorMessage(
+          'CCIP confirmation timed out after 10 minutes. Please verify the transaction in the explorer and try again.',
+        );
+        return;
+      }
 
       // Optimistic UI: update status immediately
       setLatestStatus(result.status);
@@ -183,28 +198,32 @@ export default function CCIPBridgeModal({
         setBridgeState('error');
         setErrorMessage(
           result.errorMessage ??
-            `CCIP transfer failed with status "${result.status}".`,
+          `CCIP transfer failed with status "${result.status}".`,
         );
         return;
       }
 
+      if (signal.aborted) return;
       setBridgeState('polling');
     } catch (error) {
       if (signal.aborted) return;
-      // Maintain PENDING status during transient errors
-      setLatestStatus('PENDING');
-      setBridgeState('polling');
+      const startedAt = pollingStartedAtRef.current;
       if (
-        pollingStartedAt !== null &&
-        Date.now() - pollingStartedAt >= timeoutMs
+        startedAt !== null &&
+        Date.now() - startedAt >= timeoutMs
       ) {
+        signal.aborted = true;
         setBridgeState('error');
         setErrorMessage(
           error instanceof Error
             ? error.message
             : 'CCIP confirmation timed out after 10 minutes.',
         );
+        return;
       }
+      // Maintain PENDING status during transient errors
+      setLatestStatus('PENDING');
+      setBridgeState('polling');
     }
   }, [fetchTransferStatus, timeoutMs]);
 
@@ -212,10 +231,7 @@ export default function CCIPBridgeModal({
     if (
       !isOpen ||
       !transactionHash ||
-      bridgeState === 'idle' ||
-      bridgeState === 'optimistic' ||
-      bridgeState === 'success' ||
-      bridgeState === 'error'
+      bridgeState !== 'polling'
     ) {
       return;
     }
@@ -374,6 +390,11 @@ export default function CCIPBridgeModal({
             <p className="theme-text-secondary text-sm mb-4">
               Status: {latestStatus || 'SUCCESS'}
             </p>
+            {transactionHash && (
+              <p className="theme-text-secondary text-xs mb-4 break-all">
+                Transaction: {transactionHash}
+              </p>
+            )}
             {explorerUrl && (
               <a
                 href={explorerUrl}
@@ -397,6 +418,11 @@ export default function CCIPBridgeModal({
             <p className="theme-text-secondary text-sm mb-4">
               {errorMessage}
             </p>
+            {transactionHash && (
+              <p className="theme-text-secondary text-xs mb-4 break-all">
+                Transaction: {transactionHash}
+              </p>
+            )}
             {explorerUrl && (
               <a
                 href={explorerUrl}

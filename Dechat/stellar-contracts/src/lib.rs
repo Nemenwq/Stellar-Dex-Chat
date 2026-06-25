@@ -75,6 +75,7 @@ pub enum Error {
     NotOperator = 205,
     SameAdmin = 207,
     OperatorCapReached = 206,
+    MaxSignersReached = 208,
 
     // --- 300 series: Constraints & Limits ---
     ZeroAmount = 301,
@@ -551,10 +552,55 @@ pub struct SetLimitMaxCapEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
+pub struct UpgradeProposedEvent {
+    pub version: u32,
+    pub wasm_hash: BytesN<32>,
+    pub executable_after: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct UpgradeExecutedEvent {
+    pub version: u32,
+    pub wasm_hash: BytesN<32>,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct UpgradeCancelledEvent {
+    pub version: u32,
+    pub wasm_hash: BytesN<32>,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
 pub struct FeeVaultThresholdEvent {
     pub version: u32,
     pub token: Address,
     pub threshold: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct MultisigProposedEvent {
+    pub version: u32,
+    pub id: u64,
+    pub proposer: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct MultisigApprovedEvent {
+    pub version: u32,
+    pub id: u64,
+    pub signer: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct MultisigExecutedEvent {
+    pub version: u32,
+    pub id: u64,
 }
 
 #[contractevent]
@@ -935,6 +981,8 @@ pub enum DataKey {
     /// Stored alongside `PendingAdmin`; `accept_admin` checks that
     /// `current_ledger >= proposed_at + MIN_TIMELOCK_DELAY` before completing.
     AdminTransferProposedAt,
+    // ── Issue #fee_vault_threshold: per-token fee vault threshold ────────
+    FeeVaultThreshold(Address),
 
 }
 
@@ -956,14 +1004,16 @@ impl FiatBridge {
         threshold: u32,
     ) -> Result<(), Error> {
         require!(
-            !env.storage().instance().has(&DataKey::Admin),
+            !env.storage().instance().has(&DataKey::SchemaVersion),
             Error::AlreadyInitialized
         );
         // ── Issue #600: admin must authenticate before contract initialization ──
         admin.require_auth();
+        require!(admin != env.current_contract_address(), Error::Unauthorized);
         require!(limit > 0, Error::ZeroAmount);
         require!(min_deposit >= 1, Error::BelowMinimum);
         require!(min_deposit < limit, Error::BelowMinimum);
+        require!(signers.len() <= MAX_SIGNERS, Error::MaxSignersReached);
 
         // Validate multisig config
         require!(
@@ -3977,15 +4027,12 @@ impl FiatBridge {
             version: EVENT_VERSION,
             admin,
             to,
-            token,
+            token: token.clone(),
             amount,
             nonce,
             remaining_fees,
         }
         .publish(&env);
-
-        // Check invariants after fee withdrawal
-        Self::check_invariants(&env, &token)?;
 
         Ok(())
     }
@@ -4275,7 +4322,7 @@ impl FiatBridge {
             .get(&DataKey::WithdrawCooldownThreshold)
             .unwrap_or(0)
     }
-    pub fn get_receipt_by_index(env: Env, idx: u64) -> Result<Option<Receipt>, Error> {
+    pub fn get_receipt_by_index(env: Env, idx: u64) -> Result<Receipt, Error> {
         // ── Issue #511: circuit breaker guard ────────────────────────────
         if Self::is_circuit_breaker_tripped(env.clone()) {
             CircuitBreakerBlockedEvent {
@@ -4291,20 +4338,17 @@ impl FiatBridge {
             .get(&DataKey::ReceiptCounter)
             .unwrap_or(0);
         if idx >= max_receipts {
-            return Ok(None);
+            return Err(Error::ReceiptIndexOutOfBounds);
         }
-        let receipt_hash: BytesN<32> = match env
+        let receipt_hash: BytesN<32> = env
             .storage()
             .temporary()
             .get(&DataKey::ReceiptIndex(idx))
-        {
-            Some(h) => h,
-            None => return Ok(None),
-        };
-        Ok(env
-            .storage()
+            .ok_or(Error::ReceiptNotFound)?;
+        env.storage()
             .persistent()
-            .get(&DataKey::Receipt(receipt_hash)))
+            .get(&DataKey::Receipt(receipt_hash))
+            .ok_or(Error::ReceiptNotFound)
     }
 
     pub fn get_withdrawal_request(env: Env, id: u64) -> Option<WithdrawRequest> {
@@ -5642,6 +5686,7 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        require!(ledgers >= MIN_UPGRADE_DELAY, Error::UpgradeDelayTooShort);
         env.storage()
             .instance()
             .set(&DataKey::UpgradeDelay, &ledgers);
@@ -5737,10 +5782,14 @@ impl FiatBridge {
         env.storage()
             .instance()
             .set(&DataKey::UpgradeProposal, &proposal);
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "upg_prop")),
-            (wasm_hash, executable_after),
-        );
+
+        UpgradeProposedEvent {
+            version: EVENT_VERSION,
+            wasm_hash: wasm_hash.clone(),
+            executable_after: executable_after as u64,
+        }
+        .publish(&env);
+
         Ok(())
     }
 
@@ -5807,10 +5856,12 @@ impl FiatBridge {
         env.deployer()
             .update_current_contract_wasm(proposal.wasm_hash.clone());
 
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "upg_exec")),
-            proposal.wasm_hash,
-        );
+        UpgradeExecutedEvent {
+            version: EVENT_VERSION,
+            wasm_hash: proposal.wasm_hash,
+        }
+        .publish(&env);
+
         Ok(())
     }
 
@@ -5842,10 +5893,13 @@ impl FiatBridge {
             .ok_or(Error::UpgradeProposalMissing)?;
 
         env.storage().instance().remove(&DataKey::UpgradeProposal);
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "upg_can")),
-            proposal.wasm_hash,
-        );
+
+        UpgradeCancelledEvent {
+            version: EVENT_VERSION,
+            wasm_hash: proposal.wasm_hash,
+        }
+        .publish(&env);
+
         Ok(())
     }
 
@@ -5895,10 +5949,12 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::MultisigProposal(id), &proposal);
 
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "multisig_proposed")),
-            (id, proposer),
-        );
+        MultisigProposedEvent {
+            version: EVENT_VERSION,
+            id,
+            proposer,
+        }
+        .publish(&env);
 
         Ok(id)
     }
@@ -5930,10 +5986,12 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::MultisigProposal(id), &proposal);
 
-        env.events().publish(
-            (EVENT_VERSION, Symbol::new(&env, "multisig_approved")),
-            (id, signer),
-        );
+        MultisigApprovedEvent {
+            version: EVENT_VERSION,
+            id,
+            signer,
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -5995,8 +6053,11 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::MultisigProposal(id), &proposal);
 
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "multisig_executed")), id);
+        MultisigExecutedEvent {
+            version: EVENT_VERSION,
+            id,
+        }
+        .publish(&env);
 
         Ok(())
     }

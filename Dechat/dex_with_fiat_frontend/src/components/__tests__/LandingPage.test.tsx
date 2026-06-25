@@ -14,6 +14,7 @@ vi.mock('../../contexts/ThemeContext', () => ({
     isDarkMode: false,
     toggleDarkMode: vi.fn(),
   }),
+  ThemeProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 vi.mock('@/components/OfflineStatusBanner', () => ({

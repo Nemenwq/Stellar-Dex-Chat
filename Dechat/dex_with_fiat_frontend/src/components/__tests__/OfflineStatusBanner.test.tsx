@@ -114,7 +114,6 @@ describe('OfflineStatusBanner', () => {
       },
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (useOnlineStatus as any).mockReturnValue({
       isOnline: true,
       wasOffline: true,

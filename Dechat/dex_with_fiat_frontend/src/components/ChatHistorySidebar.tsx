@@ -337,16 +337,15 @@ export default function ChatHistorySidebar({
   } = useSessionPagination(filteredUnpinned, 60);
 
   useEffect(() => {
-    if (isCollapsed) return;
+    if (isCollapsed || isLoading) return;
 
-    // Ensure active session is visible in the windowed list; if not, expand window
-    const activeRow = historyListRef.current?.querySelector<HTMLElement>('[data-active="true"]');
-    if (activeRow) {
-      activeRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      return;
-    }
-    // If activeRow is not rendered because of windowing, expand the unpinned window to include it.
-  }, [currentSessionId, filteredSessionIds, isCollapsed]);
+    const activeRow = historyListRef.current?.querySelector<HTMLElement>(
+      '[data-active="true"]',
+    );
+    if (!activeRow) return;
+
+    activeRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [currentSessionId, filteredSessionIds, isCollapsed, isLoading]);
 
   // If active session is outside the current visible window, expand the window to include it.
   useEffect(() => {

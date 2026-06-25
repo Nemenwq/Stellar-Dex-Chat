@@ -1,83 +1,61 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export interface RateLimitConfig {
-  /** Maximum requests allowed per window */
   maxRequests: number;
-  /** Window duration in milliseconds */
   windowMs: number;
 }
 
-interface Entry {
-  count: number;
-  resetAt: number;
-}
-
-// Module-level store — persists across requests within the same Node.js process.
-const store = new Map<string, Entry>();
+// In-memory store: key -> { count, windowStart }
+const store = new Map<string, { count: number; windowStart: number }>();
 
 /**
- * Extract the real client IP, respecting reverse-proxy headers.
+ * Extracts the client IP from a NextRequest.
+ * Checks x-forwarded-for first, then x-real-ip, then falls back to 'unknown'.
  */
-export function getClientIp(request: NextRequest): string {
-  const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) return forwarded.split(',')[0].trim();
-  return request.headers.get('x-real-ip') ?? 'unknown';
+export function getClientIp(req: NextRequest): string {
+  const forwarded = req.headers.get('x-forwarded-for');
+  if (forwarded) {
+    return forwarded.split(',')[0].trim();
+  }
+  const realIp = req.headers.get('x-real-ip');
+  if (realIp) {
+    return realIp.trim();
+  }
+  return 'unknown';
 }
 
 /**
- * Check whether the given IP has exceeded the rate limit for a route.
- * Uses a fixed-window counter keyed by `route:ip`.
+ * Applies rate limiting for a given IP and route.
+ * Returns a 429 NextResponse if the limit is exceeded, otherwise null.
  *
- * @returns `null` when the request is allowed, or a ready-to-send 429
- *          NextResponse when the limit is exceeded.
+ * @param ip     - Client IP address (use getClientIp to extract from a request)
+ * @param route  - Route identifier used to namespace the rate-limit bucket
+ * @param config - Rate limit configuration
  */
 export function applyRateLimit(
   ip: string,
   route: string,
   config: RateLimitConfig,
 ): NextResponse | null {
-  const key = `${route}:${ip}`;
+  const key = `${ip}:${route}`;
   const now = Date.now();
+  const entry = store.get(key);
 
-  let entry = store.get(key);
-
-  // Initialise or reset an expired window.
-  if (!entry || now >= entry.resetAt) {
-    entry = { count: 1, resetAt: now + config.windowMs };
-    store.set(key, entry);
+  if (!entry || now - entry.windowStart >= config.windowMs) {
+    store.set(key, { count: 1, windowStart: now });
     return null;
   }
 
-  entry.count++;
-
+  entry.count += 1;
   if (entry.count > config.maxRequests) {
-    const retryAfterSecs = Math.ceil((entry.resetAt - now) / 1000);
-
-    console.warn(
-      JSON.stringify({
-        event: 'rate_limit_exceeded',
-        route,
-        ip,
-        count: entry.count,
-        limit: config.maxRequests,
-        retryAfterSecs,
-        timestamp: new Date().toISOString(),
-      }),
-    );
-
+    const retryAfterSeconds = Math.ceil(config.windowMs / 1000);
     return NextResponse.json(
-      {
-        success: false,
-        message: 'Too many requests. Please try again later.',
-        retryAfter: retryAfterSecs,
-      },
+      { success: false, retryAfter: retryAfterSeconds },
       {
         status: 429,
         headers: {
-          'Retry-After': String(retryAfterSecs),
+          'Retry-After': String(retryAfterSeconds),
           'X-RateLimit-Limit': String(config.maxRequests),
-          'X-RateLimit-Remaining': '0',
-          'X-RateLimit-Reset': String(Math.ceil(entry.resetAt / 1000)),
         },
       },
     );

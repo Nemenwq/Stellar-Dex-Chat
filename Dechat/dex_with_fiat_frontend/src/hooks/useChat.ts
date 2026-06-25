@@ -4,10 +4,10 @@ import { useStellarWallet } from '@/contexts/StellarWalletContext';
 import { AIAssistant } from '@/lib/aiAssistant';
 import { perf } from '@/lib/perf';
 import {
-    AIAnalysisResult,
-    ChatMessage,
-    GuardrailCategory,
-    TransactionData,
+  AIAnalysisResult,
+  ChatMessage,
+  GuardrailCategory,
+  TransactionData,
 } from '@/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -101,11 +101,10 @@ I'm your AI specialist for seamless XLM-to-fiat conversions on Stellar. I can he
 **Track transactions** from start to completion on Stellar Expert
 **Optimize timing** for better conversion rates
 
-${
-  connection.isConnected
-    ? `**Freighter Connected**: Ready to check your XLM portfolio and start conversions!`
-    : `**Connect Freighter** to get started with personalized XLM portfolio analysis.`
-}
+${connection.isConnected
+          ? `**Freighter Connected**: Ready to check your XLM portfolio and start conversions!`
+          : `**Connect Freighter** to get started with personalized XLM portfolio analysis.`
+        }
 
 What would you like to do today? I'm here to make your XLM-to-fiat journey smooth and profitable!`,
       timestamp: new Date(),
@@ -189,6 +188,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
       if (currentSession && currentSession.messages.length > 0) {
         setMessages(currentSession.messages);
         machine.transition(ChatEvent.INITIALIZE_SESSION);
+        createNewSession(currentSession.messages);
       } else if (!currentSessionId) {
         setMessages([]);
         createNewSession([]);
@@ -227,14 +227,14 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
       prev.map((m) =>
         m.id === pendingAssistantId
           ? {
-              ...m,
-              content:
-                'Sorry, I encountered an error processing your request. Please try again.',
-              metadata: {
-                ...m.metadata,
-                status: 'failed',
-              },
-            }
+            ...m,
+            content:
+              'Sorry, I encountered an error processing your request. Please try again.',
+            metadata: {
+              ...m.metadata,
+              status: 'failed',
+            },
+          }
           : m,
       ),
     );
@@ -412,32 +412,32 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         prev.map((m) =>
           m.id === pendingAssistantId
             ? {
-                ...m,
-                content: enhancedResponse,
-                metadata: {
-                  ...m.metadata,
-                  status: 'sent',
-                  guardrail: analysis.guardrail,
-                  transactionData: shouldShowTransactionData
-                    ? (analysis.extractedData as TransactionData)
-                    : undefined,
-                  suggestedActions: generateSuggestedActions(analysis, {
-                    isWalletConnected: connection.isConnected,
-                    messageCount: newMessageCount,
-                    hasTransactionData: !!pendingTransactionData,
-                    shouldAutoTrigger: !!shouldAutoTrigger,
-                    isAdmin: isAdmin,
-                    lowConfidence: needsClarification,
-                  }),
-                  confirmationRequired:
-                    analysis.intent === 'fiat_conversion' ||
-                    shouldTriggerTransaction,
-                  autoTriggerTransaction: shouldTriggerTransaction,
-                  conversationCount: newMessageCount,
+              ...m,
+              content: enhancedResponse,
+              metadata: {
+                ...m.metadata,
+                status: 'sent',
+                guardrail: analysis.guardrail,
+                transactionData: shouldShowTransactionData
+                  ? (analysis.extractedData as TransactionData)
+                  : undefined,
+                suggestedActions: generateSuggestedActions(analysis, {
+                  isWalletConnected: connection.isConnected,
+                  messageCount: newMessageCount,
+                  hasTransactionData: !!pendingTransactionData,
+                  shouldAutoTrigger: !!shouldAutoTrigger,
+                  isAdmin: isAdmin,
                   lowConfidence: needsClarification,
-                  clarificationQuestion: clarificationQuestion || undefined,
-                },
-              }
+                }),
+                confirmationRequired:
+                  analysis.intent === 'fiat_conversion' ||
+                  shouldTriggerTransaction,
+                autoTriggerTransaction: shouldTriggerTransaction,
+                conversationCount: newMessageCount,
+                lowConfidence: needsClarification,
+                clarificationQuestion: clarificationQuestion || undefined,
+              },
+            }
             : m,
         ),
       );

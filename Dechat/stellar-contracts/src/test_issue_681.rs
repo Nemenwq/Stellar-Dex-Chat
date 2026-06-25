@@ -21,11 +21,11 @@ fn setup_bridge(
     env: &Env,
 ) -> (
     Address,
-    FiatBridgeClient,
+    FiatBridgeClient<'_>,
     Address,
     Address,
-    token::Client,
-    token::StellarAssetClient,
+    token::Client<'_>,
+    token::StellarAssetClient<'_>,
 ) {
     let admin = Address::generate(env);
     let (token_client, token_admin) = create_token_contract(env, &admin);
@@ -55,7 +55,7 @@ fn test_heartbeat_blocked_by_circuit_breaker() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, admin, _, _, _) = setup_bridge(&env);
+    let (_, bridge, _admin, _, _, _) = setup_bridge(&env);
     let operator = Address::generate(&env);
 
     // Setup operator
@@ -69,11 +69,11 @@ fn test_heartbeat_blocked_by_circuit_breaker() {
     // For this test, we verify heartbeat checks for circuit breaker state
 
     // Normal heartbeat should work when circuit breaker is not tripped
-    let result = bridge.try_heartbeat(&operator, &0);
+    let _result = bridge.try_heartbeat(&operator, &0);
     
     // If circuit breaker is active, should fail
     // The actual implementation checks is_circuit_breaker_tripped
-    // assert_eq!(result, Err(Ok(Error::CircuitBreakerActive)));
+    // assert_eq!(_result, Err(Ok(Error::CircuitBreakerActive)));
     
     // For now, verify heartbeat requires the check
     // The existing code already has this check in the heartbeat function
@@ -115,7 +115,7 @@ fn test_heartbeat_circuit_breaker_event() {
 
     // Verify event was emitted
     let events = env.events().all().filter_by_contract(&contract_id);
-    assert!(events.events().len() > 0);
+    assert!(!events.events().is_empty());
 }
 
 /// Test circuit breaker auto-reset allows heartbeat after window
@@ -273,7 +273,7 @@ fn test_heartbeat_event_emission_with_circuit_breaker() {
     let event_vec = events.events();
     
     // Should have heartbeat event
-    assert!(event_vec.len() > 0);
+    assert!(!event_vec.is_empty());
 }
 
 /// Test circuit breaker state persists across heartbeats
@@ -344,6 +344,6 @@ fn test_heartbeat_circuit_breaker_blocked_event() {
     
     let events = env.events().all().filter_by_contract(&contract_id);
     // Should have heartbeat event, not blocked event
-    assert!(events.events().len() > 0);
+    assert!(!events.events().is_empty());
 }
 

@@ -33,7 +33,7 @@ struct Fixture<'a> {
     user: Address,
 }
 
-fn setup_fixture() -> Fixture<'static> {
+fn setup_fixture() -> Fixture<'_> {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -44,8 +44,7 @@ fn setup_fixture() -> Fixture<'static> {
     let contract_id = env.register(FiatBridge, ());
     let bridge = FiatBridgeClient::new(&env, &contract_id);
 
-    let mut signers = Vec::new(&env);
-    signers.push_back(admin.clone());
+    let signers = vec![&env, admin.clone()];
     bridge.init(&admin, &token_addr, &1_000_000, &1, &signers, &1);
 
     let user = Address::generate(&env);

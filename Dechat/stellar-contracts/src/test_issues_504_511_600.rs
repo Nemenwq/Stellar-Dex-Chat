@@ -9,7 +9,7 @@ extern crate std;
 
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
+    testutils::Address as _,
     token::{Client as TokenClient, StellarAssetClient},
     vec, Address, Bytes, Env,
 };
@@ -35,11 +35,11 @@ fn setup_bridge(
     limit: i128,
 ) -> (
     Address,
-    FiatBridgeClient,
+    FiatBridgeClient<'_>,
     Address,
     Address,
-    TokenClient,
-    StellarAssetClient,
+    TokenClient<'_>,
+    StellarAssetClient<'_>,
 ) {
     let contract_id = env.register(FiatBridge, ());
     let bridge = FiatBridgeClient::new(env, &contract_id);
@@ -54,8 +54,8 @@ fn setup_bridge(
 /// Deposits `amount` tokens for `user` and returns the resulting receipt hash.
 fn fund_and_deposit(
     env: &Env,
-    bridge: &FiatBridgeClient,
-    token_sac: &StellarAssetClient,
+    bridge: &FiatBridgeClient<'_>,
+    token_sac: &StellarAssetClient<'_>,
     user: &Address,
     token_addr: &Address,
     amount: i128,
@@ -72,17 +72,18 @@ fn heartbeat_rejected_when_contract_paused() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, admin, _token_addr, _, _) = setup_bridge(&env, 1_000_000);
+    let (_, bridge, _admin, _token_addr, _, _) = setup_bridge(&env, 1_000_000);
+    let operator = Address::generate(&env);
 
     // Register an operator and allow one slot
     bridge.set_max_operators(&50);
-    bridge.set_operator(&admin, &true);
+    bridge.set_operator(&operator, &true);
 
     // Pause the contract
     bridge.pause();
 
     // Heartbeat must be rejected when paused
-    let result = bridge.try_heartbeat(&admin, &0);
+    let result = bridge.try_heartbeat(&operator, &0);
     assert_eq!(result, Err(Ok(Error::ContractPaused)));
 }
 
@@ -91,11 +92,13 @@ fn heartbeat_rejected_when_circuit_breaker_tripped() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract_id, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 1_000_000);
+    let (_contract_id, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 1_000_000);
+
+    let operator = Address::generate(&env);
 
     // Register operator
     bridge.set_max_operators(&50);
-    bridge.set_operator(&admin, &true);
+    bridge.set_operator(&operator, &true);
 
     // Set a low circuit breaker threshold, fund the contract, then trip it
     bridge.set_circuit_breaker_threshold(&100);
@@ -105,7 +108,7 @@ fn heartbeat_rejected_when_circuit_breaker_tripped() {
     assert!(bridge.is_circuit_breaker_tripped());
 
     // Heartbeat must be rejected when circuit breaker is tripped
-    let result = bridge.try_heartbeat(&admin, &0);
+    let result = bridge.try_heartbeat(&operator, &0);
     assert_eq!(result, Err(Ok(Error::CircuitBreakerActive)));
 }
 
@@ -126,15 +129,16 @@ fn heartbeat_succeeds_for_valid_operator() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, admin, _token_addr, _, _) = setup_bridge(&env, 1_000_000);
+    let (_, bridge, _admin, _token_addr, _, _) = setup_bridge(&env, 1_000_000);
+    let operator = Address::generate(&env);
 
     bridge.set_max_operators(&50);
-    bridge.set_operator(&admin, &true);
+    bridge.set_operator(&operator, &true);
 
     // Valid heartbeat should succeed
-    bridge.heartbeat(&admin, &0);
+    bridge.heartbeat(&operator, &0);
 
-    let hb = bridge.get_operator_heartbeat(&admin);
+    let hb = bridge.get_operator_heartbeat(&operator);
     assert!(hb.is_some());
 }
 
@@ -143,15 +147,16 @@ fn heartbeat_nonce_replay_rejected() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, admin, _token_addr, _, _) = setup_bridge(&env, 1_000_000);
+    let (_, bridge, _admin, _token_addr, _, _) = setup_bridge(&env, 1_000_000);
+    let operator = Address::generate(&env);
 
     bridge.set_max_operators(&50);
-    bridge.set_operator(&admin, &true);
+    bridge.set_operator(&operator, &true);
 
-    bridge.heartbeat(&admin, &0);
+    bridge.heartbeat(&operator, &0);
 
     // Replaying nonce 0 must be rejected
-    let result = bridge.try_heartbeat(&admin, &0);
+    let result = bridge.try_heartbeat(&operator, &0);
     assert_eq!(result, Err(Ok(Error::StaleNonce)));
 }
 
@@ -187,8 +192,7 @@ fn get_receipt_by_index_returns_receipt_when_circuit_breaker_not_tripped() {
     let receipt_hash = fund_and_deposit(&env, &bridge, &token_sac, &admin, &token_addr, 500);
 
     let receipt = bridge.get_receipt_by_index(&0);
-    assert!(receipt.is_some());
-    assert_eq!(receipt.unwrap().id, receipt_hash);
+    assert_eq!(receipt.id, receipt_hash);
 }
 
 #[test]
@@ -200,9 +204,15 @@ fn get_receipt_by_index_returns_none_for_out_of_bounds() {
 
     fund_and_deposit(&env, &bridge, &token_sac, &admin, &token_addr, 500);
 
-    // Only index 0 exists; index 1 and beyond should return None
-    assert_eq!(bridge.get_receipt_by_index(&1), None);
-    assert_eq!(bridge.get_receipt_by_index(&999), None);
+    // Only index 0 exists; index 1 and beyond are out of bounds
+    assert_eq!(
+        bridge.try_get_receipt_by_index(&1),
+        Err(Ok(Error::ReceiptIndexOutOfBounds))
+    );
+    assert_eq!(
+        bridge.try_get_receipt_by_index(&999),
+        Err(Ok(Error::ReceiptIndexOutOfBounds))
+    );
 }
 
 #[test]
@@ -224,8 +234,7 @@ fn get_receipt_by_index_accessible_after_circuit_breaker_reset() {
 
     // After reset, access should be restored
     let receipt = bridge.get_receipt_by_index(&0);
-    assert!(receipt.is_some());
-    assert_eq!(receipt.unwrap().id, receipt_hash);
+    assert_eq!(receipt.id, receipt_hash);
 }
 
 // ── Issue #600: admin authentication for initialize ───────────────────────────

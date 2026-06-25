@@ -420,7 +420,7 @@ export default function BankDetailsModal({
     } finally {
       setVerifying(false);
     }
-  }, [accountNumber, iban, ibanTouched, selectedBank, xlmAmount]);
+  }, [accountNumber, iban, selectedBank, xlmAmount]);
 
   const handleConfirmPayout = async () => {
     if (
@@ -691,7 +691,9 @@ export default function BankDetailsModal({
             </h2>
           </div>
           <button
+            type="button"
             onClick={handleClose}
+            aria-label="Close"
             className="theme-text-muted hover:theme-text-primary transition-colors"
           >
             <X className="w-5 h-5" />
