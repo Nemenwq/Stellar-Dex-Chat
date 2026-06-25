@@ -729,6 +729,7 @@ pub struct CircuitBreakerAutoResetEvent {
 pub enum DataKey {
     Admin,
     PendingAdmin,
+    PendingAdminExpiryTimestamp,
     Paused,
     Token, // Default token
     TokenRegistry(Address),
@@ -2181,9 +2182,17 @@ impl FiatBridge {
         if new_admin == admin {
             return Err(Error::SameAdmin);
         }
+        let expiry_timestamp = env
+            .ledger()
+            .timestamp()
+            .checked_add((MIN_TIMELOCK_DELAY as u64) * 5)
+            .ok_or(Error::Overflow)?;
         env.storage()
             .instance()
             .set(&DataKey::PendingAdmin, &new_admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdminExpiryTimestamp, &expiry_timestamp);
         Ok(())
     }
 
@@ -2200,6 +2209,9 @@ impl FiatBridge {
         pending.require_auth();
         env.storage().instance().set(&DataKey::Admin, &pending);
         env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.storage()
+            .instance()
+            .remove(&DataKey::PendingAdminExpiryTimestamp);
         Ok(())
     }
 
@@ -2288,7 +2300,7 @@ impl FiatBridge {
         // Use floor division for the displayed slippage value
         let slippage_bps = if actual_price < expected_price {
             let diff = expected_price - actual_price;
-            crate::math::mul_div_floor(diff, 10000, expected_price)
+            crate::math::checked_mul_div_floor(diff, 10000, expected_price)?
         } else {
             0
         };
@@ -2357,7 +2369,8 @@ impl FiatBridge {
 
         if let Some(limit) = fiat_limit {
             // ── Issue #220: use precision-safe fixed-point math ───────────
-            let usd_cents = crate::math::mul_div_floor(amount, price, ORACLE_PRICE_DECIMALS / 100);
+            let usd_cents =
+                crate::math::checked_mul_div_floor(amount, price, ORACLE_PRICE_DECIMALS / 100)?;
             let curr = env.ledger().sequence();
             let mut vol: UserDailyVolume = env
                 .storage()
@@ -3163,6 +3176,9 @@ impl FiatBridge {
             .remove(&DataKey::PendingRenounceLedger);
         env.storage().instance().remove(&DataKey::Admin);
         env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.storage()
+            .instance()
+            .remove(&DataKey::PendingAdminExpiryTimestamp);
         Ok(())
     }
 
@@ -3232,6 +3248,17 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)
     }
+
+    pub fn get_pending_admin(env: Env) -> Option<(Address, u64)> {
+        let pending: Address = env.storage().instance().get(&DataKey::PendingAdmin)?;
+        let expiry_timestamp = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdminExpiryTimestamp)
+            .unwrap_or(0);
+        Some((pending, expiry_timestamp))
+    }
+
     pub fn get_token(env: Env) -> Result<Address, Error> {
         env.storage()
             .instance()

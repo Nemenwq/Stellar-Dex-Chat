@@ -33,6 +33,7 @@ interface ConversationState {
 
 type QueuedSend = {
   content: string;
+  optimisticUserId: string;
   pendingAssistantId: string;
   machineSnapshot: {
     state: ChatState;
@@ -209,7 +210,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
     return false;
   }, []);
 
-  const markMessageFailed = useCallback((pendingAssistantId: string) => {
+  const markMessageFailed = useCallback((pendingAssistantId: string, optimisticUserId?: string) => {
     setMessages((prev: ChatMessage[]) =>
       prev.map((m) =>
         m.id === pendingAssistantId
@@ -217,6 +218,19 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
               ...m,
               content:
                 'Sorry, I encountered an error processing your request. Please try again.',
+              metadata: {
+                ...m.metadata,
+                status: 'failed',
+              },
+            }
+          : m.id === optimisticUserId
+          ? {
+              ...m,
+              error: {
+                message: 'Message failed to send. Please try again.',
+                timestamp: new Date(),
+                retryAttempts: m.error?.retryAttempts ?? 0,
+              },
               metadata: {
                 ...m.metadata,
                 status: 'failed',
@@ -230,6 +244,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
   const analyzeAndRespond = useCallback(
     async (
       content: string,
+      optimisticUserId: string,
       pendingAssistantId: string,
       machineSnapshot: QueuedSend['machineSnapshot'],
       requestController: AbortController,
@@ -424,6 +439,20 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
                   lowConfidence: needsClarification,
                   clarificationQuestion: clarificationQuestion || undefined,
                 },
+            }
+            : m,
+        ),
+      );
+
+      setMessages((prev: ChatMessage[]) =>
+        prev.map((m) =>
+          m.id === optimisticUserId
+            ? {
+                ...m,
+                metadata: {
+                  ...m.metadata,
+                  status: 'sent',
+                },
               }
             : m,
         ),
@@ -462,6 +491,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
       try {
         await analyzeAndRespond(
           queued.content,
+          queued.optimisticUserId,
           queued.pendingAssistantId,
           queued.machineSnapshot,
           requestController,
@@ -477,7 +507,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         }
 
         console.error('Chat replay error:', error);
-        markMessageFailed(queued.pendingAssistantId);
+        markMessageFailed(queued.pendingAssistantId, queued.optimisticUserId);
         if (machineRef.current.canTransition(ChatEvent.ENCOUNTER_ERROR)) {
           machineRef.current.transition(ChatEvent.ENCOUNTER_ERROR);
         }
@@ -533,11 +563,18 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
           : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
       // Add user message
+      const optimisticUserId = uid();
       const userMessage: ChatMessage = {
-        id: uid(),
+        id: optimisticUserId,
         role: 'user',
         content,
         timestamp: new Date(),
+        metadata: {
+          status: 'pending',
+        },
+        originalPayload: {
+          content,
+        },
       };
 
       const pendingAssistantId = uid();
@@ -575,6 +612,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
       if (typeof window !== 'undefined' && !window.navigator.onLine) {
         queuedSendsRef.current.push({
           content,
+          optimisticUserId,
           pendingAssistantId,
           machineSnapshot,
         });
@@ -588,6 +626,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
       try {
         await analyzeAndRespond(
           content,
+          optimisticUserId,
           pendingAssistantId,
           machineSnapshot,
           requestController,
@@ -600,6 +639,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         if (isLikelyNetworkError(error)) {
           queuedSendsRef.current.push({
             content,
+            optimisticUserId,
             pendingAssistantId,
             machineSnapshot,
           });
@@ -607,7 +647,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         }
 
         console.error('Chat error:', error);
-        markMessageFailed(pendingAssistantId);
+        markMessageFailed(pendingAssistantId, optimisticUserId);
         if (machine.canTransition(ChatEvent.ENCOUNTER_ERROR)) {
           machine.transition(ChatEvent.ENCOUNTER_ERROR);
         }
