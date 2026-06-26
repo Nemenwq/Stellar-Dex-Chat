@@ -48,8 +48,9 @@ pub const FIXED_POINT: i128 = 10_000_000;
 /// // Negative: -7 * 3 / 2 = -10.5 → floor → -11
 /// assert_eq!(mul_div_floor(-7, 3, 2), -11);
 /// ```
-pub fn checked_mul_div_floor(a: i128, b: i128, d: i128) -> Result<i128, Error> {
-    let product = a.checked_mul(b).ok_or(Error::Overflow)?;
+pub fn mul_div_floor(a: i128, b: i128, d: i128) -> i128 {
+    // Issue #966: use checked_mul to prevent silent overflow on large deposits
+    let product = a.checked_mul(b).expect("mul_div_floor: overflow in a * b");
     // Rust integer division already truncates toward zero.
     // For non-negative products that equals floor; for negative products we
     // subtract 1 if there is a remainder, giving true floor semantics.
@@ -95,15 +96,13 @@ pub fn mul_div_floor(a: i128, b: i128, d: i128) -> i128 {
 /// // Exact: 6 * 2 / 3 = 4.0 → ceil → 4
 /// assert_eq!(mul_div_ceil(6, 2, 3), 4);
 /// ```
-pub fn checked_mul_div_ceil(a: i128, b: i128, d: i128) -> Result<i128, Error> {
-    let product = a.checked_mul(b).ok_or(Error::Overflow)?;
+pub fn mul_div_ceil(a: i128, b: i128, d: i128) -> i128 {
+    // Issue #966: use checked_mul to prevent silent overflow on large deposits
+    let product = a.checked_mul(b).expect("mul_div_ceil: overflow in a * b");
     // Ceiling division: (product + d - 1) / d for positive values
     // For negative products, we use floor semantics (same as mul_div_floor)
-    Ok(if product >= 0 {
-        product
-            .checked_add(d - 1)
-            .ok_or(Error::Overflow)?
-            / d
+    if product >= 0 {
+        product.checked_add(d - 1).expect("mul_div_ceil: overflow in product + d - 1") / d
     } else if product % d == 0 {
         product / d
     } else {
@@ -227,5 +226,28 @@ mod tests {
         let price = FIXED_POINT;
         let result = mul_div_floor(amount, price, FIXED_POINT);
         assert_eq!(result, amount);
+    }
+
+    #[test]
+    fn mul_div_floor_large_deposit_amount() {
+        // Issue #966: verify large but safe deposit amounts work correctly
+        let amount: i128 = 1_000_000_000_000_000; // 1 quadrillion stroops
+        let price = FIXED_POINT;
+        let result = mul_div_floor(amount, price, FIXED_POINT);
+        assert_eq!(result, amount);
+    }
+
+    #[test]
+    #[should_panic(expected = "overflow")]
+    fn mul_div_floor_panics_on_overflow() {
+        // Issue #966: ensure overflow is caught, not silently wrapped
+        mul_div_floor(i128::MAX, 2, 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "overflow")]
+    fn mul_div_ceil_panics_on_overflow() {
+        // Issue #966: ensure overflow is caught in ceil variant too
+        mul_div_ceil(i128::MAX, 2, 1);
     }
 }
