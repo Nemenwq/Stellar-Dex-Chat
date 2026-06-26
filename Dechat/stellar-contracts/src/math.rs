@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use crate::Error;
+
 /// Fixed-point denominator used throughout the protocol (matches `ORACLE_PRICE_DECIMALS`).
 ///
 /// All price values returned by the oracle are scaled by this factor.
@@ -52,11 +54,15 @@ pub fn mul_div_floor(a: i128, b: i128, d: i128) -> i128 {
     // Rust integer division already truncates toward zero.
     // For non-negative products that equals floor; for negative products we
     // subtract 1 if there is a remainder, giving true floor semantics.
-    if product >= 0 || product % d == 0 {
+    Ok(if product >= 0 || product % d == 0 {
         product / d
     } else {
         product / d - 1
-    }
+    })
+}
+
+pub fn mul_div_floor(a: i128, b: i128, d: i128) -> i128 {
+    checked_mul_div_floor(a, b, d).expect("mul_div_floor overflow")
 }
 
 /// Multiply `a` by `b`, then ceiling-divide by `d`.
@@ -101,7 +107,11 @@ pub fn mul_div_ceil(a: i128, b: i128, d: i128) -> i128 {
         product / d
     } else {
         product / d - 1
-    }
+    })
+}
+
+pub fn mul_div_ceil(a: i128, b: i128, d: i128) -> i128 {
+    checked_mul_div_ceil(a, b, d).expect("mul_div_ceil overflow")
 }
 
 /// Scale `amount` by the fraction `(numerator / denominator)`, rounding down.
