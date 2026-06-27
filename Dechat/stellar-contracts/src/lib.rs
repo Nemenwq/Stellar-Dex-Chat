@@ -2169,6 +2169,21 @@ impl FiatBridge {
             return Err(Error::InvalidRecipient);
         }
 
+        // ── Issue #1017: reject requests exceeding the user's deposited balance ──
+        // The global liability/balance checks above only guarantee the *pool*
+        // can cover the request — without a per-user check a depositor could
+        // request more than they ever deposited and drain other users' funds
+        // (and over-requests would panic at settlement). Bound the request to
+        // what this recipient has actually deposited.
+        let user_deposited: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::UserDeposited(to.clone()))
+            .unwrap_or(0);
+        if amount > user_deposited {
+            return Err(Error::InsufficientFunds);
+        }
+
         // Denylist
         if env.storage().persistent().has(&DataKey::Denied(to.clone())) {
             return Err(Error::AddressDenied);
