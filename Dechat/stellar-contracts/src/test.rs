@@ -1100,7 +1100,7 @@ fn test_fallback_oracle_used_when_primary_stale() {
         &600,
         &None,
     );
-    assert_eq!(token.balance(&user), 99_000);
+    assert_eq!(_token.balance(&user), 99_000);
 }
 
 #[test]

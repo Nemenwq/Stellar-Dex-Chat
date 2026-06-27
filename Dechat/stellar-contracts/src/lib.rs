@@ -7106,3 +7106,6 @@ mod test_issue_1002;
 
 #[cfg(test)]
 mod test_issue_994_1003;
+
+#[cfg(test)]
+mod test_issue_572;
