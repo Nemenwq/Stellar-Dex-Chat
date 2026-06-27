@@ -98,6 +98,8 @@ pub enum Error {
     OperatorDailyLimitExceeded = 313,
     ExceedsLimitMaxCap = 314,
     MaxDeniedReached = 315,
+    /// Returned by `init` when the token address does not implement the SEP-41 token interface.
+    InvalidToken = 316,
 
     // --- 400 series: Funds & Balances ---
     InsufficientFunds = 401,
@@ -1115,6 +1117,7 @@ impl FiatBridge {
     /// - [`Error::MaxSignersReached`]  if `signers.len()` > [`MAX_SIGNERS`].
     /// - [`Error::InvalidThreshold`]   if `threshold` is 0 or > `signers.len()`.
     /// - [`Error::DuplicateSigner`]    if `signers` contains duplicate addresses.
+    /// - [`Error::InvalidToken`]       if `token` does not implement the SEP-41 token interface.
     pub fn init(
         env: Env,
         admin: Address,
@@ -1147,6 +1150,16 @@ impl FiatBridge {
             require!(!seen.contains(&s), Error::DuplicateSigner);
             seen.push_back(s);
         }
+
+        // ── Issue #1037: verify the token implements the SEP-41 interface ──
+        // Probe a mandatory SEP-41 read method (`decimals`) on the supplied
+        // address. A non-token contract — or a plain account address — cannot
+        // answer this call, so we reject it before any state is written and
+        // before funds can ever be locked against an unusable token.
+        require!(
+            token::Client::new(&env, &token).try_decimals().is_ok(),
+            Error::InvalidToken
+        );
 
         env.storage()
             .instance()
