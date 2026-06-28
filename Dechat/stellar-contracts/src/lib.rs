@@ -6259,8 +6259,19 @@ impl FiatBridge {
 
     // ── Issue #209: global circuit breaker ───────────────────────────────
 
-    /// Set the rolling 24-hour withdrawal volume threshold that triggers the
-    /// circuit breaker.  Pass `0` to disable.
+    /// Set the rolling withdrawal volume threshold that trips the global circuit breaker.
+    ///
+    /// The breaker is evaluated across all withdrawal-producing flows that call
+    /// [`Self::check_and_update_circuit_breaker`], including direct withdrawals,
+    /// queued withdrawal requests, and queued withdrawal execution.
+    ///
+    /// - `threshold > 0`: enables the breaker and rejects the withdrawal that
+    ///   would push the rolling total above the threshold.
+    /// - `threshold == 0`: disables the breaker entirely.
+    ///
+    /// This value is stored under [`DataKey::CircuitBreakerThreshold`]. It does
+    /// not itself reset an already-tripped breaker; use [`Self::reset_circuit_breaker`]
+    /// for that operational action.
     pub fn set_circuit_breaker_threshold(env: Env, threshold: i128) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -6274,10 +6285,19 @@ impl FiatBridge {
         Ok(())
     }
 
-    /// Set the number of ledgers after which a tripped circuit breaker
-    /// automatically resets. Pass `0` to use the compile-time default
-    /// (`CIRCUIT_BREAKER_RESET_LEDGERS`). Set to `u32::MAX` to disable
-    /// auto-reset entirely.
+    /// Configure the auto-reset window for a tripped circuit breaker.
+    ///
+    /// The breaker stores the ledger at which it tripped in
+    /// [`DataKey::CircuitBreakerTrippedAt`]. On the next guarded withdrawal or
+    /// heartbeat path, the contract compares the current ledger against that
+    /// trip point plus this reset window.
+    ///
+    /// - `0`: use the default 48-hour window [`CIRCUIT_BREAKER_RESET_LEDGERS`]
+    /// - `u32::MAX`: disable auto-reset entirely
+    /// - any other value: use that many ledgers as the reset window
+    ///
+    /// Auto-reset clears the tripped flag and rolls the global withdrawal window
+    /// forward before the next guarded operation resumes.
     pub fn set_circuit_breaker_reset_window(env: Env, ledgers: u32) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -6299,7 +6319,14 @@ impl FiatBridge {
             .unwrap_or(CIRCUIT_BREAKER_RESET_LEDGERS)
     }
 
-    /// Reset the circuit breaker so withdrawals can resume.
+    /// Manually clear the circuit breaker so guarded operations can resume.
+    ///
+    /// This admin-only action flips [`DataKey::CircuitBreakerTripped`] back to
+    /// `false` and emits [`CircuitBreakerResetEvent`]. It is intended for manual
+    /// recovery after operators have investigated the activity that caused the
+    /// breaker to trip.
+    ///
+    /// This function does not change the configured threshold or reset window.
     pub fn reset_circuit_breaker(env: Env) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -6385,9 +6412,21 @@ impl FiatBridge {
         }
     }
 
-    /// Accumulate `amount` into the rolling 24-h global withdrawal volume.
-    /// Returns `CircuitBreakerActive` if the threshold is already tripped **or**
-    /// if this withdrawal would breach it (breaching withdrawal is rejected).
+    /// Accumulate `amount` into the rolling global withdrawal volume and enforce
+    /// the circuit breaker threshold.
+    ///
+    /// Flow summary:
+    /// 1. Read the configured threshold; `<= 0` means the breaker is disabled.
+    /// 2. If already tripped, attempt auto-reset when the configured reset window
+    ///    has elapsed; otherwise reject immediately with [`Error::CircuitBreakerActive`].
+    /// 3. Roll the volume window forward when the previous rolling window expired.
+    /// 4. Add the new amount to the window total.
+    /// 5. If the new total exceeds the threshold, mark the breaker as tripped,
+    ///    store the trip ledger, emit [`CircuitBreakerTrippedEvent`], and reject
+    ///    the current operation.
+    ///
+    /// The withdrawal that breaches the threshold is intentionally rejected; it is
+    /// counted for trip detection but not allowed to continue execution.
     fn check_and_update_circuit_breaker(env: &Env, amount: i128) -> Result<(), Error> {
         let threshold: i128 = env
             .storage()
