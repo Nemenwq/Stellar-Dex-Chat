@@ -129,20 +129,24 @@ export default function ChatInput({
   };
 
   const [walletWarning, setWalletWarning] = useState(false);
+  const [liveAnnouncement, setLiveAnnouncement] = useState('');
   const isSubmitDisabled = !message.trim() || isLoading || isSubmitting;
 
   const submitMessage = () => {
     if (!connection.isConnected) {
       setWalletWarning(true);
+      setLiveAnnouncement('Wallet disconnected. Reconnect to continue.');
       return;
     }
     setWalletWarning(false);
     if (!isSubmitDisabled) {
+      const messageToSend = message.trim();
       executeSubmit(async () => {
-        onSendMessage(message.trim());
+        onSendMessage(messageToSend);
         setMessage('');
         if (sessionId) clearDraft(sessionId);
         setShowCommands(false);
+        setLiveAnnouncement('Message sent.');
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 'chat_message_submit');
     }
@@ -156,8 +160,11 @@ export default function ChatInput({
   useEffect(() => {
     if (connection.isConnected) {
       setWalletWarning(false);
+      if (walletWarning) {
+        setLiveAnnouncement('Wallet reconnected. You can send messages.');
+      }
     }
-  }, [connection.isConnected]);
+  }, [connection.isConnected, walletWarning]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (showCommands) {
@@ -447,7 +454,7 @@ export default function ChatInput({
             onKeyDown={handleKeyDown}
             placeholder={activePlaceholder}
             disabled={isLoading}
-            aria-describedby="chat-submit-shortcut"
+            aria-describedby="chat-submit-shortcut chat-input-status"
             aria-invalid={walletWarning}
             // Drive the border colour from an explicit theme-token class rather
             // than leaving it to the Tailwind utility cascade (which could
@@ -489,7 +496,7 @@ export default function ChatInput({
           disabled={isSubmitDisabled}
           title={`Send message (${submitShortcutLabel})`}
           aria-label={`Send message (${submitShortcutLabel})`}
-          aria-describedby="chat-submit-shortcut"
+          aria-describedby="chat-submit-shortcut chat-input-status"
           aria-keyshortcuts={submitShortcutKeys}
           className={`theme-primary-button flex items-center justify-center disabled:bg-gray-300 text-white rounded-lg transition-all duration-200 disabled:cursor-not-allowed transform hover:scale-105 disabled:hover:scale-100 shadow-lg ${
             isMobile ? 'w-full h-11' : 'w-12 h-12'
@@ -503,8 +510,17 @@ export default function ChatInput({
         </button>
       </div>
 
-      <p id="chat-submit-shortcut" className="sr-only" aria-live="polite">
+      <p id="chat-submit-shortcut" className="sr-only">
         Send message with {submitShortcutLabel}. The send button stays disabled while a request is pending.
+      </p>
+      <p
+        id="chat-input-status"
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {liveAnnouncement}
       </p>
 
       {walletWarning && (

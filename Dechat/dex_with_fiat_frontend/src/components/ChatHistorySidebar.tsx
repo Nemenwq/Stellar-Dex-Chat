@@ -223,6 +223,7 @@ export default function ChatHistorySidebar({
   const [pendingClearAll, setPendingClearAll] = useState(false);
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stashedSessionsRef = useRef<ChatSession[]>([]);
+  const [liveAnnouncement, setLiveAnnouncement] = useState('');
   // ────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -379,11 +380,20 @@ export default function ChatHistorySidebar({
     }
   }, [unpinnedIsLoadingMore]);
 
+  useEffect(() => {
+    if (isCollapsed || isLoading || !searchQuery) return;
+
+    const resultLabel =
+      filteredSessions.length === 1 ? '1 conversation found' : `${filteredSessions.length} conversations found`;
+    setLiveAnnouncement(resultLabel);
+  }, [filteredSessions.length, isCollapsed, isLoading, searchQuery]);
+
   // ── Optimistic delete with undo ──────────────────────────────────────────
   const handleDeleteSession = useCallback(
     (sessionId: string) => {
       setShowDeleteConfirm(null);
       setPendingDeleteId(sessionId);
+      setLiveAnnouncement('Conversation deleted. Undo available for 5 seconds.');
 
       // Clear any previous delete timer
       if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
@@ -399,20 +409,27 @@ export default function ChatHistorySidebar({
   const undoDelete = useCallback(() => {
     if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
     setPendingDeleteId(null);
+    setLiveAnnouncement('Conversation restored.');
   }, []);
 
   // ── Optimistic pin toggle with animation ─────────────────────────────────
   const handleTogglePin = useCallback(
     (sessionId: string) => {
+      const session = allSessions.find((item) => item.id === sessionId);
       togglePin(sessionId);
       setRecentlyToggledPinId(sessionId);
+      setLiveAnnouncement(
+        session?.pinned
+          ? 'Conversation unpinned.'
+          : 'Conversation pinned.',
+      );
 
       if (pinAnimTimerRef.current) clearTimeout(pinAnimTimerRef.current);
       pinAnimTimerRef.current = setTimeout(() => {
         setRecentlyToggledPinId(null);
       }, 600);
     },
-    [togglePin],
+    [allSessions, togglePin],
   );
 
   // ── Optimistic clear-all with undo ───────────────────────────────────────
@@ -421,6 +438,7 @@ export default function ChatHistorySidebar({
     stashedSessionsRef.current = [...allSessionsRaw];
     clearAllHistory();
     setPendingClearAll(true);
+    setLiveAnnouncement('History cleared. Undo available for 5 seconds.');
 
     if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
     clearTimerRef.current = setTimeout(() => {
@@ -431,6 +449,7 @@ export default function ChatHistorySidebar({
 
   const undoClearAll = useCallback(() => {
     if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+    setLiveAnnouncement('History restored.');
     // Restore stashed sessions by re-saving to localStorage and reloading
     if (stashedSessionsRef.current.length > 0) {
       const restored = {
@@ -581,6 +600,15 @@ export default function ChatHistorySidebar({
         className={`theme-surface theme-border h-full flex flex-col transition-all duration-300 border-r ${isCollapsed ? 'w-20' : 'w-full'
           } transition-colors duration-300`}
       >
+        <p
+          data-testid="chat-history-live-region"
+          className="sr-only"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {liveAnnouncement}
+        </p>
         <div
           className={`theme-border border-b transition-colors duration-300 ${isCollapsed ? 'p-4 flex flex-col items-center' : 'p-4'
             }`}

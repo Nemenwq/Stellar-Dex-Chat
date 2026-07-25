@@ -158,6 +158,9 @@ describe('ChatHistorySidebar', () => {
     // Undo toast should be visible
     expect(screen.getByText('Conversation deleted')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
+    expect(screen.getByTestId('chat-history-live-region')).toHaveTextContent(
+      'Conversation deleted. Undo available for 5 seconds.',
+    );
   });
 
   it('calls deleteSession after the undo timeout expires', async () => {
@@ -193,6 +196,7 @@ describe('ChatHistorySidebar', () => {
 
     expect(mockDeleteSession).not.toHaveBeenCalled();
     expect(screen.queryByText('Conversation deleted')).toBeNull();
+    expect(screen.getByTestId('chat-history-live-region')).toHaveTextContent('Conversation restored.');
   });
 
   it('calls togglePin immediately on pin button click', async () => {
@@ -205,6 +209,7 @@ describe('ChatHistorySidebar', () => {
     fireEvent.click(screen.getByTitle('Pin conversation'));
 
     expect(mockTogglePin).toHaveBeenCalledWith('s4');
+    expect(screen.getByTestId('chat-history-live-region')).toHaveTextContent('Conversation pinned.');
   });
 
   it('applies animate-bounce-once class to pin icon and removes it after 600ms', async () => {
@@ -238,10 +243,27 @@ describe('ChatHistorySidebar', () => {
     expect(mockClearAllHistory).toHaveBeenCalledTimes(1);
     expect(screen.getByText('History cleared')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
+    expect(screen.getByTestId('chat-history-live-region')).toHaveTextContent(
+      'History cleared. Undo available for 5 seconds.',
+    );
 
     // Toast disappears after timeout
     await act(async () => { vi.advanceTimersByTime(5100); });
     expect(screen.queryByText('History cleared')).toBeNull();
+  });
+
+  it('announces filtered search result counts', async () => {
+    const sessions = [makeSession('search-a'), makeSession('search-b')];
+    mockUnpinnedSessions = sessions;
+    mockAllSessions = sessions;
+
+    await renderAndLoad();
+
+    fireEvent.change(screen.getByPlaceholderText('Search conversations...'), {
+      target: { value: 'stellar' },
+    });
+
+    expect(screen.getByTestId('chat-history-live-region')).toHaveTextContent('0 conversations found');
   });
 });
 
