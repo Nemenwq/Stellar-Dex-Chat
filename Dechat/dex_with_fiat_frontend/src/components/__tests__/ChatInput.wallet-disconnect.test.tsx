@@ -65,6 +65,7 @@ describe('ChatInput - Wallet Disconnect Handling', () => {
     fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter', ctrlKey: true });
 
     expect(screen.getByText('Wallet disconnected. Reconnect to continue.')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Wallet disconnected. Reconnect to continue.');
     expect(mockOnSendMessage).not.toHaveBeenCalled();
   });
 
@@ -99,5 +100,6 @@ describe('ChatInput - Wallet Disconnect Handling', () => {
     await waitFor(() => {
       expect(screen.queryByText('Wallet disconnected. Reconnect to continue.')).not.toBeInTheDocument();
     });
+    expect(screen.getByRole('status')).toHaveTextContent('Wallet reconnected. You can send messages.');
   });
 });
