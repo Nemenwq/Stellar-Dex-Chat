@@ -194,6 +194,7 @@ All notable changes to this project will be documented in this file.
 - Add copy button visibility improvements, online status fix, E2E tests, and snapshot tests
 - Show XLM balance in chat header and add frontend build CI workflow
 - Implement frontend security and UX enhancements
+- **frontend:** Add chat live region announcements (#1180, #1181)
 
 ### Fixed
 
@@ -513,6 +514,7 @@ All notable changes to this project will be documented in this file.
 - Improve circuit breaker documentation
 - Improve circuit breaker inline docs
 - Fix circuit breaker guide spacing
+- **changelog:** Update changelog [skip ci]
 
 ### Deprecated
 
