@@ -150,6 +150,30 @@ export default function LandingPage() {
     router.push('/chat');
   };
 
+  // #1185: "g" launches the app (same as the Get Started CTA), "d" toggles
+  // the theme. Ignored while focus is in the email field (or any other
+  // form control) so typing "g"/"d" there isn't hijacked.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) {
+        return;
+      }
+      if (event.key === 'g' || event.key === 'G') {
+        event.preventDefault();
+        handleGetStarted();
+      } else if (event.key === 'd' || event.key === 'D') {
+        event.preventDefault();
+        toggleDarkMode();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router]);
+
   const handleEmailSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitted(true);
