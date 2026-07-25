@@ -82,7 +82,14 @@ export default function ChatSearchPanel({
   const [filters, setFilters] = useState<SearchFilters>(EMPTY_FILTERS);
   const [results, setResults] = useState<MessageMatch[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // #1183: keep the active-result index in range whenever the result set
+  // changes (e.g. a new keystroke narrows/reorders matches).
+  useEffect(() => {
+    setActiveIndex(results.length > 0 ? 0 : -1);
+  }, [results]);
 
   // Reset all search state whenever the panel is closed so stale results
   // are never shown the next time the panel is opened (#947).
@@ -111,8 +118,27 @@ export default function ChatSearchPanel({
     inputRef.current?.focus();
   }, []);
 
+  // #1183: ArrowDown/ArrowUp move the active result, Enter selects it,
+  // Escape still closes the panel.
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') onClose();
+    if (e.key === 'Escape') {
+      onClose();
+      return;
+    }
+    if (results.length === 0) {
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveIndex((i) => (i + 1) % results.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIndex((i) => (i - 1 + results.length) % results.length);
+    } else if (e.key === 'Enter' && activeIndex >= 0) {
+      e.preventDefault();
+      const match = results[activeIndex];
+      if (match) onSelectResult(match.sessionId, match.message.id);
+    }
   };
 
   const hasAnyFilter =
@@ -236,12 +262,21 @@ export default function ChatSearchPanel({
             <p className="text-sm">No messages found</p>
           </div>
         ) : (
-          <ul className="divide-y" aria-label="Search results">
-            {results.map((match) => (
-              <li key={`${match.sessionId}-${match.message.id}`}>
+          <ul className="divide-y" role="listbox" aria-label="Search results">
+            {results.map((match, index) => (
+              <li key={`${match.sessionId}-${match.message.id}`} role="option" aria-selected={index === activeIndex}>
                 <button
                   onClick={() => onSelectResult(match.sessionId, match.message.id)}
-                  className={`w-full text-left px-4 py-3 transition-colors ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50'}`}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  className={`w-full text-left px-4 py-3 transition-colors ${
+                    index === activeIndex
+                      ? isDarkMode
+                        ? 'bg-gray-800'
+                        : 'bg-gray-50'
+                      : isDarkMode
+                        ? 'hover:bg-gray-800'
+                        : 'hover:bg-gray-50'
+                  }`}
                 >
                   <p className={`text-xs font-semibold truncate ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
                     {match.sessionTitle}
