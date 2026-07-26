@@ -195,6 +195,10 @@ All notable changes to this project will be documented in this file.
 - Show XLM balance in chat header and add frontend build CI workflow
 - Implement frontend security and UX enhancements
 - **frontend:** Add chat live region announcements (#1180, #1181)
+- **frontend:** Add keyboard shortcut handling to ErrorBoundary
+- **frontend:** Add keyboard shortcut handling to LandingPage
+- **frontend:** Add keyboard shortcut handling to ChatSearchPanel
+- **frontend:** Add ARIA live-region announcements to CCIPBridgeModal
 
 ### Fixed
 
@@ -514,6 +518,7 @@ All notable changes to this project will be documented in this file.
 - Improve circuit breaker documentation
 - Improve circuit breaker inline docs
 - Fix circuit breaker guide spacing
+- **changelog:** Update changelog [skip ci]
 - **changelog:** Update changelog [skip ci]
 
 ### Deprecated
