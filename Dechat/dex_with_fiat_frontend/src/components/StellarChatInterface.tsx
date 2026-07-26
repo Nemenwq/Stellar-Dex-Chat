@@ -3,6 +3,7 @@
 import SkeletonChat from '@/components/ui/skeleton/SkeletonChat';
 import SkeletonSidebar from '@/components/ui/skeleton/SkeletonSidebar';
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useReducedMotion } from 'framer-motion';
 import {
   Wallet,
   LogOut,
@@ -67,6 +68,7 @@ const HEALTH_POLL_INTERVAL_MS = 60_000;
 
 function StellarChatInterfaceContent() {
   const { t } = useTranslation();
+  const prefersReducedMotion = useReducedMotion();
   const {
     connection,
     connect,
@@ -942,7 +944,14 @@ function StellarChatInterfaceContent() {
           {/* Messages */}
           <div className="flex-1 min-h-0 flex flex-col">
             {!isHydrated || (isLoading && messages.length === 0) ? (
-              <SkeletonChat />
+              <div
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                className="flex-1"
+              >
+                <SkeletonChat />
+              </div>
             ) : (
               <ErrorBoundary
                 isDarkMode={isDarkMode}
