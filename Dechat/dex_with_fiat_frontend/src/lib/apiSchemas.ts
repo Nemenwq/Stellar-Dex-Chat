@@ -29,3 +29,147 @@ export const verifyAccountSchema = z.object({
 });
 
 export type VerifyAccountInput = z.infer<typeof verifyAccountSchema>;
+
+/**
+ * Retry configuration for API requests with exponential backoff
+ */
+export interface RetryConfig {
+  maxRetries?: number;
+  initialDelayMs?: number;
+  maxDelayMs?: number;
+  backoffMultiplier?: number;
+  retryableStatusCodes?: number[];
+  retryableErrors?: (error: unknown) => boolean;
+}
+
+/**
+ * Default retry configuration
+ */
+const DEFAULT_RETRY_CONFIG: Required<RetryConfig> = {
+  maxRetries: 3,
+  initialDelayMs: 1000,
+  maxDelayMs: 30000,
+  backoffMultiplier: 2,
+  retryableStatusCodes: [408, 429, 500, 502, 503, 504],
+  retryableErrors: (error: unknown) => {
+    if (error instanceof TypeError) {
+      // Network errors (e.g., "Failed to fetch")
+      return true;
+    }
+    if (error instanceof DOMException && error.name === 'NetworkError') {
+      return true;
+    }
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase();
+      return (
+        message.includes('failed to fetch') ||
+        message.includes('network') ||
+        message.includes('load failed') ||
+        message.includes('timeout')
+      );
+    }
+    return false;
+  },
+};
+
+/**
+ * Calculate delay with exponential backoff and jitter
+ * @param attempt - Current attempt number (0-indexed)
+ * @param config - Retry configuration
+ * @returns Delay in milliseconds
+ */
+function calculateBackoffDelay(
+  attempt: number,
+  config: Required<RetryConfig>,
+): number {
+  // Exponential backoff: initialDelay * (multiplier ^ attempt)
+  const exponentialDelay = config.initialDelayMs * Math.pow(config.backoffMultiplier, attempt);
+  
+  // Add jitter (±25%) to avoid thundering herd
+  const jitter = exponentialDelay * 0.25 * (Math.random() * 2 - 1);
+  
+  // Cap at max delay
+  return Math.min(config.maxDelayMs, exponentialDelay + jitter);
+}
+
+/**
+ * Sleep for a specified duration
+ * @param ms - Milliseconds to sleep
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Execute a function with retry logic and exponential backoff
+ * @param fn - Async function to execute
+ * @param config - Retry configuration
+ * @returns Result of the function
+ * @throws Last error if all retries are exhausted
+ */
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  config: RetryConfig = {},
+): Promise<T> {
+  const mergedConfig: Required<RetryConfig> = {
+    ...DEFAULT_RETRY_CONFIG,
+    ...config,
+    retryableStatusCodes: config.retryableStatusCodes ?? DEFAULT_RETRY_CONFIG.retryableStatusCodes,
+    retryableErrors: config.retryableErrors ?? DEFAULT_RETRY_CONFIG.retryableErrors,
+  };
+
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= mergedConfig.maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+
+      // Check if error is retryable
+      const isRetryableError = mergedConfig.retryableErrors(error);
+      const isRetryableStatus =
+        error instanceof Response &&
+        mergedConfig.retryableStatusCodes.includes(error.status);
+
+      if (!isRetryableError && !isRetryableStatus) {
+        throw error; // Non-retryable error, throw immediately
+      }
+
+      // Don't wait after the last attempt
+      if (attempt < mergedConfig.maxRetries) {
+        const delay = calculateBackoffDelay(attempt, mergedConfig);
+        await sleep(delay);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+/**
+ * Execute a fetch request with retry logic and exponential backoff
+ * @param url - URL to fetch
+ * @param options - Fetch options
+ * @param config - Retry configuration
+ * @returns Fetch response
+ */
+export async function fetchWithRetry(
+  url: string,
+  options: RequestInit = {},
+  config: RetryConfig = {},
+): Promise<Response> {
+  return withRetry(async () => {
+    const response = await fetch(url, options);
+    
+    if (!response.ok) {
+      // Throw error to trigger retry for non-OK responses
+      const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+      (error as any).status = response.status;
+      (error as any).response = response;
+      throw error;
+    }
+    
+    return response;
+  }, config);
+}
