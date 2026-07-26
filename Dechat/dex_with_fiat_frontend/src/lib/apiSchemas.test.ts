@@ -46,7 +46,6 @@ describe('apiSchemas - Request Retry with Exponential Backoff', () => {
         .mockRejectedValueOnce(new TypeError('Failed to fetch'))
         .mockResolvedValue('success');
 
-      const startTime = Date.now();
       const promise = withRetry(fn, { initialDelayMs: 100, maxRetries: 2 });
       
       // Advance timers for first retry

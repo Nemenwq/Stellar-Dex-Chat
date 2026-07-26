@@ -15,7 +15,8 @@ class MockEventSource {
   onerror: (() => void) | null = null;
   close = vi.fn();
 
-  constructor(_url: string) {
+  constructor(url: string) {
+    void url;
     MockEventSource.latest = this;
   }
 }

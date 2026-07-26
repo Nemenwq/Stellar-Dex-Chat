@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { AlertTriangle, WifiOff } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useToast } from '@/hooks/useToast';
 import { offlineStatusToastSchema } from '@/lib/offlineStatusSchema';
-import { subscribeToQueuedMessageCount, setQueuedMessageCount, getQueuedMessageCount } from '@/lib/offlineMessageQueue';
+import { subscribeToQueuedMessageCount } from '@/lib/offlineMessageQueue';
 
 /**
  * Offline Status Banner Component
@@ -18,7 +18,6 @@ export default function OfflineStatusBanner() {
   const { addToast } = useToast();
   const [showBanner, setShowBanner] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [pendingCount, setPendingCount] = useState(0);
   const [optimisticPendingCount, setOptimisticPendingCount] = useState(0);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const previousOnlineState = useRef<boolean>(true);
@@ -33,21 +32,8 @@ export default function OfflineStatusBanner() {
 
   useEffect(() => {
     return subscribeToQueuedMessageCount((count) => {
-      setPendingCount(count);
       setOptimisticPendingCount(count);
     });
-  }, []);
-
-  // Optimistic update: increment pending count immediately when message is queued
-  const optimisticallyIncrementPending = useCallback(() => {
-    setOptimisticPendingCount((prev: number) => prev + 1);
-    setQueuedMessageCount(getQueuedMessageCount() + 1);
-  }, []);
-
-  // Optimistic update: decrement pending count immediately when message is sent
-  const optimisticallyDecrementPending = useCallback(() => {
-    setOptimisticPendingCount((prev: number) => Math.max(0, prev - 1));
-    setQueuedMessageCount(Math.max(0, getQueuedMessageCount() - 1));
   }, []);
 
   useEffect(() => {

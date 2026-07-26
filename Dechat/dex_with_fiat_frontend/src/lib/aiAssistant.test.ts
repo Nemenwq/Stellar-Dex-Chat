@@ -240,8 +240,7 @@ describe('AIAssistant abort signal support', () => {
 
     expect(toastAddMock).toHaveBeenCalled();
     consoleErrorSpy.mockRestore();
-
-
+  });
 });
 
 /**

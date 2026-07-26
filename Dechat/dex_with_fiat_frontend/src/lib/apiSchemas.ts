@@ -53,6 +53,11 @@ export interface RetryConfig {
   retryableErrors?: (error: unknown) => boolean;
 }
 
+interface HttpError extends Error {
+  status?: number;
+  response?: Response;
+}
+
 /**
  * Default retry configuration
  */
@@ -140,8 +145,12 @@ export async function withRetry<T>(
       // Check if error is retryable
       const isRetryableError = mergedConfig.retryableErrors(error);
       const isRetryableStatus =
-        error instanceof Response &&
-        mergedConfig.retryableStatusCodes.includes(error.status);
+        error instanceof Response
+          ? mergedConfig.retryableStatusCodes.includes(error.status)
+          : error instanceof Error &&
+              mergedConfig.retryableStatusCodes.includes(
+                (error as HttpError).status ?? 0,
+              );
 
       if (!isRetryableError && !isRetryableStatus) {
         throw error; // Non-retryable error, throw immediately
@@ -175,9 +184,10 @@ export async function fetchWithRetry(
     
     if (!response.ok) {
       // Throw error to trigger retry for non-OK responses
-      const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
-      (error as any).status = response.status;
-      (error as any).response = response;
+      const error: HttpError = Object.assign(
+        new Error(`HTTP ${response.status}: ${response.statusText}`),
+        { status: response.status, response },
+      );
       throw error;
     }
     
