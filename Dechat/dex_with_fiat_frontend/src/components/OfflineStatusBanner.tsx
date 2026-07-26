@@ -30,6 +30,8 @@ export default function OfflineStatusBanner() {
     return () => clearTimeout(timer);
   }, []);
 
+  // The queue count is owned by `offlineMessageQueue` and published by
+  // `useChat` as sends are queued and drained; this component only mirrors it.
   useEffect(() => {
     return subscribeToQueuedMessageCount((count) => {
       setOptimisticPendingCount(count);
@@ -37,13 +39,20 @@ export default function OfflineStatusBanner() {
   }, []);
 
   useEffect(() => {
+    // A reconnect is either observed live (we saw the offline render) or
+    // reported after the fact by `wasOffline` — the latter happens when this
+    // banner mounts only once the connection is already back. Without the
+    // `wasOffline` arm the toast is skipped and the latch is never reset, so
+    // the hook keeps reporting a reconnect that was never announced.
+    const cameBackOnline = isOnline && (!previousOnlineState.current || wasOffline);
+
     // Optimistic UI: Show banner immediately when going offline
     if (!isOnline && previousOnlineState.current) {
       setShowBanner(true);
       setIsReconnecting(false);
     }
     // Optimistic UI: Hide banner immediately when coming back online
-    else if (isOnline && !previousOnlineState.current) {
+    else if (cameBackOnline) {
       setIsReconnecting(true);
       // Show toast when coming back online
       const toastOptions = {
@@ -68,11 +77,14 @@ export default function OfflineStatusBanner() {
         addToast(errorMessage);
       }
 
+      // Consume the latch straight away, so the reconnect is announced exactly
+      // once rather than on every subsequent render.
+      resetWasOffline();
+
       // Optimistically hide banner after short delay
       setTimeout(() => {
         setShowBanner(false);
         setIsReconnecting(false);
-        resetWasOffline();
       }, 500);
     }
 
