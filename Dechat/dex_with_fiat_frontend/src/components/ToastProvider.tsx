@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { useReducedMotion } from 'framer-motion';
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
 import { toastStore, AppToast, ToastVariant } from '@/lib/toastStore';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -17,6 +18,7 @@ interface ToastItemProps {
 
 function ToastItem({ toast, onDismiss, isDarkMode }: ToastItemProps) {
   const touchStartX = useRef(0);
+  const prefersReducedMotion = useReducedMotion();
   const touchStartTime = useRef(0);
   const [offsetX, setOffsetX] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
@@ -89,10 +91,12 @@ function ToastItem({ toast, onDismiss, isDarkMode }: ToastItemProps) {
     ? { transform: `translateX(${offsetX}px)`, opacity: Math.max(0, 1 - Math.abs(offsetX) / 300) }
     : { transform: 'translateX(0)', opacity: 1 };
 
+  const motionPreference = prefersReducedMotion ? { transition: 'none' } : {};
+
   return (
     <div
       className={getVariantStyles(toast.variant)}
-      style={swipeStyle}
+      style={{ ...swipeStyle, ...motionPreference }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -121,10 +125,13 @@ export function ToastProvider({ children }: ToastProviderProps) {
   const { isDarkMode } = useTheme();
 
   useEffect(() => {
-    const unsubscribe = toastStore.subscribe(() => {
+    const syncToasts = () => {
       const currentToasts = toastStore.getToasts();
       setToasts(currentToasts.slice(0, MAX_VISIBLE_TOASTS));
-    });
+    };
+
+    syncToasts();
+    const unsubscribe = toastStore.subscribe(syncToasts);
 
     return () => unsubscribe();
   }, []);
@@ -136,7 +143,12 @@ export function ToastProvider({ children }: ToastProviderProps) {
   return (
     <>
       {children}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm"
+      >
         {toasts.map((toast) => (
           <ToastItem
             key={toast.id}

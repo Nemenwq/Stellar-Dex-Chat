@@ -942,7 +942,14 @@ function StellarChatInterfaceContent() {
           {/* Messages */}
           <div className="flex-1 min-h-0 flex flex-col">
             {!isHydrated || (isLoading && messages.length === 0) ? (
-              <SkeletonChat />
+              <div
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                className="flex-1"
+              >
+                <SkeletonChat />
+              </div>
             ) : (
               <ErrorBoundary
                 isDarkMode={isDarkMode}
