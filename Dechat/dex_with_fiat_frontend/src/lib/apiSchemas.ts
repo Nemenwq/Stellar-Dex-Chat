@@ -30,6 +30,17 @@ export const verifyAccountSchema = z.object({
 
 export type VerifyAccountInput = z.infer<typeof verifyAccountSchema>;
 
+// Schema for the banks endpoint query string. The endpoint currently serves
+// Nigerian NUBAN banks only, so rejecting unsupported query parameters keeps
+// the public contract explicit rather than silently ignoring user input.
+export const banksQuerySchema = z
+  .object({
+    country: z.literal('nigeria').default('nigeria'),
+  })
+  .strict();
+
+export type BanksQuery = z.infer<typeof banksQuerySchema>;
+
 /**
  * Retry configuration for API requests with exponential backoff
  */

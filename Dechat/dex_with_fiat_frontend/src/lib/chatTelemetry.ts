@@ -13,7 +13,9 @@ export type ChatEventName =
   | 'bridge_open'
   | 'tx_confirm'
   | 'fiat_payout_step'
-  | 'avatar_color_check';
+  | 'avatar_color_check'
+  | 'payment_status'
+  | 'network_status';
 
 export interface ChatEvent<P extends object = Record<string, unknown>> {
   /** Normalized event name. */
@@ -78,6 +80,18 @@ export interface FiatPayoutStepPayload {
 export interface AvatarColorTelemetryPayload {
   avatarBackgroundColor: string;
   avatarTextColor?: string;
+}
+
+export interface PaymentStatusTelemetryPayload {
+  status: 'success' | 'failed' | 'reversed' | 'pending' | 'cancelled';
+  reference: string;
+  hasAmount: boolean;
+  hasFailureReason: boolean;
+}
+
+export interface NetworkStatusTelemetryPayload {
+  status: 'online' | 'offline';
+  source: 'initial' | 'browser-event' | 'connectivity-check';
 }
 
 export interface AccessibleAvatarColorTelemetryPayload
@@ -448,6 +462,14 @@ export const chatTelemetry = {
 
   fiatPayoutStep(payload: FiatPayoutStepPayload): void {
     emit('fiat_payout_step', payload);
+  },
+
+  paymentStatus(payload: PaymentStatusTelemetryPayload): void {
+    emit('payment_status', payload);
+  },
+
+  networkStatus(payload: NetworkStatusTelemetryPayload): void {
+    emit('network_status', payload);
   },
 
   /**
