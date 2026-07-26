@@ -33,7 +33,9 @@ export default function OfflineStatusBanner() {
   // The queue count is owned by `offlineMessageQueue` and published by
   // `useChat` as sends are queued and drained; this component only mirrors it.
   useEffect(() => {
-    return subscribeToQueuedMessageCount(setOptimisticPendingCount);
+    return subscribeToQueuedMessageCount((count) => {
+      setOptimisticPendingCount(count);
+    });
   }, []);
 
   useEffect(() => {

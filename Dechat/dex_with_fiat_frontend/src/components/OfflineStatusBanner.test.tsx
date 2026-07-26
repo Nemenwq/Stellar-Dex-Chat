@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import OfflineStatusBanner from './OfflineStatusBanner';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { subscribeToQueuedMessageCount } from '@/lib/offlineMessageQueue';
