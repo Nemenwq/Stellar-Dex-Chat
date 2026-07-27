@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { ChatMessage } from '@/types';
 import {
   DEFAULT_PAGE_SIZE,
@@ -18,6 +18,7 @@ export const useChatPagination = (
 ) => {
   const [visibleCount, setVisibleCount] = useState(pageSize);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reset visible count when session changes (if we had a way to detect it)
   // Actually, useChat will manage messages per session, so we just react to allMessages length decreasing
@@ -27,6 +28,16 @@ export const useChatPagination = (
       setVisibleCount(pageSize);
     }
   }, [allMessages.length, pageSize]);
+
+  // Clear pending load-more timer on unmount to prevent state updates on an unmounted component.
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, []);
 
   const visibleMessages = useMemo(() => {
     return getVisibleMessages(allMessages, visibleCount);
@@ -40,9 +51,9 @@ export const useChatPagination = (
     if (!hasMore || isLoadingMore) return;
 
     setIsLoadingMore(true);
-    
-    // Simulate a small delay for better UX (optional, but requested "loading guards")
-    setTimeout(() => {
+
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
       setVisibleCount((prev: number) => getNextMessageCount(allMessages, prev, pageSize));
       setIsLoadingMore(false);
     }, 400);
