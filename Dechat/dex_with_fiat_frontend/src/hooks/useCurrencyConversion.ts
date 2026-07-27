@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { fetchCryptoPrices } from '@/lib/cryptoPriceService';
 import { useUserPreferences } from '@/contexts/UserPreferencesContext';
 
@@ -37,6 +37,19 @@ export function useCurrencyConversion(
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
 
+  // Memory-leak fix (#1217): fetchCryptoPrices is async. Without a mounted
+  // guard, every setState call inside convertAmount would fire even after the
+  // component unmounts (e.g. navigating away mid-fetch), triggering the
+  // "Can't perform a React state update on an unmounted component" warning and
+  // leaking the closure referencing this component's state.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const getCurrencySymbolForCode = useCallback((code: string): string => {
     const symbolMap: Record<string, string> = {
       usd: '$',
@@ -69,6 +82,10 @@ export function useCurrencyConversion(
         price = cachedRate.price;
       } else {
         const prices = await fetchCryptoPrices([tokenSymbol], [fiatCurrency]);
+
+        // Guard: component may have unmounted while the fetch was in-flight.
+        if (!isMountedRef.current) return;
+
         price = prices?.[tokenSymbol.toUpperCase()]?.[fiatCurrency.toLowerCase()];
 
         if (typeof price === 'number') {
@@ -78,6 +95,8 @@ export function useCurrencyConversion(
           });
         }
       }
+
+      if (!isMountedRef.current) return;
 
       if (typeof price === 'number') {
         const converted = amount * price;
@@ -89,10 +108,13 @@ export function useCurrencyConversion(
       }
     } catch (error) {
       console.error('Currency conversion error:', error);
+      if (!isMountedRef.current) return;
       setFiatAmount(null);
       setHasError(true);
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [amount, tokenSymbol, fiatCurrency]);
 
