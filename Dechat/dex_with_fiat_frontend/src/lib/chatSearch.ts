@@ -142,9 +142,11 @@ export function searchChatHistory(
   const hasWallet = walletAddress.trim().length > 0;
   const hasDate = dateFrom.trim().length > 0 || dateTo.trim().length > 0;
 
-  // If no filters at all, return empty
+  const totalMessages = sessions.reduce((sum, s) => sum + s.messages.length, 0);
+
+  // If no filters at all, return early with accurate counts but no matches.
   if (!hasKeyword && !hasWallet && !hasDate) {
-    return { matches: [], totalSessions: sessions.length, totalMessages: 0 };
+    return { matches: [], totalSessions: sessions.length, totalMessages };
   }
 
   const matches: MessageMatch[] = [];
@@ -175,6 +177,5 @@ export function searchChatHistory(
     }
   }
 
-  const totalMessages = sessions.reduce((sum, s) => sum + s.messages.length, 0);
   return { matches, totalSessions: sessions.length, totalMessages };
 }
