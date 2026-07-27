@@ -57,4 +57,40 @@ describe('useChatPagination', () => {
     expect(result.current.visibleMessages).toHaveLength(10);
     expect(result.current.hasMore).toBe(false);
   });
+
+  it('does not update state after unmount when setTimeout fires', () => {
+    const messages = createMessages(50);
+    const { result, unmount } = renderHook(() => useChatPagination(messages, 20));
+
+    act(() => {
+      result.current.loadMore();
+    });
+
+    // Unmount before the 400ms timer fires
+    unmount();
+
+    // Advancing the timer should not throw or warn about state updates on unmounted component
+    expect(() => {
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+    }).not.toThrow();
+  });
+
+  it('isLoadingMore resets to false after loadMore completes', () => {
+    const messages = createMessages(50);
+    const { result } = renderHook(() => useChatPagination(messages, 20));
+
+    act(() => {
+      result.current.loadMore();
+    });
+
+    expect(result.current.isLoadingMore).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+
+    expect(result.current.isLoadingMore).toBe(false);
+  });
 });

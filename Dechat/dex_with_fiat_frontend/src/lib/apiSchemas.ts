@@ -30,6 +30,40 @@ export const verifyAccountSchema = z.object({
 
 export type VerifyAccountInput = z.infer<typeof verifyAccountSchema>;
 
+// Schema for the banks endpoint query string. The endpoint currently serves
+// Nigerian NUBAN banks only, so rejecting unsupported query parameters keeps
+// the public contract explicit rather than silently ignoring user input.
+export const banksQuerySchema = z
+  .object({
+    country: z.literal('nigeria').default('nigeria'),
+  })
+  .strict();
+
+export type BanksQuery = z.infer<typeof banksQuerySchema>;
+
+/**
+ * Error thrown by {@link fetchWithRetry} when the server answers with a
+ * non-OK status.
+ *
+ * Carries the status and the original `Response` as typed fields so
+ * {@link withRetry} can decide whether the status is retryable without
+ * casting. Previously these were stapled onto a plain `Error` through `any`,
+ * which left the status invisible to the retry check.
+ */
+export class HttpResponseError extends Error {
+  /** HTTP status code of the failed response. */
+  readonly status: number;
+  /** The original response, for callers that need headers or a body. */
+  readonly response: Response;
+
+  constructor(response: Response) {
+    super(`HTTP ${response.status}: ${response.statusText}`);
+    this.name = 'HttpResponseError';
+    this.status = response.status;
+    this.response = response;
+  }
+}
+
 /**
  * Retry configuration for API requests with exponential backoff
  */
@@ -40,6 +74,11 @@ export interface RetryConfig {
   backoffMultiplier?: number;
   retryableStatusCodes?: number[];
   retryableErrors?: (error: unknown) => boolean;
+}
+
+interface HttpError extends Error {
+  status?: number;
+  response?: Response;
 }
 
 /**
@@ -126,11 +165,21 @@ export async function withRetry<T>(
     } catch (error) {
       lastError = error;
 
+      // An aborted request must never be retried, whatever the caller's
+      // `retryableErrors` says — the caller asked us to stop.
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw error;
+      }
+
       // Check if error is retryable
       const isRetryableError = mergedConfig.retryableErrors(error);
       const isRetryableStatus =
-        error instanceof Response &&
-        mergedConfig.retryableStatusCodes.includes(error.status);
+        error instanceof Response
+          ? mergedConfig.retryableStatusCodes.includes(error.status)
+          : error instanceof Error &&
+              mergedConfig.retryableStatusCodes.includes(
+                (error as HttpError).status ?? 0,
+              );
 
       if (!isRetryableError && !isRetryableStatus) {
         throw error; // Non-retryable error, throw immediately
@@ -164,9 +213,10 @@ export async function fetchWithRetry(
     
     if (!response.ok) {
       // Throw error to trigger retry for non-OK responses
-      const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
-      (error as any).status = response.status;
-      (error as any).response = response;
+      const error: HttpError = Object.assign(
+        new Error(`HTTP ${response.status}: ${response.statusText}`),
+        { status: response.status, response },
+      );
       throw error;
     }
     

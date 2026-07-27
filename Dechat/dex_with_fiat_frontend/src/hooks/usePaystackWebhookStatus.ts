@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useToast } from '@/hooks/useToast';
 import { getOrCreateClientSessionId } from '@/lib/clientSession';
+import { chatTelemetry } from '@/lib/chatTelemetry';
 
 interface PaymentStatusStreamEvent {
   reference: string;
@@ -33,6 +34,12 @@ export function usePaystackWebhookStatus() {
     eventSource.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data) as PaymentStatusStreamEvent;
+        chatTelemetry.paymentStatus({
+          status: payload.status,
+          reference: payload.reference,
+          hasAmount: typeof payload.amount === 'number',
+          hasFailureReason: Boolean(payload.failureReason),
+        });
         if (payload.status === 'success') {
           addToast({
             message: 'Payment confirmed!',
