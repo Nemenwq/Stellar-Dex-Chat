@@ -1805,6 +1805,74 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Sets the anti-sandwich delay in ledgers for deposit operations.
+    ///
+    /// This function configures a minimum delay between consecutive deposits
+    /// from the same address to prevent sandwich attacks. When enabled, users
+    /// must wait the specified number of ledgers before making another deposit.
+    ///
+    /// The anti-sandwich mechanism is a protection measure that limits the rate
+    /// at which a single address can submit deposits, making it more difficult
+    /// for attackers to sandwich legitimate transactions with their own.
+    ///
+    /// Only the current admin can call this function. Setting the delay to `0`
+    /// disables the anti-sandwich protection entirely.
+    ///
+    /// # Parameters
+    ///
+    /// - `ledgers` — the minimum number of ledgers that must pass between
+    ///   consecutive deposits from the same address. A value of `0` disables
+    ///   the protection. Typical values range from a few dozen to a few hundred
+    ///   ledgers (each ledger is approximately 5 seconds on Stellar).
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` — the anti-sandwich delay was successfully updated.
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotInitialized`] — the contract has not been initialized.
+    /// - [`Error::Unauthorized`] — the caller is not the current admin.
+    ///
+    /// # Notes
+    ///
+    /// - The delay is stored in instance storage under [`DataKey::AntiSandwichDelay`].
+    /// - The last deposit ledger for each user is tracked in temporary storage.
+    /// - During deposit, the contract checks if the current ledger is less than
+    ///   `last_deposit_ledger + anti_sandwich_delay` and returns
+    ///   [`Error::AntiSandwichDelayActive`] if the delay has not elapsed.
+    /// - This protection is independent of the general cooldown mechanism
+    ///   configured by [`FiatBridge::set_cooldown`].
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Set anti-sandwich delay to 100 ledgers (~8 minutes).
+    /// bridge.set_anti_sandwich_delay(&100).expect("admin only");
+    ///
+    /// // Verify the delay was set.
+    /// assert_eq!(bridge.get_anti_sandwich_delay(), 100);
+    ///
+    /// // First deposit succeeds.
+    /// bridge.deposit(&user, &100, &token, &Bytes::new(&env), &0, &0, &None);
+    ///
+    /// // Second deposit immediately fails with AntiSandwichDelayActive.
+    /// let result = bridge.try_deposit(&user, &100, &token, &Bytes::new(&env), &0, &0, &None);
+    /// assert_eq!(result, Err(Error::AntiSandwichDelayActive));
+    ///
+    /// // Disable the protection.
+    /// bridge.set_anti_sandwich_delay(&0).expect("admin only");
+    /// assert_eq!(bridge.get_anti_sandwich_delay(), 0);
+    /// ```
+    ///
+    /// # Cross-references
+    ///
+    /// - [`FiatBridge::get_anti_sandwich_delay`] — retrieves the current delay value
+    /// - [`FiatBridge::set_cooldown`] — sets the general deposit cooldown
+    /// - [`FiatBridge::deposit`] — enforces this delay during deposit operations
+    /// - [`DataKey::AntiSandwichDelay`] — storage key for this value
+    /// - [`DataKey::LastDeposit`] — storage key tracking last deposit per user
+    /// - [`Error::AntiSandwichDelayActive`] — error when delay has not elapsed
     pub fn set_anti_sandwich_delay(env: Env, ledgers: u32) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -1852,6 +1920,59 @@ impl FiatBridge {
     }
 
     // ── Fiat Limits & Oracle ──────────────────────────────────────────────
+    /// Sets the oracle contract address for fiat price validation.
+    ///
+    /// This function configures the oracle address used by the contract to
+    /// obtain token prices in USD cents for fiat limit enforcement. The oracle
+    /// is called during deposit operations to validate that the fiat value of
+    /// deposits does not exceed configured limits.
+    ///
+    /// Only the current admin can call this function. The oracle address can
+    /// be updated at any time by the admin, allowing for oracle migration or
+    /// replacement as needed.
+    ///
+    /// # Parameters
+    ///
+    /// - `oracle` — the address of the oracle contract that provides price feeds.
+    ///   This address must implement the expected oracle interface for price
+    ///   queries.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` — the oracle address was successfully updated.
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotInitialized`] — the contract has not been initialized.
+    /// - [`Error::Unauthorized`] — the caller is not the current admin.
+    ///
+    /// # Notes
+    ///
+    /// - The oracle address is stored in instance storage.
+    /// - Setting an invalid oracle address will cause subsequent deposits to
+    ///   fail with [`Error::OracleNotSet`] or [`Error::OraclePriceInvalid`].
+    /// - This function does not validate that the oracle address is a valid
+    ///   contract or that it implements the required interface.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Set the oracle address.
+    /// let oracle_addr = Address::from_string(&soroban_sdk::String::from_str(&env, "G..."));
+    /// bridge.set_oracle(&oracle_addr).expect("admin only");
+    ///
+    /// // Verify the oracle was set.
+    /// let stored_oracle = bridge.get_config_snapshot().unwrap().oracle;
+    /// assert_eq!(stored_oracle, Some(oracle_addr));
+    /// ```
+    ///
+    /// # Cross-references
+    ///
+    /// - [`FiatBridge::set_fiat_limit`] — sets the fiat limit enforced using oracle prices
+    /// - [`FiatBridge::validate_fiat_limit`] — internal function that uses the oracle
+    /// - [`DataKey::Oracle`] — storage key for this value
+    /// - [`Error::OracleNotSet`] — error when oracle is not configured
+    /// - [`Error::OraclePriceInvalid`] — error when oracle returns invalid price
     pub fn set_oracle(env: Env, oracle: Address) -> Result<(), Error> {
         let admin: Address = env
             .storage()
