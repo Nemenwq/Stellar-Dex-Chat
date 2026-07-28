@@ -3310,6 +3310,72 @@ impl FiatBridge {
         env.storage().persistent().get(&DataKey::EscrowRecord(id))
     }
 
+    /// Returns the current position of the receipt→escrow migration.
+    ///
+    /// This function reports how many receipt positions have been successfully
+    /// migrated to persistent [`EscrowRecord`] entries by [`FiatBridge::migrate_escrow`].
+    /// The cursor is a monotonically increasing counter that starts at `0` and
+    /// advances as migration progresses.
+    ///
+    /// This is the primary way for indexers, dashboards, and off-chain services
+    /// to track migration progress and determine which escrow records are available
+    /// for enumeration via [`FiatBridge::get_escrow_record`].
+    ///
+    /// # Parameters
+    ///
+    /// None. This is a read-only view function that requires no arguments.
+    ///
+    /// # Returns
+    ///
+    /// - `u64` — the current migration cursor value. This represents the number
+    ///   of receipt positions that have been migrated. All escrow records with
+    ///   ids in the range `0..cursor` are guaranteed to exist (unless evicted).
+    ///   Returns `0` if migration has not started or the cursor was never set.
+    ///
+    /// # Errors
+    ///
+    /// None. This function cannot fail: it performs a simple storage read and
+    /// returns a default value (`0`) if the cursor has never been initialized.
+    /// No authentication is required and no state is mutated.
+    ///
+    /// # Notes
+    ///
+    /// - The cursor is stored in instance storage and persists across contract
+    ///   invocations.
+    /// - When the cursor equals the receipt counter, migration is considered
+    ///   complete and [`FiatBridge::get_escrow_storage_version`] is updated.
+    /// - This function is safe to call from a simulation context since it requires
+    ///   no auth and mutates no state.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Initially, no migration has occurred.
+    /// assert_eq!(bridge.get_migration_cursor(), 0);
+    ///
+    /// // Deposit some receipts.
+    /// bridge.deposit(&user, &100, &token, &Bytes::new(&env), &0, &0, &None);
+    /// bridge.deposit(&user, &250, &token, &Bytes::new(&env), &0, &0, &None);
+    ///
+    /// // Migrate up to 10 receipts.
+    /// let migrated = bridge.migrate_escrow(&10);
+    /// assert_eq!(migrated, 2);
+    ///
+    /// // Cursor now reflects the 2 migrated positions.
+    /// assert_eq!(bridge.get_migration_cursor(), 2);
+    ///
+    /// // Escrow records 0 and 1 are now available.
+    /// assert!(bridge.get_escrow_record(&0).is_some());
+    /// assert!(bridge.get_escrow_record(&1).is_some());
+    /// assert!(bridge.get_escrow_record(&2).is_none()); // Beyond cursor
+    /// ```
+    ///
+    /// # Cross-references
+    ///
+    /// - [`FiatBridge::migrate_escrow`] — advances this cursor
+    /// - [`FiatBridge::get_escrow_record`] — reads records using this cursor
+    /// - [`FiatBridge::get_escrow_storage_version`] — indicates migration completion
+    /// - [`DataKey::EscrowMigrationCursor`] — storage key for this value
     pub fn get_migration_cursor(env: Env) -> u64 {
         env.storage()
             .instance()
