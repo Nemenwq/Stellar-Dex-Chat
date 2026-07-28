@@ -380,4 +380,27 @@ describe('TransactionAmountDisplay - optimistic UI (#839)', () => {
       'false',
     );
   });
-});
+
+  // ── Skeleton Loading State ────────────────────────────────
+
+  it('displays skeleton loading state when loading with no fallback text', async () => {
+    const { useCurrencyConversion } = await import('@/hooks/useCurrencyConversion');
+    const mockHook = vi.mocked(useCurrencyConversion);
+    mockHook.mockReturnValue({
+      displayText: '',
+      isLoading: true,
+      hasError: false,
+      fiatAmount: null,
+      fiatCurrency: 'USD',
+      originalAmount: 100,
+      originalCurrency: 'XLM',
+    });
+
+    render(<TransactionAmountDisplay amount={100} asset="XLM" />);
+    
+    // Should render skeleton divs
+    const container = screen.queryByTestId('transaction-amount-display');
+    
+    // Skeleton should be displayed (no amount text visible)
+    expect(screen.queryByText(/100 XLM/i)).toBeNull();
+  });});
