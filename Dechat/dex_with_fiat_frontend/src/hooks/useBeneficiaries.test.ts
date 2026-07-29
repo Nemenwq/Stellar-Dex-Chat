@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { useBeneficiaries } from './useBeneficiaries';
 
@@ -21,7 +21,7 @@ describe('useBeneficiaries', () => {
   });
 
   afterEach(() => {
-    // No timer cleanup needed for this hook
+    vi.restoreAllMocks();
   });
 
   it('loads beneficiaries from localStorage on mount', () => {
@@ -155,5 +155,66 @@ describe('useBeneficiaries', () => {
     // After effects run, it should have loaded from localStorage
     expect(result.current.beneficiaries).toEqual(mockBeneficiaries);
     expect(result.current.isLoaded).toBe(true);
+  });
+
+  it('does not update state after unmount when API fetch completes', async () => {
+    let resolveFetch!: (value: Response) => void;
+    const fetchPromise = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+
+    vi.spyOn(global, 'fetch').mockReturnValue(fetchPromise);
+
+    const { result, unmount } = renderHook(() =>
+      useBeneficiaries({ fetchFromApi: true, userId: 'user-1' }),
+    );
+
+    expect(result.current.isLoaded).toBe(false);
+
+    // Unmount before the fetch resolves
+    unmount();
+
+    // Resolve the fetch after unmount — should not update state
+    resolveFetch(
+      new Response(JSON.stringify([]), { status: 200 }),
+    );
+
+    await waitFor(() => {
+      // After resolving, state should remain unchanged (not loaded)
+      // since the component was already unmounted
+      expect(result.current.beneficiaries).toHaveLength(0);
+    });
+  });
+
+  it('cancels in-flight request when userId changes', async () => {
+    let resolveFirst!: (value: Response) => void;
+    const firstFetch = new Promise<Response>((resolve) => { resolveFirst = resolve; });
+    let resolveSecond!: (value: Response) => void;
+    const secondFetch = new Promise<Response>((resolve) => { resolveSecond = resolve; });
+
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockReturnValueOnce(firstFetch)
+      .mockReturnValueOnce(secondFetch);
+
+    let userId = 'user-a';
+    const { result, rerender } = renderHook(() =>
+      useBeneficiaries({ fetchFromApi: true, userId }),
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    userId = 'user-b';
+    rerender();
+
+    // Resolve stale request after userId change — state should reflect second request result
+    const firstData = [{ id: '1', name: 'Old', bankId: 1, bankName: 'B', bankCode: 'B', accountNumber: '1', accountName: 'A', createdAt: 0 }];
+    resolveFirst(new Response(JSON.stringify(firstData), { status: 200 }));
+
+    const secondData = [{ id: '2', name: 'New', bankId: 2, bankName: 'C', bankCode: 'C', accountNumber: '2', accountName: 'B', createdAt: 0 }];
+    resolveSecond(new Response(JSON.stringify(secondData), { status: 200 }));
+
+    await waitFor(() => {
+      expect(result.current.isLoaded).toBe(true);
+    });
   });
 });

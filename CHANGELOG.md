@@ -203,6 +203,11 @@ All notable changes to this project will be documented in this file.
 - **frontend:** Add live-region announcements to ToastProvider
 - **frontend:** Add skeleton loading state to StellarChatInterface
 - **frontend:** Add ARIA live-region announcements to BankDetailsModal
+- **frontend:** Harden banks API and instrument status telemetry
+- **frontend:** Add optimistic UI loading state to ReceiptQrCode
+- **frontend:** Add accessibility and loading states
+- **frontend:** Add skeleton loading states to TransactionAmountDisplay and StellarFiatModal
+- **frontend:** Add structured telemetry and retry helpers for notifications, pagination, CCIP explorer, and audit log
 
 ### Fixed
 
@@ -413,6 +418,17 @@ All notable changes to this project will be documented in this file.
 - All 6 remaining test failures - events, circuit breaker threshold, operator guards
 - **ci:** Repair clippy, changelog, WASM size gate and auto-merge
 - **ci:** Unbreak contract build on current stable and drop git-cliff-action
+- **frontend:** Race conditions in useChatHistory/useChatPerformance and memory leaks in useCurrencyConversion/useEffectiveDarkMode
+- **frontend:** Resolve stale closure in chatSearch.ts debounce
+- **frontend:** Prevent memory leak in useIdempotentAction.ts
+- **frontend:** Resolve stale closure in chatHistory updateCurrentSession
+- **frontend:** Prevent memory leak from uncleaned storage listener in useFeatureFlag
+- Resolve race conditions and add toast telemetry (#1209, #1211, #1212, #1214)
+- **ChatInput:** Allow combined aria-describedby IDs in rapid click accessibility test
+- **frontend:** Remove stale import from chat interface
+- **frontend:** Correct totalMessages count when no search filters are active
+- Verify-account error handling, webhook error handling, stale closure, EventSource leak
+- Resolve stale closures, memory leak, and add split-view telemetry
 
 ### Changed
 
@@ -523,6 +539,15 @@ All notable changes to this project will be documented in this file.
 - Improve circuit breaker inline docs
 - Fix circuit breaker guide spacing
 - **changelog:** Update changelog [skip ci]
+- **changelog:** Update changelog [skip ci]
+- **changelog:** Update changelog [skip ci]
+- **changelog:** Update changelog [skip ci]
+- **dx:** Pin all GitHub Actions to commit SHAs
+- **changelog:** Update changelog [skip ci]
+- **changelog:** Update changelog [skip ci]
+- Improve inline documentation for get_migration_cursor
+- Improve inline documentation for set_anti_sandwich_delay
+- Improve inline documentation for env.ts
 - **changelog:** Update changelog [skip ci]
 - **changelog:** Update changelog [skip ci]
 

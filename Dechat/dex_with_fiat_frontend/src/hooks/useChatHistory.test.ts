@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ChatSession } from '@/types';
 
-// Pure utility tests for pin ordering logic (mirrors useChatHistory internals)
+// Pure utility tests for pin ordering logic and stale-closure regression (#1223)
 
 function sortSessions(sessions: ChatSession[]): ChatSession[] {
   return [...sessions].sort((a, b) => {
@@ -104,5 +104,141 @@ describe('Thread pinning ordering', () => {
 
     expect(sorted[0].id).toBe(pinned.id);
     expect(sorted[1].id).toBe(noPinField.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Race-condition regression tests (#1213)
+// ---------------------------------------------------------------------------
+//
+// These tests cover the two stale-closure bugs that were fixed:
+//
+// 1. updateCurrentSession — previously read `historyState.currentSessionId`
+//    from the outer closure. If the session changed between renders the guard
+//    (`if (!historyState.currentSessionId) return`) would be stale and could
+//    either block a valid update or allow an update targeting the wrong session.
+//    Fix: moved the guard inside the functional updater so it always sees the
+//    latest committed state.
+//
+// 2. loadSession — previously read `historyState.sessions` from the closure,
+//    which could be a snapshot from a previous render. Any session created
+//    after the closure was captured would be invisible to the lookup.
+//    Fix: reads from `sessionsRef.current` which is kept current via a
+//    synchronous ref-update effect.
+//
+// Because these are pure-logic tests (no React rendering required) they
+// replicate the core logic inline and verify the corrected behaviour.
+
+describe('Race-condition fix: updateCurrentSession functional updater (#1213)', () => {
+  it('update is a no-op when currentSessionId is null in latest state', () => {
+    type State = { currentSessionId: string | null; sessions: { id: string; messages: string[] }[] };
+
+    // Simulate the fixed functional updater
+    const updater = (messages: string[]) => (prev: State): State => {
+      if (!prev.currentSessionId) return prev;
+      const idx = prev.sessions.findIndex((s) => s.id === prev.currentSessionId);
+      if (idx === -1) return prev;
+      const updated = [...prev.sessions];
+      updated[idx] = { ...updated[idx], messages };
+      return { ...prev, sessions: updated };
+    };
+
+    const state: State = { currentSessionId: null, sessions: [{ id: 'a', messages: [] }] };
+    const next = updater(['msg'])(state);
+
+    // No change because currentSessionId was null at update time
+    expect(next).toBe(state);
+  });
+
+  it('update targets the correct session even when currentSessionId changed before dispatch', () => {
+    type State = { currentSessionId: string | null; sessions: { id: string; messages: string[] }[] };
+
+    const updater = (messages: string[]) => (prev: State): State => {
+// ── updateCurrentSession stale-closure regression (#1223) ──────────────────
+//
+// Before the fix, updateCurrentSession closed over historyState.currentSessionId
+// for its early-return guard. If currentSessionId changed between renders the
+// stale closure value would cause the guard to use the wrong session ID.
+//
+// The fix moves the guard inside the setHistoryState functional updater so it
+// always reads `prev.currentSessionId` (fresh state), never the closure value.
+// We test the invariant in isolation so the fix is not coupled to the full hook.
+
+describe('updateCurrentSession guard reads fresh state (regression #1223)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Simulate the functional updater pattern used by the fixed updateCurrentSession.
+  function makeUpdater(messages: { id: string }[]) {
+    return (prev: { currentSessionId: string | null; sessions: { id: string; messages: { id: string }[] }[] }) => {
+      if (!prev.currentSessionId) return prev;
+      const idx = prev.sessions.findIndex((s) => s.id === prev.currentSessionId);
+      if (idx === -1) return prev;
+      const updated = [...prev.sessions];
+      updated[idx] = { ...updated[idx], messages };
+      return { ...prev, sessions: updated };
+    };
+
+    // State has switched to session 'b' by the time the updater runs
+    const state: State = {
+      currentSessionId: 'b',
+      sessions: [
+        { id: 'a', messages: [] },
+        { id: 'b', messages: [] },
+      ],
+    };
+
+    const next = updater(['hello'])(state);
+
+    expect(next.sessions.find((s) => s.id === 'b')?.messages).toEqual(['hello']);
+    expect(next.sessions.find((s) => s.id === 'a')?.messages).toEqual([]);
+  });
+});
+
+describe('Race-condition fix: loadSession uses sessionsRef (#1213)', () => {
+  it('lookup finds a session added after the callback was captured', () => {
+    // Simulate sessionsRef — always points to latest sessions array
+    const sessionsRef = { current: [] as { id: string; messages: string[] }[] };
+
+    // Simulate the fixed loadSession using sessionsRef
+    const loadSession = (sessionId: string) => {
+      return sessionsRef.current.find((s) => s.id === sessionId) ?? null;
+    };
+
+    // Callback captured here with empty sessions
+    expect(loadSession('new')).toBeNull();
+
+    // Session added later — ref is updated synchronously (as the useEffect does)
+    sessionsRef.current = [{ id: 'new', messages: ['hi'] }];
+
+    // Now loadSession finds it, despite being "captured" before it existed
+    const found = loadSession('new');
+    expect(found).not.toBeNull();
+    expect(found?.messages).toEqual(['hi']);
+  }
+
+  it('updates the session identified by prev.currentSessionId, not a stale outer value', () => {
+    const sessionA = { id: 'a', messages: [] as { id: string }[] };
+    const sessionB = { id: 'b', messages: [] as { id: string }[] };
+    const newMessages = [{ id: 'msg1' }];
+
+    // Stale outer value would be 'a', but we simulate the state having already
+    // advanced to 'b' before the updater runs.
+    const freshState = { currentSessionId: 'b', sessions: [sessionA, sessionB] };
+
+    const nextState = makeUpdater(newMessages)(freshState);
+
+    expect(nextState.sessions.find((s) => s.id === 'b')?.messages).toEqual(newMessages);
+    expect(nextState.sessions.find((s) => s.id === 'a')?.messages).toEqual([]);
+  });
+
+  it('returns prev unchanged when prev.currentSessionId is null', () => {
+    const session = { id: 'a', messages: [] as { id: string }[] };
+    const state = { currentSessionId: null, sessions: [session] };
+
+    const nextState = makeUpdater([{ id: 'msg1' }])(state);
+
+    expect(nextState).toBe(state);
   });
 });

@@ -149,7 +149,12 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
       initial={shouldAnimate ? "initial" : false}
       animate="animate"
       variants={variants}
-      className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-8`}
+      role="group"
+      tabIndex={0}
+      aria-label={`${isUser ? 'Your' : 'Assistant'} message`}
+      aria-keyshortcuts={hasError ? 'R' : undefined}
+      onKeyDown={handleMessageKeyDown}
+      className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-8 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent`}
     >
       <div className={`max-w-[80%] ${isUser ? 'order-2' : 'order-1'}`}>
         {/* Avatar */}
@@ -187,7 +192,7 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
               <div className="whitespace-pre-wrap break-words min-h-[20px] flex items-center">
                 {isPending ? (
                   <div className="flex items-center space-x-2 text-gray-400">
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Loader2 className={`w-4 h-4 ${shouldReduceMotion ? '' : 'animate-spin'}`} />
                     <span className="text-sm italic">{t('common.loading')}</span>
                   </div>
                 ) : isUser ? (
@@ -444,6 +449,7 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
                           value={message.metadata.transactionData.transactionId}
                           className="flex-shrink-0 p-0.5"
                           iconClassName="w-3 h-3"
+                          ariaLabel="Copy transaction ID"
                         />
                       </div>
                     </div>
@@ -461,6 +467,7 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
                           value={message.metadata.transactionData.txHash}
                           className="flex-shrink-0 p-0.5"
                           iconClassName="w-3 h-3"
+                          ariaLabel="Copy transaction hash"
                         />
                       </div>
                     </div>
@@ -478,6 +485,7 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
                           value={message.metadata.transactionData.receiptId}
                           className="flex-shrink-0 p-0.5"
                           iconClassName="w-3 h-3"
+                          ariaLabel="Copy receipt ID"
                         />
                       </div>
                     </div>
