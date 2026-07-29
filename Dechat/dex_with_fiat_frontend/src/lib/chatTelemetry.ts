@@ -15,7 +15,8 @@ export type ChatEventName =
   | 'fiat_payout_step'
   | 'avatar_color_check'
   | 'payment_status'
-  | 'network_status';
+  | 'network_status'
+  | 'split_view';
 
 export interface ChatEvent<P extends object = Record<string, unknown>> {
   /** Normalized event name. */
@@ -92,6 +93,21 @@ export interface PaymentStatusTelemetryPayload {
 export interface NetworkStatusTelemetryPayload {
   status: 'online' | 'offline';
   source: 'initial' | 'browser-event' | 'connectivity-check';
+}
+
+/** Split-view (two-thread comparison panel) interactions. */
+export type SplitViewTelemetryAction =
+  | 'open'
+  | 'close'
+  | 'set_left_session'
+  | 'set_right_session'
+  | 'swap_sessions'
+  | 'select_message';
+
+export interface SplitViewTelemetryPayload {
+  action: SplitViewTelemetryAction;
+  leftSessionId?: string | null;
+  rightSessionId?: string | null;
 }
 
 export interface AccessibleAvatarColorTelemetryPayload
@@ -475,6 +491,17 @@ export const chatTelemetry = {
 
   networkStatus(payload: NetworkStatusTelemetryPayload): void {
     emit('network_status', payload);
+  },
+
+  /**
+   * Emit a `split_view` event recording an interaction with the two-thread
+   * comparison panel (open/close/swap/session-select). Issue #1208: gives
+   * product/analytics visibility into how often split view is used and
+   * which actions are most common, using the same consent-gated, batched
+   * `chatTelemetry` pipeline as every other chat event.
+   */
+  splitView(payload: SplitViewTelemetryPayload): void {
+    emit('split_view', payload);
   },
 
   /**

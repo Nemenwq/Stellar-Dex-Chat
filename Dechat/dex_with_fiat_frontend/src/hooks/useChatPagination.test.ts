@@ -77,6 +77,39 @@ describe('useChatPagination', () => {
     }).not.toThrow();
   });
 
+  it('regression: uses the latest messages/pageSize when the pending timer fires, not the stale closure from when loadMore was called', () => {
+    const initialMessages = createMessages(30);
+    const { result, rerender } = renderHook(
+      ({ messages, pageSize }) => useChatPagination(messages, pageSize),
+      { initialProps: { messages: initialMessages, pageSize: 20 } },
+    );
+
+    expect(result.current.visibleMessages).toHaveLength(20);
+
+    act(() => {
+      result.current.loadMore();
+    });
+
+    // Before the 400ms timer fires, several new messages arrive and the
+    // list grows from 30 to 45. `getNextMessageCount` caps the next visible
+    // count at the *total* message count it's given. A stale closure over
+    // the original 30-message array would wrongly cap the next count at 30
+    // (min(20 + 20, 30) = 30) even though 45 messages are now available -
+    // under-showing 10 messages the user should be able to see immediately.
+    const grownMessages = createMessages(45);
+    rerender({ messages: grownMessages, pageSize: 20 });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    // Correct: min(20 + 20, 45) = 40, computed against the *current*
+    // message list at the time the timer fires - not the stale 30-message
+    // list captured when loadMore() was called.
+    expect(result.current.visibleMessages).toHaveLength(40);
+    expect(result.current.visibleMessages[39].id).toBe('45');
+  });
+
   it('isLoadingMore resets to false after loadMore completes', () => {
     const messages = createMessages(50);
     const { result } = renderHook(() => useChatPagination(messages, 20));
