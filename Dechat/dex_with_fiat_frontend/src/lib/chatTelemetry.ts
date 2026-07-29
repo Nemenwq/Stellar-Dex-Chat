@@ -15,7 +15,8 @@ export type ChatEventName =
   | 'fiat_payout_step'
   | 'avatar_color_check'
   | 'payment_status'
-  | 'network_status';
+  | 'network_status'
+  | 'split_view';
 
 export interface ChatEvent<P extends object = Record<string, unknown>> {
   /** Normalized event name. */
@@ -404,6 +405,8 @@ function emit<P extends object>(
   payload: P,
 ): void {
   try {
+    // Early-exit on the synchronous path to avoid building the event object
+    // when consent is clearly absent at call time.
     if (!getTelemetryConsent()) return;
 
     const normalizedPayload =
@@ -418,10 +421,13 @@ function emit<P extends object>(
       payload: normalizedPayload as Record<string, unknown>,
     };
 
-    // Fix rendering overflow: defer event dispatch to prevent blocking renders
+    // Fix rendering overflow: defer event dispatch to prevent blocking renders.
+    // #1226: Re-check consent inside the rAF callback to close the stale-closure
+    // window — consent may have been revoked between emit() and the next frame.
     if (typeof window !== 'undefined') {
       requestAnimationFrame(() => {
         try {
+          if (!getTelemetryConsent()) return;
           window.dispatchEvent(
             new CustomEvent('chat:telemetry', { detail: event }),
           );
