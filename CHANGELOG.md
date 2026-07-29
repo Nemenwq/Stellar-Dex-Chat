@@ -573,6 +573,8 @@ All notable changes to this project will be documented in this file.
 - Improve inline documentation for offlineMessageQueue
 - **changelog:** Update changelog [skip ci]
 - **changelog:** Update changelog [skip ci]
+- **changelog:** Update changelog [skip ci]
+- **readme:** Document invariant test suites and repo conventions
 
 ### Deprecated
 
