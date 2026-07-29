@@ -125,9 +125,6 @@ describe('Thread pinning ordering', () => {
 //    after the closure was captured would be invisible to the lookup.
 //    Fix: reads from `sessionsRef.current` which is kept current via a
 //    synchronous ref-update effect.
-//
-// Because these are pure-logic tests (no React rendering required) they
-// replicate the core logic inline and verify the corrected behaviour.
 
 describe('Race-condition fix: updateCurrentSession functional updater (#1213)', () => {
   it('update is a no-op when currentSessionId is null in latest state', () => {
@@ -202,8 +199,10 @@ describe('Race-condition fix: loadSession uses sessionsRef (#1213)', () => {
     // Callback captured here with empty sessions
     expect(loadSession('new')).toBeNull();
 
-    // Session added later — ref is updated synchronously (as the useEffect does)
-    sessionsRef.current = [{ id: 'new', messages: ['hi'] }];
+describe('updateCurrentSession guard reads fresh state (regression #1223)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
     // Now loadSession finds it, despite being "captured" before it existed
     const found = loadSession('new');
@@ -233,5 +232,28 @@ describe('Race-condition fix: loadSession uses sessionsRef (#1213)', () => {
     const nextState = makeUpdater([{ id: 'msg1' }])(state);
 
     expect(nextState).toBe(state);
+  });
+});
+
+describe('Race-condition fix: loadSession uses sessionsRef (#1213)', () => {
+  it('lookup finds a session added after the callback was captured', () => {
+    // Simulate sessionsRef — always points to latest sessions array
+    const sessionsRef = { current: [] as { id: string; messages: string[] }[] };
+
+    // Simulate the fixed loadSession using sessionsRef
+    const loadSession = (sessionId: string) => {
+      return sessionsRef.current.find((s) => s.id === sessionId) ?? null;
+    };
+
+    // Callback captured here with empty sessions
+    expect(loadSession('new')).toBeNull();
+
+    // Session added later — ref is updated synchronously (as the useEffect does)
+    sessionsRef.current = [{ id: 'new', messages: ['hi'] }];
+
+    // Now loadSession finds it, despite being "captured" before it existed
+    const found = loadSession('new');
+    expect(found).not.toBeNull();
+    expect(found?.messages).toEqual(['hi']);
   });
 });
