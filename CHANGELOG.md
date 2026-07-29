@@ -204,6 +204,9 @@ All notable changes to this project will be documented in this file.
 - **frontend:** Add skeleton loading state to StellarChatInterface
 - **frontend:** Add ARIA live-region announcements to BankDetailsModal
 - **frontend:** Harden banks API and instrument status telemetry
+- **frontend:** Harden banks API and instrument status telemetry
+- **frontend:** Harden banks API and instrument status telemetry
+- **frontend:** Harden banks API and instrument status telemetry
 - **frontend:** Add optimistic UI loading state to ReceiptQrCode
 - **frontend:** Add accessibility and loading states
 - **frontend:** Add skeleton loading states to TransactionAmountDisplay and StellarFiatModal
@@ -418,6 +421,7 @@ All notable changes to this project will be documented in this file.
 - All 6 remaining test failures - events, circuit breaker threshold, operator guards
 - **ci:** Repair clippy, changelog, WASM size gate and auto-merge
 - **ci:** Unbreak contract build on current stable and drop git-cliff-action
+- Add request
 - **frontend:** Race conditions in useChatHistory/useChatPerformance and memory leaks in useCurrencyConversion/useEffectiveDarkMode
 - **frontend:** Resolve stale closure in chatSearch.ts debounce
 - **frontend:** Prevent memory leak in useIdempotentAction.ts
@@ -429,6 +433,8 @@ All notable changes to this project will be documented in this file.
 - **frontend:** Correct totalMessages count when no search filters are active
 - Verify-account error handling, webhook error handling, stale closure, EventSource leak
 - Resolve stale closures, memory leak, and add split-view telemetry
+- **hooks:** Remove duplicate setHistoryState call in updateCurrentSession
+- Worked on CLI
 - **ci:** Post WASM size report via workflow_run, not pull_request
 - Remove duplicate setHistoryState call in useChatHistory
 - Resolve CI typecheck, lint, and test parse errors across 5 files
@@ -565,6 +571,7 @@ All notable changes to this project will be documented in this file.
 - Improve inline documentation for draftUtils
 - Improve inline documentation for messageUtils
 - Improve inline documentation for offlineMessageQueue
+- **changelog:** Update changelog [skip ci]
 
 ### Deprecated
 
