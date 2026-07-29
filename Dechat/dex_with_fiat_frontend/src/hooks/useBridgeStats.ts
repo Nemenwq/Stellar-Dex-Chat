@@ -37,6 +37,7 @@ export default function useBridgeStats(): BridgeStats {
   const [fetchCount, setFetchCount] = useState(0);
   const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null);
   const isMountedRef = useRef(true);
+  const fetchIdRef = useRef(0);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -48,6 +49,7 @@ export default function useBridgeStats(): BridgeStats {
 
   const refetchStats = useCallback(async () => {
     if (!isMountedRef.current) return;
+    const fetchId = ++fetchIdRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -56,7 +58,7 @@ export default function useBridgeStats(): BridgeStats {
         getBridgeLimit(),
         getTotalDeposited(),
       ]);
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || fetchId !== fetchIdRef.current) return;
       setBalance(b);
       setLimit(l);
       setTotalDeposited(t);
@@ -64,12 +66,12 @@ export default function useBridgeStats(): BridgeStats {
       setLastFetchedAt(new Date());
       dispatchTelemetry('bridge_stats_fetch_success', { balance: b, limit: l });
     } catch (err) {
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || fetchId !== fetchIdRef.current) return;
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
       dispatchTelemetry('bridge_stats_fetch_error', { error: msg });
     } finally {
-      if (isMountedRef.current) setLoading(false);
+      if (isMountedRef.current && fetchId === fetchIdRef.current) setLoading(false);
     }
   }, []);
 
