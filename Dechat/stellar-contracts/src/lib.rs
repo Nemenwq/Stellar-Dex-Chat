@@ -3266,6 +3266,40 @@ impl FiatBridge {
     }
 
     // ── Escrow Migration ──────────────────────────────────────────────────
+
+    /// Returns the current storage schema version used by the escrow records.
+    ///
+    /// This is the version tag that [`FiatBridge::migrate_escrow`] compares
+    /// against the compile-time [`ESCROW_STORAGE_VERSION`] constant to decide
+    /// whether migration is needed.  After a successful full migration the
+    /// stored version is bumped to match the constant, making this function
+    /// the canonical way to check migration status.
+    ///
+    /// # Returns
+    ///
+    /// - `0` — migration has never run or was not completed.
+    /// - `1` — fully migrated to the current schema (v1).
+    ///
+    /// Higher values correspond to future schema versions.
+    ///
+    /// # Errors
+    ///
+    /// None.  An uninitialised contract returns `0`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let version = bridge.get_escrow_storage_version();
+    /// if version < ESCROW_STORAGE_VERSION {
+    ///     // Migration is pending or partial.
+    /// }
+    /// ```
+    ///
+    /// ## See also
+    /// - [`FiatBridge::migrate_escrow`] — advances the migration forward.
+    /// - [`FiatBridge::get_escrow_record`] — reads a single migrated record.
+    /// - [`FiatBridge::get_migration_cursor`] — reports how far migration has
+    ///   progressed.
     pub fn get_escrow_storage_version(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -3273,6 +3307,82 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
+    /// Migrate receipt data to persistent escrow records in batches.
+    ///
+    /// The bridge issues deposits as [`Receipt`] entries stored in persistent
+    /// storage keyed by receipt hash, with a sequential index in temporary
+    /// storage for enumeration.  Temporary entries have a limited TTL, so for
+    /// long-lived escrow positions the data must be promoted to a persistent,
+    /// sequentially-keyed [`EscrowRecord`] that will not expire.
+    ///
+    /// This function walks the receipt index from the current cursor forward,
+    /// copying each receipt it finds into a persistent `EscrowRecord` slot.
+    /// The process is batched (`batch_size` entries per call) so that it can
+    /// be resumed across multiple invocations — useful when the total number
+    /// of receipts is large and a single call would exceed the Soroban budget.
+    ///
+    /// # Caller requirements
+    ///
+    /// - `admin` (the stored admin address) **must** authenticate.  See
+    ///   [`FiatBridge::transfer_admin`] for the two-step admin transfer flow.
+    ///
+    /// # Parameters
+    ///
+    /// - `batch_size` — maximum number of receipt positions to process in
+    ///   this call.  A value of `0` is accepted and immediately returns `0`.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(count)` — the number of receipts successfully migrated in this
+    ///   batch (may be less than `batch_size` when the remaining receipts
+    ///   are fewer).  `count` is `0` when the cursor has already reached the
+    ///   end of the receipt counter.
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotInitialized`] — the contract has not been initialised
+    ///   (no `Admin` key in storage).
+    /// - [`Error::MigrationAlreadyComplete`] — the stored version equals or
+    ///   exceeds [`ESCROW_STORAGE_VERSION`]; a second call is a no-op.
+    ///
+    /// # Notes
+    ///
+    /// - A receipt index entry that has **expired** from temporary storage is
+    ///   silently skipped (no `EscrowRecord` is created for that slot).  The
+    ///   cursor still advances past it, leaving a permanent gap at that id.
+    /// - The same applies when the persistent `Receipt` entry has been removed
+    ///   (e.g. after a refund or manual cleanup).
+    /// - When the last receipt in the counter has been processed, the stored
+    ///   version is bumped so that subsequent calls return
+    ///   `MigrationAlreadyComplete` immediately.
+    /// - A [`MigrationEvent`] is emitted after every batch with the new cursor
+    ///   position and the count of records migrated in that invocation.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Deposit two test receipts.
+    /// bridge.deposit(&user, &100, &token, &Bytes::new(&env), &0, &0, &None);
+    /// bridge.deposit(&user, &250, &token, &Bytes::new(&env), &0, &0, &None);
+    ///
+    /// // Migrate a batch of up to 10.
+    /// let count = bridge.migrate_escrow(&10);
+    /// assert_eq!(count, 2);               // both receipts migrated
+    /// assert_eq!(bridge.get_migration_cursor(), 2);
+    ///
+    /// // Now a second call is a no-op (version already bumped).
+    /// assert_eq!(
+    ///     bridge.try_migrate_escrow(&10),
+    ///     Err(Ok(Error::MigrationAlreadyComplete))
+    /// );
+    /// ```
+    ///
+    /// ## See also
+    /// - [`FiatBridge::get_escrow_storage_version`] — query current version.
+    /// - [`FiatBridge::get_escrow_record`] — read a migrated record by id.
+    /// - [`FiatBridge::get_migration_cursor`] — current cursor position.
+    /// - [`EscrowRecord`] — the target record type produced by migration.
+    /// - [`MigrationEvent`] — the event emitted after each batch.
     pub fn migrate_escrow(env: Env, batch_size: u32) -> Result<u32, Error> {
         let admin: Address = env
             .storage()
