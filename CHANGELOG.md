@@ -560,6 +560,11 @@ All notable changes to this project will be documented in this file.
 - **changelog:** Update changelog [skip ci]
 - Add doc comments to messageParser, migrate_escrow, markdownSanitizer, featureFlags
 - **changelog:** Update changelog [skip ci]
+- **changelog:** Update changelog [skip ci]
+- Improve inline documentation for get_escrow_storage_version
+- Improve inline documentation for draftUtils
+- Improve inline documentation for messageUtils
+- Improve inline documentation for offlineMessageQueue
 
 ### Deprecated
 
