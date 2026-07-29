@@ -103,10 +103,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
 
-    permissions:
-      contents: read
-      pull-requests: write
-
     steps:
       - name: Checkout PR head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -163,38 +159,28 @@ jobs:
           SIZE=$(wc -c < "${{ github.workspace }}/.wasm-size-target/wasm32-unknown-unknown/release/stellar_contracts.wasm" | tr -d '[:space:]')
           echo "size=$SIZE" >> "$GITHUB_OUTPUT"
 
-      - name: Comment size report on PR
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+      - name: Write size report
+        run: |
+          cat > wasm-size-report.json <<EOF
+          {
+            "pr_number": ${{ github.event.pull_request.number }},
+            "base_sha": "${{ github.event.pull_request.base.sha }}",
+            "head_sha": "${{ github.event.pull_request.head.sha }}",
+            "base_size": ${{ steps.base_size.outputs.size }},
+            "head_size": ${{ steps.head_size.outputs.size }},
+            "limit": ${{ env.MAX_WASM_BYTES }}
+          }
+          EOF
+
+      # PRs from forks get a read-only GITHUB_TOKEN under the `pull_request`
+      # event, so this job can't post a comment directly. The report is
+      # handed off as an artifact to wasm-size-comment.yml, which runs via
+      # `workflow_run` in the base repo's context (write-capable token) and
+      # only ever reads this JSON — it never checks out or executes PR code,
+      # so it stays safe from a malicious PR's build script.
+      - name: Upload size report artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          script: |
-            const headSize = ${{ steps.head_size.outputs.size }};
-            const baseSize = ${{ steps.base_size.outputs.size }};
-            const limit = ${{ env.MAX_WASM_BYTES }};
-            const delta = headSize - baseSize;
-            const deltaStr = `${delta > 0 ? '+' : ''}${delta.toLocaleString()} bytes`;
-            const pct = ((headSize / limit) * 100).toFixed(1);
-            const marker = '<!-- wasm-size-report -->';
-
-            const body = [
-              marker,
-              '### Contract WASM size report',
-              '',
-              '| | Bytes |',
-              '|---|---|',
-              `| Base (\`${context.payload.pull_request.base.sha.slice(0, 7)}\`) | ${baseSize.toLocaleString()} |`,
-              `| Head (\`${context.payload.pull_request.head.sha.slice(0, 7)}\`) | ${headSize.toLocaleString()} |`,
-              `| Delta | ${deltaStr} |`,
-              `| Budget used | ${pct}% of ${limit.toLocaleString()} bytes |`,
-            ].join('\n');
-
-            const { owner, repo } = context.repo;
-            const issue_number = context.issue.number;
-
-            const comments = await github.rest.issues.listComments({ owner, repo, issue_number });
-            const existing = comments.data.find((c) => c.body.includes(marker));
-
-            if (existing) {
-              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-            } else {
-              await github.rest.issues.createComment({ owner, repo, issue_number, body });
-            }
+          name: wasm-size-report
+          path: wasm-size-report.json
+          retention-days: 7
