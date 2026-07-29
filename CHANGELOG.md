@@ -433,6 +433,7 @@ All notable changes to this project will be documented in this file.
 - Remove duplicate setHistoryState call in useChatHistory
 - Resolve CI typecheck, lint, and test parse errors across 5 files
 - **ci:** Bump WASM limit to 98.5KB, add missing toolchain input to contract-tests.yml
+- Stale closure in price service, date validation in admin-audit, JSON error handling in initiate-transfer, health route error handling
 
 ### Changed
 
@@ -558,6 +559,7 @@ All notable changes to this project will be documented in this file.
 - **ci:** Add cargo-deny, cache Playwright, split lint job, report WASM size
 - **changelog:** Update changelog [skip ci]
 - Add doc comments to messageParser, migrate_escrow, markdownSanitizer, featureFlags
+- **changelog:** Update changelog [skip ci]
 
 ### Deprecated
 
