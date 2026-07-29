@@ -206,6 +206,8 @@ All notable changes to this project will be documented in this file.
 - **frontend:** Harden banks API and instrument status telemetry
 - **frontend:** Add optimistic UI loading state to ReceiptQrCode
 - **frontend:** Add accessibility and loading states
+- **frontend:** Add skeleton loading states to TransactionAmountDisplay and StellarFiatModal
+- **frontend:** Add structured telemetry and retry helpers for notifications, pagination, CCIP explorer, and audit log
 
 ### Fixed
 
@@ -540,6 +542,10 @@ All notable changes to this project will be documented in this file.
 - **changelog:** Update changelog [skip ci]
 - **dx:** Pin all GitHub Actions to commit SHAs
 - **changelog:** Update changelog [skip ci]
+- **changelog:** Update changelog [skip ci]
+- Improve inline documentation for get_migration_cursor
+- Improve inline documentation for set_anti_sandwich_delay
+- Improve inline documentation for env.ts
 
 ### Deprecated
 
