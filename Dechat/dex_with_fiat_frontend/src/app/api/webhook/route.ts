@@ -90,7 +90,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const event = JSON.parse(payload);
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(payload) as Record<string, unknown>;
+    } catch {
+      telemetry.addLog(span.spanId, 'warn', 'Webhook payload is not valid JSON', {
+        endpoint: '/api/webhook',
+        payloadLength: payload.length,
+      });
+      telemetry.finishSpan(span.spanId, {
+        success: false,
+        error: 'Invalid JSON payload',
+        errorType: 'parse_error',
+      });
+      return NextResponse.json(
+        { message: 'Webhook payload must be valid JSON' },
+        { status: 400 },
+      );
+    }
+
     const payloadHash = crypto
       .createHash('sha256')
       .update(payload)
