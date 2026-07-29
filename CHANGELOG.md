@@ -424,6 +424,7 @@ All notable changes to this project will be documented in this file.
 - Resolve race conditions and add toast telemetry (#1209, #1211, #1212, #1214)
 - **ChatInput:** Allow combined aria-describedby IDs in rapid click accessibility test
 - **frontend:** Remove stale import from chat interface
+- **frontend:** Correct totalMessages count when no search filters are active
 
 ### Changed
 
@@ -538,6 +539,7 @@ All notable changes to this project will be documented in this file.
 - **changelog:** Update changelog [skip ci]
 - **changelog:** Update changelog [skip ci]
 - **dx:** Pin all GitHub Actions to commit SHAs
+- **changelog:** Update changelog [skip ci]
 
 ### Deprecated
 
