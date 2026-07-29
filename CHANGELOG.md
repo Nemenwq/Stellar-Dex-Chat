@@ -572,6 +572,7 @@ All notable changes to this project will be documented in this file.
 - Improve inline documentation for messageUtils
 - Improve inline documentation for offlineMessageQueue
 - **changelog:** Update changelog [skip ci]
+- **changelog:** Update changelog [skip ci]
 
 ### Deprecated
 
