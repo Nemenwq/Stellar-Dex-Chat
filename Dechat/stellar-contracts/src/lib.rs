@@ -3266,6 +3266,29 @@ impl FiatBridge {
     }
 
     // ── Escrow Migration ──────────────────────────────────────────────────
+    /// Returns the current escrow storage version.
+    ///
+    /// This function indicates whether the escrow migration from temporary
+    /// [`Receipt`] storage to persistent [`EscrowRecord`] storage has been
+    /// completed. A return value of `0` indicates that migration is either
+    /// incomplete or has not started, while a non-zero value (specifically
+    /// [`ESCROW_STORAGE_VERSION`]) indicates that migration has finished.
+    ///
+    /// # Returns
+    ///
+    /// - `u32` — The current escrow storage version. Returns `0` if no version
+    ///   has been set (migration not complete), or [`ESCROW_STORAGE_VERSION`]
+    ///   if migration has been successfully completed.
+    ///
+    /// # Notes
+    ///
+    /// - The version is stored in instance storage and persists across contract
+    ///   invocations.
+    /// - This function is safe to call from a simulation context since it requires
+    ///   no authentication and mutates no state.
+    /// - The version is set to [`ESCROW_STORAGE_VERSION`] only when
+    ///   [`FiatBridge::migrate_escrow`] completes the full migration of all
+    ///   receipts to escrow records.
 
     /// Returns the current storage schema version used by the escrow records.
     ///
@@ -3289,6 +3312,28 @@ impl FiatBridge {
     /// # Example
     ///
     /// ```ignore
+    /// // Before migration, version is 0.
+    /// assert_eq!(bridge.get_escrow_storage_version(), 0);
+    ///
+    /// // Deposit some receipts.
+    /// bridge.deposit(&user, &100, &token, &Bytes::new(&env), &0, &0, &None);
+    /// bridge.deposit(&user, &250, &token, &Bytes::new(&env), &0, &0, &None);
+    ///
+    /// // Migrate all receipts.
+    /// let migrated = bridge.migrate_escrow(&10);
+    /// assert_eq!(migrated, 2);
+    ///
+    /// // After migration, version is set to ESCROW_STORAGE_VERSION.
+    /// assert_eq!(bridge.get_escrow_storage_version(), ESCROW_STORAGE_VERSION);
+    /// ```
+    ///
+    /// # Cross-references
+    ///
+    /// - [`FiatBridge::migrate_escrow`] — performs the migration and sets this version
+    /// - [`FiatBridge::get_migration_cursor`] — tracks migration progress
+    /// - [`FiatBridge::get_escrow_record`] — reads migrated escrow records
+    /// - [`DataKey::EscrowStorageVersion`] — storage key for this value
+    /// - [`ESCROW_STORAGE_VERSION`] — constant value indicating completed migration
     /// let version = bridge.get_escrow_storage_version();
     /// if version < ESCROW_STORAGE_VERSION {
     ///     // Migration is pending or partial.
