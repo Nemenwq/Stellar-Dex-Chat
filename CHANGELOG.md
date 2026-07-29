@@ -429,6 +429,7 @@ All notable changes to this project will be documented in this file.
 - **frontend:** Correct totalMessages count when no search filters are active
 - Verify-account error handling, webhook error handling, stale closure, EventSource leak
 - Resolve stale closures, memory leak, and add split-view telemetry
+- **ci:** Post WASM size report via workflow_run, not pull_request
 
 ### Changed
 
@@ -550,6 +551,8 @@ All notable changes to this project will be documented in this file.
 - Improve inline documentation for env.ts
 - **changelog:** Update changelog [skip ci]
 - **changelog:** Update changelog [skip ci]
+- **changelog:** Update changelog [skip ci]
+- **ci:** Add cargo-deny, cache Playwright, split lint job, report WASM size
 
 ### Deprecated
 
