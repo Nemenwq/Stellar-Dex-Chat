@@ -32,7 +32,7 @@ export const useChatHistory = () => {
     }
   }, [historyState]);
 
-  // Debounced search — avoids triggering a lookup on every keystroke
+  // Debounced search - avoids triggering a lookup on every keystroke
   useEffect(() => {
     if (!searchQuery.trim()) {
       setSearchResults([]);
