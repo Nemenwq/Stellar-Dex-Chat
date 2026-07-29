@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { ChatSession } from '@/types';
 
 // Pure utility tests for pin ordering logic and stale-closure regression (#1223)
@@ -154,24 +154,6 @@ describe('Race-condition fix: updateCurrentSession functional updater (#1213)', 
     type State = { currentSessionId: string | null; sessions: { id: string; messages: string[] }[] };
 
     const updater = (messages: string[]) => (prev: State): State => {
-// ── updateCurrentSession stale-closure regression (#1223) ──────────────────
-//
-// Before the fix, updateCurrentSession closed over historyState.currentSessionId
-// for its early-return guard. If currentSessionId changed between renders the
-// stale closure value would cause the guard to use the wrong session ID.
-//
-// The fix moves the guard inside the setHistoryState functional updater so it
-// always reads `prev.currentSessionId` (fresh state), never the closure value.
-// We test the invariant in isolation so the fix is not coupled to the full hook.
-
-describe('updateCurrentSession guard reads fresh state (regression #1223)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  // Simulate the functional updater pattern used by the fixed updateCurrentSession.
-  function makeUpdater(messages: { id: string }[]) {
-    return (prev: { currentSessionId: string | null; sessions: { id: string; messages: { id: string }[] }[] }) => {
       if (!prev.currentSessionId) return prev;
       const idx = prev.sessions.findIndex((s) => s.id === prev.currentSessionId);
       if (idx === -1) return prev;
@@ -197,6 +179,17 @@ describe('updateCurrentSession guard reads fresh state (regression #1223)', () =
 });
 
 describe('Race-condition fix: loadSession uses sessionsRef (#1213)', () => {
+  function makeUpdater(messages: { id: string }[]) {
+    return (prev: { currentSessionId: string | null; sessions: { id: string; messages: { id: string }[] }[] }) => {
+      if (!prev.currentSessionId) return prev;
+      const idx = prev.sessions.findIndex((s) => s.id === prev.currentSessionId);
+      if (idx === -1) return prev;
+      const updated = [...prev.sessions];
+      updated[idx] = { ...updated[idx], messages };
+      return { ...prev, sessions: updated };
+    };
+  }
+
   it('lookup finds a session added after the callback was captured', () => {
     // Simulate sessionsRef — always points to latest sessions array
     const sessionsRef = { current: [] as { id: string; messages: string[] }[] };
@@ -216,7 +209,7 @@ describe('Race-condition fix: loadSession uses sessionsRef (#1213)', () => {
     const found = loadSession('new');
     expect(found).not.toBeNull();
     expect(found?.messages).toEqual(['hi']);
-  }
+  });
 
   it('updates the session identified by prev.currentSessionId, not a stale outer value', () => {
     const sessionA = { id: 'a', messages: [] as { id: string }[] };
