@@ -430,6 +430,9 @@ All notable changes to this project will be documented in this file.
 - Verify-account error handling, webhook error handling, stale closure, EventSource leak
 - Resolve stale closures, memory leak, and add split-view telemetry
 - **ci:** Post WASM size report via workflow_run, not pull_request
+- Remove duplicate setHistoryState call in useChatHistory
+- Resolve CI typecheck, lint, and test parse errors across 5 files
+- **ci:** Bump WASM limit to 98.5KB, add missing toolchain input to contract-tests.yml
 
 ### Changed
 
@@ -553,6 +556,8 @@ All notable changes to this project will be documented in this file.
 - **changelog:** Update changelog [skip ci]
 - **changelog:** Update changelog [skip ci]
 - **ci:** Add cargo-deny, cache Playwright, split lint job, report WASM size
+- **changelog:** Update changelog [skip ci]
+- Add doc comments to messageParser, migrate_escrow, markdownSanitizer, featureFlags
 
 ### Deprecated
 
