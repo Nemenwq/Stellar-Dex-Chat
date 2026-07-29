@@ -427,6 +427,7 @@ All notable changes to this project will be documented in this file.
 - **ChatInput:** Allow combined aria-describedby IDs in rapid click accessibility test
 - **frontend:** Remove stale import from chat interface
 - **frontend:** Correct totalMessages count when no search filters are active
+- Verify-account error handling, webhook error handling, stale closure, EventSource leak
 
 ### Changed
 
@@ -546,6 +547,7 @@ All notable changes to this project will be documented in this file.
 - Improve inline documentation for get_migration_cursor
 - Improve inline documentation for set_anti_sandwich_delay
 - Improve inline documentation for env.ts
+- **changelog:** Update changelog [skip ci]
 
 ### Deprecated
 
