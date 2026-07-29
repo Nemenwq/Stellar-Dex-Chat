@@ -225,3 +225,39 @@ describe('StellarFiatModal fiat estimate cancellation pattern (Issue #709)', () 
     expect(states).toEqual(['fast-result']);
   });
 });
+// ── Skeleton Loading State Tests ────────────────────────────────
+
+describe('StellarFiatModal skeleton loading state', () => {
+  beforeEach(() => {
+    onClose.mockReset();
+    onDepositSuccess.mockReset();
+  });
+
+  it('shows skeleton loading state when modal opens with isLoadingUI', () => {
+    const { container } = render(
+      React.createElement(StellarFiatModal, {
+        isOpen: true,
+        onClose,
+        defaultAmount: '10',
+      }),
+    );
+
+    // The skeleton should be rendered (SkeletonPayout renders skeleton elements)
+    const skeletonElements = container.querySelectorAll('[class*="animate-pulse"]');
+    expect(skeletonElements.length).toBeGreaterThan(0);
+  });
+
+  it('respects theme context for skeleton display', () => {
+    const { container } = render(
+      React.createElement(StellarFiatModal, {
+        isOpen: true,
+        onClose,
+        defaultAmount: '10',
+      }),
+    );
+
+    // Check that modal has theme classes
+    const modal = container.querySelector('[role="dialog"]');
+    expect(modal?.className).toMatch(/theme-/);
+  });
+});
