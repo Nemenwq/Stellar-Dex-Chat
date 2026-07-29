@@ -90,9 +90,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let event: Record<string, unknown>;
+    interface PaystackEventData {
+      id?: string | number;
+      reference?: string;
+      amount?: number;
+      status?: string;
+      recipient?: unknown;
+      failure_reason?: string;
+      [key: string]: unknown;
+    }
+
+    interface PaystackEvent {
+      event?: string;
+      data?: PaystackEventData;
+      [key: string]: unknown;
+    }
+
+    let event: PaystackEvent;
     try {
-      event = JSON.parse(payload) as Record<string, unknown>;
+      event = JSON.parse(payload) as PaystackEvent;
     } catch {
       telemetry.addLog(span.spanId, 'warn', 'Webhook payload is not valid JSON', {
         endpoint: '/api/webhook',
@@ -152,24 +168,25 @@ export async function POST(request: NextRequest) {
     // Handle different event types
     switch (event.event) {
       case 'transfer.success': {
-        const existingRecord = getTransferStatus(event.data.reference);
+        const data = event.data ?? {};
+        const existingRecord = getTransferStatus(data.reference ?? '');
         const updatedAt = new Date().toISOString();
         telemetry.addLog(span.spanId, 'info', 'Processing transfer success', {
-          reference: event.data.reference,
-          amount: event.data.amount,
-          recipient: event.data.recipient,
-          status: event.data.status,
+          reference: data.reference,
+          amount: data.amount,
+          recipient: data.recipient,
+          status: data.status,
         });
         console.log('Transfer successful:', {
-          reference: event.data.reference,
-          amount: event.data.amount,
-          recipient: event.data.recipient,
-          status: event.data.status,
+          reference: data.reference,
+          amount: data.amount,
+          recipient: data.recipient,
+          status: data.status,
         });
         const nextRecord = setTransferStatus({
-          reference: event.data.reference,
+          reference: data.reference ?? '',
           status: 'success',
-          amount: event.data.amount,
+          amount: data.amount,
           updatedAt,
           clientSessionId: existingRecord?.clientSessionId,
         });
@@ -183,27 +200,28 @@ export async function POST(request: NextRequest) {
       }
 
       case 'transfer.failed': {
-        const existingRecord = getTransferStatus(event.data.reference);
+        const data = event.data ?? {};
+        const existingRecord = getTransferStatus(data.reference ?? '');
         const updatedAt = new Date().toISOString();
         telemetry.addLog(span.spanId, 'warn', 'Processing transfer failure', {
-          reference: event.data.reference,
-          amount: event.data.amount,
-          recipient: event.data.recipient,
-          status: event.data.status,
-          failureReason: event.data.failure_reason,
+          reference: data.reference,
+          amount: data.amount,
+          recipient: data.recipient,
+          status: data.status,
+          failureReason: data.failure_reason,
         });
         console.log('Transfer failed:', {
-          reference: event.data.reference,
-          amount: event.data.amount,
-          recipient: event.data.recipient,
-          status: event.data.status,
-          failure_reason: event.data.failure_reason,
+          reference: data.reference,
+          amount: data.amount,
+          recipient: data.recipient,
+          status: data.status,
+          failure_reason: data.failure_reason,
         });
         const nextRecord = setTransferStatus({
-          reference: event.data.reference,
+          reference: data.reference ?? '',
           status: 'failed',
-          amount: event.data.amount,
-          failureReason: event.data.failure_reason,
+          amount: data.amount,
+          failureReason: data.failure_reason,
           updatedAt,
           clientSessionId: existingRecord?.clientSessionId,
         });
@@ -218,24 +236,25 @@ export async function POST(request: NextRequest) {
       }
 
       case 'transfer.reversed': {
-        const existingRecord = getTransferStatus(event.data.reference);
+        const data = event.data ?? {};
+        const existingRecord = getTransferStatus(data.reference ?? '');
         const updatedAt = new Date().toISOString();
         telemetry.addLog(span.spanId, 'info', 'Processing transfer reversal', {
-          reference: event.data.reference,
-          amount: event.data.amount,
-          recipient: event.data.recipient,
-          status: event.data.status,
+          reference: data.reference,
+          amount: data.amount,
+          recipient: data.recipient,
+          status: data.status,
         });
         console.log('Transfer reversed:', {
-          reference: event.data.reference,
-          amount: event.data.amount,
-          recipient: event.data.recipient,
-          status: event.data.status,
+          reference: data.reference,
+          amount: data.amount,
+          recipient: data.recipient,
+          status: data.status,
         });
         const nextRecord = setTransferStatus({
-          reference: event.data.reference,
+          reference: data.reference ?? '',
           status: 'reversed',
-          amount: event.data.amount,
+          amount: data.amount,
           updatedAt,
           clientSessionId: existingRecord?.clientSessionId,
         });

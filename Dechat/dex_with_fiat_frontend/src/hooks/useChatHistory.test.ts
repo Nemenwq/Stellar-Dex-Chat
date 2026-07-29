@@ -125,9 +125,6 @@ describe('Thread pinning ordering', () => {
 //    after the closure was captured would be invisible to the lookup.
 //    Fix: reads from `sessionsRef.current` which is kept current via a
 //    synchronous ref-update effect.
-//
-// Because these are pure-logic tests (no React rendering required) they
-// replicate the core logic inline and verify the corrected behaviour.
 
 describe('Race-condition fix: updateCurrentSession functional updater (#1213)', () => {
   it('update is a no-op when currentSessionId is null in latest state', () => {
@@ -154,24 +151,6 @@ describe('Race-condition fix: updateCurrentSession functional updater (#1213)', 
     type State = { currentSessionId: string | null; sessions: { id: string; messages: string[] }[] };
 
     const updater = (messages: string[]) => (prev: State): State => {
-// ── updateCurrentSession stale-closure regression (#1223) ──────────────────
-//
-// Before the fix, updateCurrentSession closed over historyState.currentSessionId
-// for its early-return guard. If currentSessionId changed between renders the
-// stale closure value would cause the guard to use the wrong session ID.
-//
-// The fix moves the guard inside the setHistoryState functional updater so it
-// always reads `prev.currentSessionId` (fresh state), never the closure value.
-// We test the invariant in isolation so the fix is not coupled to the full hook.
-
-describe('updateCurrentSession guard reads fresh state (regression #1223)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  // Simulate the functional updater pattern used by the fixed updateCurrentSession.
-  function makeUpdater(messages: { id: string }[]) {
-    return (prev: { currentSessionId: string | null; sessions: { id: string; messages: { id: string }[] }[] }) => {
       if (!prev.currentSessionId) return prev;
       const idx = prev.sessions.findIndex((s) => s.id === prev.currentSessionId);
       if (idx === -1) return prev;
@@ -196,26 +175,32 @@ describe('updateCurrentSession guard reads fresh state (regression #1223)', () =
   });
 });
 
-describe('Race-condition fix: loadSession uses sessionsRef (#1213)', () => {
-  it('lookup finds a session added after the callback was captured', () => {
-    // Simulate sessionsRef — always points to latest sessions array
-    const sessionsRef = { current: [] as { id: string; messages: string[] }[] };
+// ---------------------------------------------------------------------------
+// updateCurrentSession stale-closure regression (#1223)
+// ---------------------------------------------------------------------------
+//
+// Before the fix, updateCurrentSession closed over historyState.currentSessionId
+// for its early-return guard. If currentSessionId changed between renders the
+// stale closure value would cause the guard to use the wrong session ID.
+//
+// The fix moves the guard inside the setHistoryState functional updater so it
+// always reads `prev.currentSessionId` (fresh state), never the closure value.
 
-    // Simulate the fixed loadSession using sessionsRef
-    const loadSession = (sessionId: string) => {
-      return sessionsRef.current.find((s) => s.id === sessionId) ?? null;
+describe('updateCurrentSession guard reads fresh state (regression #1223)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Simulate the functional updater pattern used by the fixed updateCurrentSession.
+  function makeUpdater(messages: { id: string }[]) {
+    return (prev: { currentSessionId: string | null; sessions: { id: string; messages: { id: string }[] }[] }) => {
+      if (!prev.currentSessionId) return prev;
+      const idx = prev.sessions.findIndex((s) => s.id === prev.currentSessionId);
+      if (idx === -1) return prev;
+      const updated = [...prev.sessions];
+      updated[idx] = { ...updated[idx], messages };
+      return { ...prev, sessions: updated };
     };
-
-    // Callback captured here with empty sessions
-    expect(loadSession('new')).toBeNull();
-
-    // Session added later — ref is updated synchronously (as the useEffect does)
-    sessionsRef.current = [{ id: 'new', messages: ['hi'] }];
-
-    // Now loadSession finds it, despite being "captured" before it existed
-    const found = loadSession('new');
-    expect(found).not.toBeNull();
-    expect(found?.messages).toEqual(['hi']);
   }
 
   it('updates the session identified by prev.currentSessionId, not a stale outer value', () => {
@@ -240,5 +225,28 @@ describe('Race-condition fix: loadSession uses sessionsRef (#1213)', () => {
     const nextState = makeUpdater([{ id: 'msg1' }])(state);
 
     expect(nextState).toBe(state);
+  });
+});
+
+describe('Race-condition fix: loadSession uses sessionsRef (#1213)', () => {
+  it('lookup finds a session added after the callback was captured', () => {
+    // Simulate sessionsRef — always points to latest sessions array
+    const sessionsRef = { current: [] as { id: string; messages: string[] }[] };
+
+    // Simulate the fixed loadSession using sessionsRef
+    const loadSession = (sessionId: string) => {
+      return sessionsRef.current.find((s) => s.id === sessionId) ?? null;
+    };
+
+    // Callback captured here with empty sessions
+    expect(loadSession('new')).toBeNull();
+
+    // Session added later — ref is updated synchronously (as the useEffect does)
+    sessionsRef.current = [{ id: 'new', messages: ['hi'] }];
+
+    // Now loadSession finds it, despite being "captured" before it existed
+    const found = loadSession('new');
+    expect(found).not.toBeNull();
+    expect(found?.messages).toEqual(['hi']);
   });
 });

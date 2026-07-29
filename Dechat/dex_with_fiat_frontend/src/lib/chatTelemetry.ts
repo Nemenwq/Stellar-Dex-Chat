@@ -95,6 +95,12 @@ export interface NetworkStatusTelemetryPayload {
   source: 'initial' | 'browser-event' | 'connectivity-check';
 }
 
+export interface SplitViewTelemetryPayload {
+  action: 'open' | 'close' | 'set_left_session' | 'set_right_session' | 'swap_sessions' | 'select_message';
+  leftSessionId?: string | null;
+  rightSessionId?: string | null;
+}
+
 export interface AccessibleAvatarColorTelemetryPayload
   extends AvatarColorTelemetryPayload {
   avatarTextColor: string;
@@ -491,5 +497,9 @@ export const chatTelemetry = {
    */
   avatarColorCheck(payload: AvatarColorTelemetryPayload): void {
     emit('avatar_color_check', payload);
+  },
+
+  splitView(payload: SplitViewTelemetryPayload): void {
+    emit('split_view', payload);
   },
 };

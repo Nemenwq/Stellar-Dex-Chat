@@ -143,6 +143,12 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
   // Safely parse the timestamp — guards against deserialized string values
   const timestamp = toDate(message.timestamp);
 
+  const handleMessageKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (hasError && e.key === 'r' && !e.ctrlKey && !e.metaKey) {
+      retry.retryNow();
+    }
+  };
+
   return (
     <motion.div
       data-testid="message"
