@@ -90,7 +90,6 @@ export const useChatHistory = () => {
       // committed state — no stale snapshot can cause a phantom update or a
       // missed guard.
       setHistoryState((prev) => {
-      setHistoryState((prev) => {
         // Guard inside the functional updater so it always reads fresh state,
         // not the stale closure value of historyState.currentSessionId (#1223).
         if (!prev.currentSessionId) return prev;
