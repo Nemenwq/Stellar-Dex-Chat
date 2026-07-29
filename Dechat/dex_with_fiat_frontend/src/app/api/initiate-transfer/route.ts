@@ -25,7 +25,20 @@ export async function POST(request: NextRequest) {
       endpoint: '/api/initiate-transfer',
     });
 
-    const body = await request.json();
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      telemetry.addLog(span.spanId, 'warn', 'Malformed JSON body');
+      telemetry.finishSpan(span.spanId, {
+        success: false,
+        error: 'Invalid JSON body',
+      });
+      return NextResponse.json(
+        { success: false, message: 'Invalid JSON in request body.' },
+        { status: 400 },
+      );
+    }
 
     // Validate with Zod
     const validationResult = initiateTransferSchema.safeParse(body);
@@ -94,7 +107,6 @@ export async function POST(request: NextRequest) {
       data,
     });
   } catch (error: unknown) {
-    // Capture error in Sentry
     Sentry.captureException(error, {
       tags: {
         endpoint: '/api/initiate-transfer',
@@ -107,13 +119,14 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+
     telemetry.addLog(
       span.spanId,
       'error',
       'Unhandled error in transfer initiation',
-      {
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { error: errorMessage },
     );
 
     console.error('Initiate transfer error:', error);
