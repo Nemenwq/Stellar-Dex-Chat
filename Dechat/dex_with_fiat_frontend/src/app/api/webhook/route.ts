@@ -6,6 +6,20 @@ import { getTransferStatus, setTransferStatus } from '@/lib/transferStore';
 import { env } from '@/lib/env';
 import { publishPaymentStatus } from '@/lib/paymentStatusEvents';
 
+interface PaystackWebhookData {
+  id?: string;
+  reference: string;
+  amount: number;
+  recipient: string;
+  status: string;
+  failure_reason?: string;
+}
+
+interface PaystackWebhookEvent {
+  event: string;
+  data: PaystackWebhookData;
+}
+
 export async function POST(request: NextRequest) {
   const traceContext = telemetry.extractTraceFromHeaders(request.headers);
   const span = telemetry.createSpan(
@@ -90,25 +104,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    interface PaystackEventData {
-      id?: string | number;
-      reference?: string;
-      amount?: number;
-      status?: string;
-      recipient?: unknown;
-      failure_reason?: string;
-      [key: string]: unknown;
-    }
-
-    interface PaystackEvent {
-      event?: string;
-      data?: PaystackEventData;
-      [key: string]: unknown;
-    }
-
-    let event: PaystackEvent;
+    let event: PaystackWebhookEvent;
     try {
-      event = JSON.parse(payload) as PaystackEvent;
+      event = JSON.parse(payload) as PaystackWebhookEvent;
     } catch {
       telemetry.addLog(span.spanId, 'warn', 'Webhook payload is not valid JSON', {
         endpoint: '/api/webhook',

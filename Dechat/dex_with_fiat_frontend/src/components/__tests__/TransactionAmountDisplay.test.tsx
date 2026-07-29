@@ -398,9 +398,6 @@ describe('TransactionAmountDisplay - optimistic UI (#839)', () => {
 
     render(<TransactionAmountDisplay amount={100} asset="XLM" />);
     
-    // Should render skeleton divs
-    const container = screen.queryByTestId('transaction-amount-display');
-    
     // Skeleton should be displayed (no amount text visible)
     expect(screen.queryByText(/100 XLM/i)).toBeNull();
   });});

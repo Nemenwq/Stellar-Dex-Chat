@@ -63,6 +63,11 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
   // made since it mounted.
   const totalRetryAttempts = (message.error?.retryAttempts ?? 0) + retry.attempts;
 
+  const handleMessageKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'r' && hasError && onRetry) {
+      retry.retryNow();
+    }
+  };
 
   // Currency conversion hook for transaction amounts
   const amountForConversion = message.metadata?.transactionData?.amountIn 

@@ -429,6 +429,11 @@ All notable changes to this project will be documented in this file.
 - **frontend:** Correct totalMessages count when no search filters are active
 - Verify-account error handling, webhook error handling, stale closure, EventSource leak
 - Resolve stale closures, memory leak, and add split-view telemetry
+- **ci:** Post WASM size report via workflow_run, not pull_request
+- Remove duplicate setHistoryState call in useChatHistory
+- Resolve CI typecheck, lint, and test parse errors across 5 files
+- **ci:** Bump WASM limit to 98.5KB, add missing toolchain input to contract-tests.yml
+- Stale closure in price service, date validation in admin-audit, JSON error handling in initiate-transfer, health route error handling
 
 ### Changed
 
@@ -550,6 +555,16 @@ All notable changes to this project will be documented in this file.
 - Improve inline documentation for env.ts
 - **changelog:** Update changelog [skip ci]
 - **changelog:** Update changelog [skip ci]
+- **changelog:** Update changelog [skip ci]
+- **ci:** Add cargo-deny, cache Playwright, split lint job, report WASM size
+- **changelog:** Update changelog [skip ci]
+- Add doc comments to messageParser, migrate_escrow, markdownSanitizer, featureFlags
+- **changelog:** Update changelog [skip ci]
+- **changelog:** Update changelog [skip ci]
+- Improve inline documentation for get_escrow_storage_version
+- Improve inline documentation for draftUtils
+- Improve inline documentation for messageUtils
+- Improve inline documentation for offlineMessageQueue
 
 ### Deprecated
 

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { ChatSession } from '@/types';
 
 // Pure utility tests for pin ordering logic and stale-closure regression (#1223)
@@ -175,23 +175,7 @@ describe('Race-condition fix: updateCurrentSession functional updater (#1213)', 
   });
 });
 
-// ---------------------------------------------------------------------------
-// updateCurrentSession stale-closure regression (#1223)
-// ---------------------------------------------------------------------------
-//
-// Before the fix, updateCurrentSession closed over historyState.currentSessionId
-// for its early-return guard. If currentSessionId changed between renders the
-// stale closure value would cause the guard to use the wrong session ID.
-//
-// The fix moves the guard inside the setHistoryState functional updater so it
-// always reads `prev.currentSessionId` (fresh state), never the closure value.
-
-describe('updateCurrentSession guard reads fresh state (regression #1223)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  // Simulate the functional updater pattern used by the fixed updateCurrentSession.
+describe('Race-condition fix: loadSession uses sessionsRef (#1213)', () => {
   function makeUpdater(messages: { id: string }[]) {
     return (prev: { currentSessionId: string | null; sessions: { id: string; messages: { id: string }[] }[] }) => {
       if (!prev.currentSessionId) return prev;
@@ -202,6 +186,29 @@ describe('updateCurrentSession guard reads fresh state (regression #1223)', () =
       return { ...prev, sessions: updated };
     };
   }
+
+  it('lookup finds a session added after the callback was captured', () => {
+    // Simulate sessionsRef — always points to latest sessions array
+    const sessionsRef = { current: [] as { id: string; messages: string[] }[] };
+
+    // Simulate the fixed loadSession using sessionsRef
+    const loadSession = (sessionId: string) => {
+      return sessionsRef.current.find((s) => s.id === sessionId) ?? null;
+    };
+
+    // Callback captured here with empty sessions
+    expect(loadSession('new')).toBeNull();
+
+describe('updateCurrentSession guard reads fresh state (regression #1223)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+    // Now loadSession finds it, despite being "captured" before it existed
+    const found = loadSession('new');
+    expect(found).not.toBeNull();
+    expect(found?.messages).toEqual(['hi']);
+  });
 
   it('updates the session identified by prev.currentSessionId, not a stale outer value', () => {
     const sessionA = { id: 'a', messages: [] as { id: string }[] };
