@@ -35,6 +35,22 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Cargo.lock is not drifting alone
+        if: github.event_name == 'pull_request'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- Dechat/stellar-contracts/Cargo.lock Dechat/stellar-contracts/Cargo.toml Dechat/stellar-contracts/**/Cargo.toml)
+
+          if echo "$CHANGED" | grep -q "Cargo.lock" && ! echo "$CHANGED" | grep -q "Cargo.toml"; then
+            echo "Error: Dechat/stellar-contracts/Cargo.lock changed without a matching Cargo.toml change."
+            echo "Lockfile drift (e.g. from an unpinned transitive dependency bump) must be accompanied by an intentional manifest change, or reverted."
+            exit 1
+          fi
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
