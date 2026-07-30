@@ -582,6 +582,8 @@ All notable changes to this project will be documented in this file.
 - **frontend:** Add unit test coverage for useChatPagination.ts
 - **changelog:** Update changelog [skip ci]
 - **frontend:** Add unit test coverage for useChatHistory hook #1165
+- **changelog:** Update changelog [skip ci]
+- **dx:** Add coverage PR comment + unit tests for wallet/theme/preferences contexts
 
 ### Deprecated
 
