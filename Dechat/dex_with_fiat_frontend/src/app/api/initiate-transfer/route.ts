@@ -64,9 +64,13 @@ export async function POST(request: NextRequest) {
 
     const { source, reason, amount, recipient, reference } =
       validationResult.data;
+    // `clientSessionId` isn't part of initiateTransferSchema, so it's read
+    // from the raw (already-validated-as-an-object) body instead of
+    // validationResult.data.
+    const bodyRecord = body as Record<string, unknown>;
     const clientSessionId =
-      typeof body.clientSessionId === 'string'
-        ? body.clientSessionId
+      typeof bodyRecord.clientSessionId === 'string'
+        ? bodyRecord.clientSessionId
         : undefined;
 
     telemetry.addLog(span.spanId, 'info', 'Request validated', {
