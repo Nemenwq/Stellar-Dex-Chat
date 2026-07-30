@@ -41,6 +41,21 @@ export const banksQuerySchema = z
 
 export type BanksQuery = z.infer<typeof banksQuerySchema>;
 
+// Schema for transfer-status endpoint
+export const transferStatusSchema = z.object({
+  reference: z.string().min(1, 'Reference is required'),
+});
+
+export type TransferStatusInput = z.infer<typeof transferStatusSchema>;
+
+// Schema for the events endpoint query string
+export const eventsQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  offset: z.coerce.number().int().nonnegative().default(0),
+});
+
+export type EventsQuery = z.infer<typeof eventsQuerySchema>;
+
 /**
  * Error thrown by {@link fetchWithRetry} when the server answers with a
  * non-OK status.
