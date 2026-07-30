@@ -179,9 +179,9 @@ export default function AdminDashboard() {
     try {
       const response = await fetch('/api/admin/reconciliation');
       if (response.ok) {
-        const records: ReconciliationRecord[] = await response.json();
-        setReconciliationRecords(records);
-        const dailyMetrics = aggregateDailyVolume(records, 30);
+        const data = await response.json();
+        setReconciliationRecords(data.entries || []);
+        const dailyMetrics = aggregateDailyVolume(data.entries || [], 30);
         setMetrics(dailyMetrics);
       }
     } catch (error) {

@@ -17,6 +17,7 @@ Object.defineProperty(window, 'localStorage', {
 describe('useBeneficiaries', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
     localStorageMock.getItem.mockReturnValue(null);
   });
 

@@ -73,6 +73,8 @@ export default function AdminGuard({ children }: AdminGuardProps) {
 
       try {
         const adminAddress = await getAdmin();
+        if (isCancelled) return;
+
         const adminParsed = stellarAddressSchema.safeParse(adminAddress);
         if (!adminParsed.success) {
           console.error(
@@ -81,10 +83,10 @@ export default function AdminGuard({ children }: AdminGuardProps) {
           );
           setError('Invalid contract configuration. Access denied.');
           setIsAdmin(false);
+          setLoading(false);
           return;
         }
 
-        setIsAdmin(connectedParsed.data === adminParsed.data);
         if (isCancelled) return;
         setIsAdmin(connection.address === adminAddress);
       } catch (err) {

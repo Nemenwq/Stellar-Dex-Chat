@@ -59,5 +59,5 @@ export function useFeatureFlag(flag: FeatureFlag, scrollTargetId?: string) {
 export function featureFlagSectionDividerBorderClass(
   isDarkMode: boolean,
 ): string {
-  return isDarkMode ? 'border-gray-700' : 'border-gray-200';
+  return isDarkMode ? 'border-theme-border' : 'border-theme-border-light';
 }

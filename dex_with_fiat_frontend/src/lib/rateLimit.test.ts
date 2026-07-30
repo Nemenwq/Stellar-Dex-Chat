@@ -12,7 +12,7 @@ import {
   getClientIp,
   applyRateLimit,
   type RateLimitConfig,
-} from '../rateLimit';
+} from './rateLimit';
 
 describe('rateLimit utility', () => {
   beforeAll(() => {

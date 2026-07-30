@@ -764,10 +764,11 @@ export default function BankDetailsModal({
             </p>
 
             <div className="mb-3">
-              <label className="block text-sm text-gray-400 mb-1">
+              <label htmlFor="account-number" className="block text-sm text-gray-400 mb-1">
                 Account Number
               </label>
               <input
+                id="account-number"
                 type="text"
                 inputMode="numeric"
                 value={accountNumber}

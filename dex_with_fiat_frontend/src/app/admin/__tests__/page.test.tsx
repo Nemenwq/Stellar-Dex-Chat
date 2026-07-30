@@ -1,6 +1,13 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import AdminDashboard from '../page';
+
+// Stub global fetch so tests can mock it safely
+if (!global.fetch || typeof (global.fetch as unknown) !== 'function') {
+  global.fetch = vi.fn() as unknown as typeof fetch;
+} else {
+  global.fetch = vi.fn() as unknown as typeof fetch;
+}
 
 // Mock dependencies
 vi.mock('@/hooks/useFeatureFlag', () => ({
@@ -34,15 +41,62 @@ vi.mock('next/link', () => ({
   }) => <a href={href}>{children}</a>,
 }));
 
-global.fetch = vi.fn() as unknown as typeof fetch;
+vi.mock('@/lib/stellarContract', () => ({
+  stroopsToDisplay: vi.fn((value: number) => (value / 10000000).toFixed(2)),
+}));
 
 describe('AdminDashboard - Dark Mode Support', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: async () => [],
-    } as Response);
+    vi.mocked(global.fetch).mockImplementation((input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.includes('/api/admin/reconciliation')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            entries: [
+              {
+                id: '1',
+                amount: 1000000000,
+                status: 'completed',
+                payoutStatus: 'completed',
+                createdAt: new Date().toISOString(),
+              },
+            ],
+            page: 1,
+            pageSize: 20,
+            total: 1,
+            totalPages: 1,
+            actions: [],
+          }),
+        } as Response);
+      }
+
+      if (url.includes('/api/admin/audit')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            entries: [
+              {
+                id: 'log-1',
+                timestamp: new Date().toISOString(),
+                action: 'bridge_paused',
+                adminAddress: 'GADMINADDRESS',
+                parameters: {
+                  reason: 'maintenance',
+                },
+              },
+            ],
+            page: 1,
+            pageSize: 20,
+            total: 1,
+            totalPages: 1,
+            actions: ['bridge_paused'],
+          }),
+        } as Response);
+      }
+
+      return Promise.reject(new Error(`Unknown endpoint: ${url}`));
+    });
   });
 
   it('renders with theme-aware classes', async () => {
@@ -54,9 +108,9 @@ describe('AdminDashboard - Dark Mode Support', () => {
       expect(screen.getByText('Admin Dashboard')).toBeInTheDocument();
     });
 
-    // Check for theme classes instead of hardcoded colors
-    const container = screen.getByText('Admin Dashboard').closest('div');
-    expect(container?.className).toContain('theme-');
+    // Check for theme-aware wrapper class
+    const pageWrapper = document.querySelector('.theme-app');
+    expect(pageWrapper).toBeInTheDocument();
   });
 
   it('applies CSS tokens for colors', async () => {

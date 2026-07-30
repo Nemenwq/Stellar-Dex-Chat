@@ -81,6 +81,7 @@ describe('networkQueue with toastStore integration', { timeout: 15000 }, () => {
 
     isOnline = false;
     const promise = withNetworkReadQueue(mockTask, 'failing-request');
+    promise.catch(() => {});
 
     // Wait for queue
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -146,6 +147,7 @@ describe('networkQueue with toastStore integration', { timeout: 15000 }, () => {
 
     isOnline = false;
     const promise = withNetworkReadQueue(mockTask, 'test');
+    promise.catch(() => {});
 
     await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -183,7 +185,9 @@ describe('networkQueue with toastStore integration', { timeout: 15000 }, () => {
     const mockTask = vi.fn().mockRejectedValue(new Error('invalid input'));
 
     try {
-      await withNetworkReadQueue(mockTask, 'test');
+      const promise = withNetworkReadQueue(mockTask, 'test');
+      promise.catch(() => {});
+      await promise;
     } catch {
       // Expected to fail immediately
     }

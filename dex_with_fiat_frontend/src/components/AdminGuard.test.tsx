@@ -41,14 +41,17 @@ describe('AdminGuard', () => {
       .mockImplementationOnce(() => firstCheck.promise)
       .mockImplementationOnce(() => secondCheck.promise);
 
-    mockAddress = 'GADMIN_OLD';
+    const oldAdminAddr = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'; // 56 chars
+    const newUserAddr = 'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'; // 56 chars
+
+    mockAddress = oldAdminAddr;
     const { rerender } = render(
       <AdminGuard>
         <div data-testid="admin-content">Admin Content</div>
       </AdminGuard>,
     );
 
-    mockAddress = 'GUSER_NEW';
+    mockAddress = newUserAddr;
     rerender(
       <AdminGuard>
         <div data-testid="admin-content">Admin Content</div>
@@ -56,7 +59,7 @@ describe('AdminGuard', () => {
     );
 
     await act(async () => {
-      secondCheck.resolve('GADMIN_OLD');
+      secondCheck.resolve(oldAdminAddr);
       await secondCheck.promise;
     });
 
@@ -65,7 +68,7 @@ describe('AdminGuard', () => {
     });
 
     await act(async () => {
-      firstCheck.resolve('GADMIN_OLD');
+      firstCheck.resolve(oldAdminAddr);
       await firstCheck.promise;
     });
 

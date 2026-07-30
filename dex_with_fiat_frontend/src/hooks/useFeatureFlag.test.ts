@@ -8,6 +8,14 @@ import {
   featureFlagSectionDividerBorderClass,
 } from './useFeatureFlag';
 import { getFeatureFlag } from '@/lib/featureFlags';
+import { FeatureFlagNameSchema } from '@/lib/featureFlags';
+
+vi.mock('@/lib/featureFlags', () => ({
+  getFeatureFlag: vi.fn(() => true),
+  FeatureFlagNameSchema: {
+    safeParse: vi.fn(() => ({ success: true, data: 'enableAdminReconciliation' })),
+  },
+}));
 
 function Harness(props: {
   flag: 'enableAdminReconciliation' | 'enableConversionReminders';

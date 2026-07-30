@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import AdminGuard from '../AdminGuard';
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
@@ -17,11 +17,10 @@ describe('AdminGuard', () => {
   });
 
   it('renders landing page when connection address is empty', async () => {
-    const validAddr = 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDE';
     vi.mocked(useStellarWallet).mockReturnValue({
-      connection: { address: validAddr },
+      connection: { address: '' },
     } as unknown as ReturnType<typeof useStellarWallet>);
-    vi.mocked(getAdmin).mockResolvedValue(validAddr);
+    vi.mocked(getAdmin).mockResolvedValue('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
 
     render(
       <AdminGuard>
@@ -29,8 +28,10 @@ describe('AdminGuard', () => {
       </AdminGuard>,
     );
 
-    expect(await screen.findByTestId('landing-page')).toBeInTheDocument();
-    expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('landing-page')).toBeInTheDocument();
+      expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
+    });
   });
 
   it('shows error if connected address has invalid format (Zod validation)', async () => {
@@ -46,18 +47,19 @@ describe('AdminGuard', () => {
       </AdminGuard>,
     );
 
-    expect(
-      await screen.findByText('Invalid wallet address format. Access denied.'),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText('Invalid wallet address format. Access denied.'),
+      ).toBeInTheDocument();
+    });
   });
 
   it('shows error if contract admin address has invalid format (Zod validation)', async () => {
+    // Valid user address but invalid admin address from contract
     vi.mocked(useStellarWallet).mockReturnValue({
-      connection: {
-        address: 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDE',
-      }, // 56 chars
+      connection: { address: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
     } as unknown as ReturnType<typeof useStellarWallet>);
-    vi.mocked(getAdmin).mockResolvedValue('invalid-admin-address');
+    vi.mocked(getAdmin).mockResolvedValue('invalid-admin-address'); // Invalid format
 
     render(
       <AdminGuard>
@@ -65,14 +67,15 @@ describe('AdminGuard', () => {
       </AdminGuard>,
     );
 
-    expect(
-      await screen.findByText(/Invalid contract configuration/i),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText('Invalid contract configuration. Access denied.'),
+      ).toBeInTheDocument();
+    });
   });
 
   it('renders children when connected address matches admin address exactly', async () => {
-    const validAddr =
-      'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDE';
+    const validAddr = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     vi.mocked(useStellarWallet).mockReturnValue({
       connection: { address: validAddr },
     } as unknown as ReturnType<typeof useStellarWallet>);
@@ -84,14 +87,14 @@ describe('AdminGuard', () => {
       </AdminGuard>,
     );
 
-    expect(await screen.findByTestId('protected-content')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('protected-content')).toBeInTheDocument();
+    });
   });
 
   it('renders landing page when valid connected address does not match valid admin address', async () => {
-    const userAddr =
-      'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDE';
-    const adminAddr =
-      'G1234567890123456789012345678901234567890123456789012345';
+    const userAddr = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const adminAddr = 'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
     vi.mocked(useStellarWallet).mockReturnValue({
       connection: { address: userAddr },
     } as unknown as ReturnType<typeof useStellarWallet>);
@@ -103,6 +106,9 @@ describe('AdminGuard', () => {
       </AdminGuard>,
     );
 
-    expect(await screen.findByTestId('landing-page')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('landing-page')).toBeInTheDocument();
+      expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
+    });
   });
 });

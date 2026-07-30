@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
-const KEYBOARD_SHORTCUTS = {
+export const KEYBOARD_SHORTCUTS = {
   ADD_BENEFICIARY: 'Ctrl+B',
   FOCUS_BENEFICIARIES: 'Ctrl+Shift+B',
   NAVIGATE_UP: 'ArrowUp',
