@@ -1,0 +1,11 @@
+target/
+test_snapshots/
+build/
+dist/
+out/
+coverage/
+node_modules/
+.DS_Store
+*.pem
+npm-debug.log*
+
