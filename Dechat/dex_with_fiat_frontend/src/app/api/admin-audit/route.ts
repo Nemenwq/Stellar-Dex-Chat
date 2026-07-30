@@ -47,26 +47,41 @@ export async function GET(request: NextRequest) {
 
     const startDate = searchParams.get('startDate');
     if (startDate) {
+<<<<<<< HEAD
       try {
         filter.startDate = new Date(startDate);
       } catch {
+=======
+      const parsed = new Date(startDate);
+      if (Number.isNaN(parsed.getTime())) {
+>>>>>>> emwulrd/main
         return NextResponse.json(
           { error: 'Invalid startDate format. Use ISO 8601 format.' },
           { status: 400 }
         );
       }
+<<<<<<< HEAD
+=======
+      filter.startDate = parsed;
+>>>>>>> emwulrd/main
     }
 
     const endDate = searchParams.get('endDate');
     if (endDate) {
+<<<<<<< HEAD
       try {
         filter.endDate = new Date(endDate);
       } catch {
+=======
+      const parsed = new Date(endDate);
+      if (Number.isNaN(parsed.getTime())) {
+>>>>>>> emwulrd/main
         return NextResponse.json(
           { error: 'Invalid endDate format. Use ISO 8601 format.' },
           { status: 400 }
         );
       }
+<<<<<<< HEAD
     }
 
     // Pagination parameters
@@ -75,6 +90,18 @@ export async function GET(request: NextRequest) {
       1000 // Max limit
     );
     const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10), 0);
+=======
+      filter.endDate = parsed;
+    }
+
+    // Pagination parameters
+    const rawLimit = parseInt(searchParams.get('limit') || '100', 10);
+    const limit = Number.isFinite(rawLimit)
+      ? Math.min(Math.max(rawLimit, 1), 1000)
+      : 100;
+    const rawOffset = parseInt(searchParams.get('offset') || '0', 10);
+    const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
+>>>>>>> emwulrd/main
 
     // Retrieve filtered entries
     const allEntries = AuditLogService.getAuditEntries(filter);

@@ -1,5 +1,9 @@
 import React from 'react';
+<<<<<<< HEAD
 import { render, screen, fireEvent } from '@testing-library/react';
+=======
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+>>>>>>> emwulrd/main
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import ChatInput from '../ChatInput';
 
@@ -128,4 +132,21 @@ describe('ChatInput - Keyboard Shortcuts', () => {
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     expect(screen.queryByPlaceholderText('Type a command...')).not.toBeInTheDocument();
   });
+<<<<<<< HEAD
 });
+=======
+
+  it('announces successful message submission to assistive tech', async () => {
+    render(<ChatInput {...defaultProps} />);
+    const textarea = screen.getByPlaceholderText('Type a message...');
+
+    fireEvent.change(textarea, { target: { value: 'Hello Stellar' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true });
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('Message sent.');
+    });
+    expect(mockOnSendMessage).toHaveBeenCalledWith('Hello Stellar');
+  });
+});
+>>>>>>> emwulrd/main

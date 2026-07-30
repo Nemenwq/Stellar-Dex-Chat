@@ -57,6 +57,7 @@ export function useFeatureFlag(flag: FeatureFlag, scrollTargetId?: string) {
       return;
     }
 
+<<<<<<< HEAD
     const newEnabled = getFeatureFlag(flag);
     setIsEnabled(newEnabled);
     trackFeatureFlag(flag, newEnabled);
@@ -68,6 +69,32 @@ export function useFeatureFlag(flag: FeatureFlag, scrollTargetId?: string) {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }
+=======
+    function evaluate() {
+      const newEnabled = getFeatureFlag(flag);
+      setIsEnabled(newEnabled);
+      trackFeatureFlag(flag, newEnabled);
+
+      // Auto-scroll behavior: if flag becomes enabled and scrollTargetId is provided, scroll to it
+      if (newEnabled && scrollTargetId && typeof window !== 'undefined') {
+        const element = document.getElementById(scrollTargetId);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    }
+
+    evaluate();
+
+    // Re-evaluate when another tab or a dev-tools script modifies localStorage so
+    // that flag overrides applied at runtime are picked up without a page reload.
+    // The listener MUST be removed on cleanup — failing to do so leaks it on every
+    // re-render that changes `flag` or `scrollTargetId` (#1220).
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', evaluate);
+      return () => window.removeEventListener('storage', evaluate);
+    }
+>>>>>>> emwulrd/main
   }, [flag, scrollTargetId]);
 
   return isEnabled;

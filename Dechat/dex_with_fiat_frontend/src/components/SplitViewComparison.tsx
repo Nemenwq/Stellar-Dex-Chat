@@ -8,10 +8,18 @@ import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useToast } from '@/hooks/useToast';
 import { useEffectiveDarkMode } from '@/hooks/useEffectiveDarkMode';
 import EmptyState from '@/components/ui/EmptyState';
+<<<<<<< HEAD
+=======
+import Skeleton from '@/components/ui/skeleton/Skeleton';
+>>>>>>> emwulrd/main
 
 interface SplitViewComparisonProps {
   splitView: UseSplitViewReturn;
   sessions: ChatSession[];
+<<<<<<< HEAD
+=======
+  isLoading?: boolean;
+>>>>>>> emwulrd/main
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +224,10 @@ function ThreadPane({
 export default function SplitViewComparison({
   splitView,
   sessions,
+<<<<<<< HEAD
+=======
+  isLoading = false,
+>>>>>>> emwulrd/main
 }: SplitViewComparisonProps) {
   const {
     state,
@@ -300,6 +312,10 @@ export default function SplitViewComparison({
       role="dialog"
       aria-modal="true"
       aria-labelledby={dialogTitleId}
+<<<<<<< HEAD
+=======
+      aria-busy={isLoading}
+>>>>>>> emwulrd/main
       data-testid="split-view-comparison"
       data-effective-theme={effectiveTheme}
     >
@@ -350,7 +366,24 @@ export default function SplitViewComparison({
 
       {/* Two panes */}
       <div className="flex flex-1 min-h-0 overflow-hidden flex-col md:flex-row">
+<<<<<<< HEAD
         {bothEmpty ? (
+=======
+        {isLoading ? (
+          <div className="flex flex-1 min-h-0 overflow-hidden flex-col md:flex-row gap-4 p-4">
+            {[1, 2].map((index) => (
+              <div key={index} className="flex-1 space-y-4" data-testid="split-view-skeleton">
+                <Skeleton className="h-10 w-3/4 bg-slate-200 dark:bg-slate-700" />
+                <div className="space-y-3">
+                  <Skeleton className="h-16 bg-slate-200 dark:bg-slate-700" />
+                  <Skeleton className="h-16 bg-slate-200 dark:bg-slate-700" />
+                  <Skeleton className="h-16 bg-slate-200 dark:bg-slate-700" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : bothEmpty ? (
+>>>>>>> emwulrd/main
           <EmptyState
             icon={Columns2}
             title="No threads to compare"

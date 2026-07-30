@@ -1,13 +1,21 @@
 import { test, expect, Page } from '@playwright/test';
+<<<<<<< HEAD
 
 const MOCK_CHAT_REPLY = 'Queued message delivered after reconnect.';
 
 async function mockGeminiResponse(page: Page): Promise<void> {
   await page.route('**/v1beta/models/**:generateContent*', async (route) => {
+=======
+import { gotoChatConnected } from './helpers';
+
+async function mockChatApi(page: Page): Promise<void> {
+  await page.route('**/api/ai/chat**', async (route) => {
+>>>>>>> emwulrd/main
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
+<<<<<<< HEAD
         candidates: [
           {
             content: {
@@ -33,12 +41,25 @@ async function mockGeminiResponse(page: Page): Promise<void> {
             index: 0,
           },
         ],
+=======
+        intent: 'query',
+        confidence: 0.95,
+        extractedData: {},
+        requiredQuestions: [],
+        suggestedResponse: 'Queued message delivered after reconnect.',
+        guardrail: {
+          triggered: false,
+          category: 'unsupported_request',
+          reason: '',
+        },
+>>>>>>> emwulrd/main
       }),
     });
   });
 }
 
 test.describe('Offline reconnect queue', () => {
+<<<<<<< HEAD
   test('@slow connect -> offline send -> reconnect replays queued message', async ({ page, context, browserName }) => {
     test.skip(browserName !== 'chromium', 'CDP network emulation requires Chromium.');
 
@@ -52,6 +73,19 @@ test.describe('Offline reconnect queue', () => {
     });
 
     const messageInput = page.locator('textarea').first();
+=======
+  test('@slow connect -> offline send -> reconnect replays queued message', async ({
+    page,
+    context,
+    browserName,
+  }) => {
+    test.skip(browserName !== 'chromium', 'CDP network emulation requires Chromium.');
+
+    await mockChatApi(page);
+    await gotoChatConnected(page);
+
+    const messageInput = page.locator('[data-testid="chat-input-textarea"]');
+>>>>>>> emwulrd/main
     await expect(messageInput).toBeVisible({ timeout: 10_000 });
 
     const queuedMessage = 'check xlm market rates';
@@ -88,6 +122,12 @@ test.describe('Offline reconnect queue', () => {
     });
 
     await expect(page.getByText(queuedMessage)).toBeVisible({ timeout: 10_000 });
+<<<<<<< HEAD
     await expect(page.getByText(MOCK_CHAT_REPLY)).toBeVisible({ timeout: 10_000 });
+=======
+    await expect(page.getByText('Back online. Replaying actions...')).toBeHidden({
+      timeout: 15_000,
+    });
+>>>>>>> emwulrd/main
   });
 });

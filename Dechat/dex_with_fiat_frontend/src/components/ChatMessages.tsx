@@ -1,6 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+<<<<<<< HEAD
+=======
+import { useReducedMotion } from 'framer-motion';
+>>>>>>> emwulrd/main
 import { ChatMessage } from '@/types';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
@@ -22,6 +26,14 @@ interface ChatMessagesProps {
     actionType: string,
     data?: Record<string, unknown>,
   ) => void;
+<<<<<<< HEAD
+=======
+  /**
+   * Resend a message that failed to send. Receives the failed message's id and
+   * its original content, ready to be submitted again as-is.
+   */
+  onRetry?: (messageId: string, content: string) => void | Promise<void>;
+>>>>>>> emwulrd/main
   isLoading?: boolean;
   searchQuery?: string;
 }
@@ -107,6 +119,10 @@ function HelpCard({
 export default function ChatMessages({
   messages: allMessages,
   onActionClick,
+<<<<<<< HEAD
+=======
+  onRetry,
+>>>>>>> emwulrd/main
   isLoading = false,
   searchQuery = '',
 }: ChatMessagesProps) {
@@ -114,6 +130,11 @@ export default function ChatMessages({
   const containerRef = useRef<HTMLDivElement>(null);
   const loaderRef = useRef<HTMLDivElement>(null);
   const { isDarkMode } = useTheme();
+<<<<<<< HEAD
+=======
+  const shouldReduceMotion = useReducedMotion();
+  const scrollBehavior: ScrollBehavior = shouldReduceMotion ? 'auto' : 'smooth';
+>>>>>>> emwulrd/main
 
   const { visibleMessages, hasMore, isLoadingMore, loadMore } =
     useChatPagination(allMessages);
@@ -167,17 +188,37 @@ export default function ChatMessages({
     if (containerRef.current) {
       containerRef.current.scrollTo({
         top: containerRef.current.scrollHeight,
+<<<<<<< HEAD
         behavior: 'smooth',
       });
     }
   }, []);
+=======
+        behavior: scrollBehavior,
+      });
+    }
+  }, [scrollBehavior]);
+>>>>>>> emwulrd/main
 
   useEffect(() => {
     if (isLoading || allMessages.length > 0) {
       // Only auto-scroll to bottom if we are NOT loading more previous messages
       if (!isLoadingMore && !shouldPreserveScroll) {
         const timer = setTimeout(() => {
+<<<<<<< HEAD
           scrollToBottom();
+=======
+          // Check if user is within 100px of bottom before auto-scrolling
+          if (containerRef.current) {
+            const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+            const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+            
+            // Auto-scroll only if within 100px of bottom
+            if (distanceFromBottom <= 100) {
+              scrollToBottom();
+            }
+          }
+>>>>>>> emwulrd/main
         }, 100);
         return () => clearTimeout(timer);
       }
@@ -262,10 +303,59 @@ export default function ChatMessages({
     (card) => !dismissedCards.includes(card.id),
   );
 
+<<<<<<< HEAD
   return (
     <div
       ref={containerRef}
       className={`flex-1 overflow-y-auto p-6 transition-colors duration-300 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'
+=======
+  const handleKeyboardNavigation = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!containerRef.current) return;
+
+      if (e.key === 'Home') {
+        e.preventDefault();
+        containerRef.current.scrollTo({ top: 0, behavior: scrollBehavior });
+      }
+
+      if (e.key === 'End') {
+        e.preventDefault();
+        containerRef.current.scrollTo({
+          top: containerRef.current.scrollHeight,
+          behavior: scrollBehavior,
+        });
+      }
+
+      if (e.key === 'PageUp') {
+        e.preventDefault();
+        containerRef.current.scrollBy({
+          top: -containerRef.current.clientHeight,
+          behavior: scrollBehavior,
+        });
+      }
+
+      if (e.key === 'PageDown') {
+        e.preventDefault();
+        containerRef.current.scrollBy({
+          top: containerRef.current.clientHeight,
+          behavior: scrollBehavior,
+        });
+      }
+    },
+    [scrollBehavior],
+  );
+
+  return (
+    <div
+      ref={containerRef}
+      role="region"
+      tabIndex={0}
+      aria-label="Chat messages"
+      aria-keyshortcuts="Home End PageUp PageDown"
+      aria-describedby="chat-messages-shortcuts"
+      onKeyDown={handleKeyboardNavigation}
+      className={`flex-1 overflow-y-auto p-6 transition-colors duration-300 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'
+>>>>>>> emwulrd/main
         }`}
       style={{
         height: '100%',
@@ -273,7 +363,24 @@ export default function ChatMessages({
         maxHeight: '100%',
       }}
     >
+<<<<<<< HEAD
       {visibleMessages.length === 0 ? (
+=======
+      <span id="chat-messages-shortcuts" className="sr-only">
+        Keyboard shortcuts: Home to jump to top, End to jump to bottom, PageUp
+        and PageDown to quickly scroll.
+      </span>
+      {isLoading && allMessages.length === 0 ? (
+        <div className="space-y-4 max-w-4xl mx-auto py-8" data-testid="chat-messages-loading">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="space-y-3">
+              <Skeleton className="h-6 w-3/4 bg-slate-200 dark:bg-slate-700" />
+              <Skeleton className="h-12 w-full bg-slate-200 dark:bg-slate-700" />
+            </div>
+          ))}
+        </div>
+      ) : visibleMessages.length === 0 ? (
+>>>>>>> emwulrd/main
         <div className="max-w-4xl mx-auto h-full flex flex-col items-center justify-center py-12">
           {searchQuery.trim() ? (
             /* ── Search returned nothing ── */
@@ -393,6 +500,10 @@ export default function ChatMessages({
               key={message.id}
               message={message}
               onActionClick={onActionClick}
+<<<<<<< HEAD
+=======
+              onRetry={onRetry}
+>>>>>>> emwulrd/main
               shouldAnimate={isReadyToAnimate && !isLoadingMore && !seenMessageIds.current.has(message.id)}
             />
           ))}

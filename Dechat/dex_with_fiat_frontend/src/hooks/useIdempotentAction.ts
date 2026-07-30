@@ -26,6 +26,12 @@ export function useIdempotentAction(options: IdempotentActionOptions = {}) {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+<<<<<<< HEAD
+=======
+      // Clear in-flight promises on unmount so their closures (which hold
+      // references to state setters and other hook internals) can be GC'd.
+      inFlightActions.current.clear();
+>>>>>>> emwulrd/main
     };
   }, []);
 

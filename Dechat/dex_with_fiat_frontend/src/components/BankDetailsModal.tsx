@@ -17,7 +17,11 @@ import {
   Clock,
   RefreshCw,
 } from 'lucide-react';
+<<<<<<< HEAD
 import { motion, AnimatePresence } from 'framer-motion';
+=======
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+>>>>>>> emwulrd/main
 import { fetchLockedQuote, type LockedQuote } from '@/lib/cryptoPriceService';
 import SkeletonWallet from '@/components/ui/skeleton/SkeletonWallet';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -164,6 +168,10 @@ export default function BankDetailsModal({
   xlmAmount,
 }: BankDetailsModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
+<<<<<<< HEAD
+=======
+  const prefersReducedMotion = useReducedMotion();
+>>>>>>> emwulrd/main
   const {
     beneficiaries,
     isLoaded: beneficiariesLoaded,
@@ -665,10 +673,17 @@ export default function BankDetailsModal({
   return (
     <motion.div
       className="theme-overlay fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm"
+<<<<<<< HEAD
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2 }}
+=======
+      initial={prefersReducedMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.2 }}
+>>>>>>> emwulrd/main
     >
       <motion.div
         ref={modalRef}
@@ -678,10 +693,29 @@ export default function BankDetailsModal({
         tabIndex={-1}
         className="theme-surface theme-border relative w-full max-w-md mx-4 border rounded-2xl shadow-2xl p-6"
         variants={modalVariants}
+<<<<<<< HEAD
         initial="hidden"
         animate="visible"
         exit="exit"
       >
+=======
+        initial={prefersReducedMotion ? false : 'hidden'}
+        animate="visible"
+        exit="exit"
+      >
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {step === 1 && 'Bank selection step.'}
+          {step === 2 && 'Account verification step.'}
+          {step === 3 && 'Payout confirmation step.'}
+          {step === 4 && 'Payout status step.'}
+        </div>
+
+>>>>>>> emwulrd/main
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">

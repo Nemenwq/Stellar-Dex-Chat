@@ -2,12 +2,20 @@ import { test, expect } from '@playwright/test';
 
 test.describe('SplitViewComparison component E2E', () => {
   test.beforeEach(async ({ page }) => {
+<<<<<<< HEAD
     // Navigate to a page that renders the SplitViewComparison component
     await page.goto('/test-split-view-comparison');
+=======
+    await page.goto('/test-split-view-comparison');
+    await page
+      .locator('[data-testid="split-view-comparison"]')
+      .waitFor({ state: 'visible' });
+>>>>>>> emwulrd/main
   });
 
   test.describe('Initial render', () => {
     test('renders split view comparison container', async ({ page }) => {
+<<<<<<< HEAD
       const container = page.locator('[data-testid="split-view-comparison"]').first();
       await expect(container).toBeVisible();
     });
@@ -24,11 +32,26 @@ test.describe('SplitViewComparison component E2E', () => {
       if (await title.isVisible()) {
         await expect(title).toBeVisible();
       }
+=======
+      await expect(
+        page.locator('[data-testid="split-view-comparison"]'),
+      ).toBeVisible();
+    });
+
+    test('renders both left and right panels', async ({ page }) => {
+      await expect(page.locator('[data-testid="split-pane-left"]')).toBeVisible();
+      await expect(page.locator('[data-testid="split-pane-right"]')).toBeVisible();
+    });
+
+    test('displays comparison title', async ({ page }) => {
+      await expect(page.getByRole('heading', { name: /compare threads/i })).toBeVisible();
+>>>>>>> emwulrd/main
     });
   });
 
   test.describe('Content display', () => {
     test('left panel displays correct content', async ({ page }) => {
+<<<<<<< HEAD
       const leftContent = page.locator('[data-testid="split-view-left"] *');
       const count = await leftContent.count();
       expect(count).toBeGreaterThan(0);
@@ -43,10 +66,27 @@ test.describe('SplitViewComparison component E2E', () => {
     test('content is properly separated between panels', async ({ page }) => {
       const leftText = await page.locator('[data-testid="split-view-left"]').textContent();
       const rightText = await page.locator('[data-testid="split-view-right"]').textContent();
+=======
+      await expect(page.locator('[data-testid="split-pane-left"]')).toContainText(
+        /left pane message content/i,
+      );
+    });
+
+    test('right panel displays correct content', async ({ page }) => {
+      await expect(page.locator('[data-testid="split-pane-right"]')).toContainText(
+        /right pane message content/i,
+      );
+    });
+
+    test('content is properly separated between panels', async ({ page }) => {
+      const leftText = await page.locator('[data-testid="split-pane-left"]').textContent();
+      const rightText = await page.locator('[data-testid="split-pane-right"]').textContent();
+>>>>>>> emwulrd/main
       expect(leftText).not.toBe(rightText);
     });
   });
 
+<<<<<<< HEAD
   test.describe('Divider interaction', () => {
     test('renders divider between panels', async ({ page }) => {
       const divider = page.locator('[data-testid="split-view-divider"]').first();
@@ -101,10 +141,19 @@ test.describe('SplitViewComparison component E2E', () => {
       const scrollWidth = await body.evaluate((el) => el.scrollWidth);
       const clientWidth = await body.evaluate((el) => el.clientWidth);
       expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1); // +1 for rounding
+=======
+  test.describe('Responsive behavior', () => {
+    test('maintains layout on mobile viewport', async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 667 });
+      await expect(page.locator('[data-testid="split-view-comparison"]')).toBeVisible();
+      await expect(page.locator('[data-testid="split-pane-left"]')).toBeVisible();
+      await expect(page.locator('[data-testid="split-pane-right"]')).toBeVisible();
+>>>>>>> emwulrd/main
     });
   });
 
   test.describe('Accessibility', () => {
+<<<<<<< HEAD
     test('semantic HTML structure', async ({ page }) => {
       const container = page.locator('[data-testid="split-view-comparison"]').first();
       const html = await container.innerHTML();
@@ -129,6 +178,20 @@ test.describe('SplitViewComparison component E2E', () => {
 
     test('keyboard navigation works', async ({ page }) => {
       // Tab through elements
+=======
+    test('panels have accessible labels', async ({ page }) => {
+      await expect(page.locator('[data-testid="split-pane-left"]')).toHaveAttribute(
+        'aria-label',
+        /left thread comparison pane/i,
+      );
+      await expect(page.locator('[data-testid="split-pane-right"]')).toHaveAttribute(
+        'aria-label',
+        /right thread comparison pane/i,
+      );
+    });
+
+    test('keyboard navigation works', async ({ page }) => {
+>>>>>>> emwulrd/main
       await page.keyboard.press('Tab');
       const focusedElement = await page.evaluate(() => document.activeElement?.tagName);
       expect(focusedElement).toBeTruthy();
@@ -136,6 +199,7 @@ test.describe('SplitViewComparison component E2E', () => {
   });
 
   test.describe('Interactive elements', () => {
+<<<<<<< HEAD
     test('buttons and clickable elements are interactive', async ({ page }) => {
       const buttons = page.locator('[data-testid="split-view-comparison"] button').first();
       if (await buttons.isVisible()) {
@@ -188,6 +252,11 @@ test.describe('SplitViewComparison component E2E', () => {
       // Filter out expected errors (if any)
       const unexpectedErrors = errors.filter((e) => !e.includes('Expected'));
       expect(unexpectedErrors.length).toBe(0);
+=======
+    test('swap and close controls are visible', async ({ page }) => {
+      await expect(page.locator('[data-testid="swap-threads-btn"]')).toBeVisible();
+      await expect(page.locator('[data-testid="close-split-view-btn"]')).toBeVisible();
+>>>>>>> emwulrd/main
     });
   });
 });

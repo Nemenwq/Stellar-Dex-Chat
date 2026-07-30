@@ -14,6 +14,7 @@ test.describe('Message component E2E', () => {
     });
 
     test('renders bold and italic text', async ({ page }) => {
+<<<<<<< HEAD
       const boldText = page.locator('strong').first();
       const italicText = page.locator('em').first();
       await expect(boldText).toBeVisible();
@@ -23,6 +24,14 @@ test.describe('Message component E2E', () => {
     test('renders code blocks', async ({ page }) => {
       const codeBlock = page.locator('code').first();
       await expect(codeBlock).toBeVisible();
+=======
+      await expect(page.locator('strong').first()).toBeVisible();
+      await expect(page.locator('em').first()).toBeVisible();
+    });
+
+    test('renders code blocks', async ({ page }) => {
+      await expect(page.locator('code').first()).toBeVisible();
+>>>>>>> emwulrd/main
     });
   });
 
@@ -30,6 +39,7 @@ test.describe('Message component E2E', () => {
     test('shows transaction details and copy buttons', async ({ page }) => {
       await expect(page.getByText(/Transaction Details/i)).toBeVisible();
       await expect(page.getByText(/Receipt ID:/i)).toBeVisible();
+<<<<<<< HEAD
       // copy buttons are present (two for txHash and receiptId)
       const copyButtons = page.locator('button').filter({ hasText: '' });
       await expect(copyButtons.first()).toBeVisible();
@@ -52,11 +62,30 @@ test.describe('Message component E2E', () => {
         const text = await txAmount.textContent();
         expect(text).toBeTruthy();
       }
+=======
+    });
+
+    test('copies transaction hash on button click', async ({
+      page,
+      context,
+      browserName,
+    }) => {
+      test.skip(
+        browserName !== 'chromium',
+        'Clipboard permissions are only supported in Chromium.',
+      );
+
+      const copyButton = page.locator('button[aria-label*="copy" i]').first();
+      await expect(copyButton).toBeVisible();
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      await copyButton.click();
+>>>>>>> emwulrd/main
     });
   });
 
   test.describe('Suggested actions', () => {
     test('suggested actions render and are clickable', async ({ page }) => {
+<<<<<<< HEAD
       const confirmBtn = page.getByRole('button', { name: /confirm/i }).first();
       const cancelBtn = page.getByRole('button', { name: /cancel/i }).first();
       if (await confirmBtn.isVisible()) {
@@ -76,11 +105,16 @@ test.describe('Message component E2E', () => {
           await expect(btn).toHaveAttribute('type', /(button|submit)/);
         }
       }
+=======
+      await expect(page.getByRole('button', { name: /confirm/i }).first()).toBeVisible();
+      await expect(page.getByRole('button', { name: /cancel/i }).first()).toBeVisible();
+>>>>>>> emwulrd/main
     });
   });
 
   test.describe('Error handling', () => {
     test('shows failed message with retry button', async ({ page }) => {
+<<<<<<< HEAD
       const failedMsg = page.getByText(/Failed to send|error/i).first();
       if (await failedMsg.isVisible()) {
         await expect(failedMsg).toBeVisible();
@@ -98,20 +132,30 @@ test.describe('Message component E2E', () => {
         const text = await errorMsg.textContent();
         expect(text).toBeTruthy();
       }
+=======
+      await expect(page.getByText(/Failed to send/i).first()).toBeVisible();
+      await expect(page.getByRole('button', { name: /retry/i }).first()).toBeVisible();
+>>>>>>> emwulrd/main
     });
   });
 
   test.describe('Message styling', () => {
+<<<<<<< HEAD
     test('applies correct theme styling', async ({ page }) => {
       const message = page.locator('[data-testid="message"]').first();
       if (await message.isVisible()) {
         const classes = await message.getAttribute('class');
         expect(classes).toBeTruthy();
       }
+=======
+    test('applies message test id', async ({ page }) => {
+      await expect(page.locator('[data-testid="message"]').first()).toBeVisible();
+>>>>>>> emwulrd/main
     });
 
     test('responsive layout on mobile viewport', async ({ page }) => {
       await page.setViewportSize({ width: 375, height: 667 });
+<<<<<<< HEAD
       const message = page.locator('[data-testid="message"]').first();
       await expect(message).toBeVisible();
       // Verify no horizontal overflow
@@ -119,6 +163,13 @@ test.describe('Message component E2E', () => {
       const scrollWidth = await body.evaluate((el) => el.scrollWidth);
       const clientWidth = await body.evaluate((el) => el.clientWidth);
       expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1); // +1 for rounding
+=======
+      await expect(page.locator('[data-testid="message"]').first()).toBeVisible();
+      const body = page.locator('body');
+      const scrollWidth = await body.evaluate((el) => el.scrollWidth);
+      const clientWidth = await body.evaluate((el) => el.clientWidth);
+      expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
+>>>>>>> emwulrd/main
     });
   });
 });

@@ -21,16 +21,57 @@ export interface SearchResults {
   totalMessages: number;
 }
 
+<<<<<<< HEAD
+=======
+export interface DebouncedFn<T extends (...args: unknown[]) => void> {
+  (...args: Parameters<T>): void;
+  /** Cancel any pending invocation. Call on component unmount to avoid stale callbacks. */
+  cancel(): void;
+  /** Swap the underlying function without resetting the timer. Prevents stale-closure bugs
+   *  when the caller's callback is recreated on each render (e.g. an inline arrow function). */
+  updateFn(newFn: T): void;
+}
+
+>>>>>>> emwulrd/main
 /** Debounce helper — returns a debounced version of `fn`. */
 export function debounce<T extends (...args: unknown[]) => void>(
   fn: T,
   delayMs: number,
+<<<<<<< HEAD
 ): (...args: Parameters<T>) => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
   return (...args: Parameters<T>) => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => fn(...args), delayMs);
   };
+=======
+): DebouncedFn<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  // Store the latest fn so callers can update it via updateFn() without
+  // recreating the debounced wrapper (fixes stale-closure on re-render).
+  let latestFn: T = fn;
+
+  function debounced(...args: Parameters<T>): void {
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null; // reset so future clearTimeout checks are accurate
+      latestFn(...args);
+    }, delayMs);
+  }
+
+  debounced.cancel = (): void => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  debounced.updateFn = (newFn: T): void => {
+    latestFn = newFn;
+  };
+
+  return debounced;
+>>>>>>> emwulrd/main
 }
 
 /**
@@ -113,9 +154,17 @@ export function searchChatHistory(
   const hasWallet = walletAddress.trim().length > 0;
   const hasDate = dateFrom.trim().length > 0 || dateTo.trim().length > 0;
 
+<<<<<<< HEAD
   // If no filters at all, return empty
   if (!hasKeyword && !hasWallet && !hasDate) {
     return { matches: [], totalSessions: sessions.length, totalMessages: 0 };
+=======
+  const totalMessages = sessions.reduce((sum, s) => sum + s.messages.length, 0);
+
+  // If no filters at all, return early with accurate counts but no matches.
+  if (!hasKeyword && !hasWallet && !hasDate) {
+    return { matches: [], totalSessions: sessions.length, totalMessages };
+>>>>>>> emwulrd/main
   }
 
   const matches: MessageMatch[] = [];
@@ -146,6 +195,9 @@ export function searchChatHistory(
     }
   }
 
+<<<<<<< HEAD
   const totalMessages = sessions.reduce((sum, s) => sum + s.messages.length, 0);
+=======
+>>>>>>> emwulrd/main
   return { matches, totalSessions: sessions.length, totalMessages };
 }

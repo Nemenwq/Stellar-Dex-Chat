@@ -5,7 +5,11 @@
 
 import { SensitiveTermsManager } from './sensitiveTerms';
 
+<<<<<<< HEAD
 export type MaskingStyle = 'asterisk' | 'block' | 'initial' | 'pipe';
+=======
+export type MaskingStyle = 'asterisk' | 'block' | 'initial' | 'pipe' | 'address';
+>>>>>>> emwulrd/main
 
 export interface MaskingOptions {
   style?: MaskingStyle;
@@ -32,6 +36,17 @@ export function generateMask(term: string, style: MaskingStyle = 'asterisk'): st
       // e.g., "damn" -> "|dam|"
       return `|${term}|`;
 
+<<<<<<< HEAD
+=======
+    case 'address':
+      // e.g., "GABCDEF..." -> "GABCDE...XYZ"
+      if (length <= 10) return term;
+      const firstSix = term.slice(0, 6);
+      const lastFour = term.slice(-4);
+      const maskedMiddle = '*'.repeat(length - 10);
+      return `${firstSix}${maskedMiddle}${lastFour}`;
+
+>>>>>>> emwulrd/main
     case 'asterisk':
     default:
       // e.g., "damn" -> "****"

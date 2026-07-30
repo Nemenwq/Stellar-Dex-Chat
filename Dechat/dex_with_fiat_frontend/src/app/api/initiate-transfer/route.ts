@@ -25,7 +25,24 @@ export async function POST(request: NextRequest) {
       endpoint: '/api/initiate-transfer',
     });
 
+<<<<<<< HEAD
     const body = await request.json();
+=======
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      telemetry.addLog(span.spanId, 'warn', 'Malformed JSON body');
+      telemetry.finishSpan(span.spanId, {
+        success: false,
+        error: 'Invalid JSON body',
+      });
+      return NextResponse.json(
+        { success: false, message: 'Invalid JSON in request body.' },
+        { status: 400 },
+      );
+    }
+>>>>>>> emwulrd/main
 
     // Validate with Zod
     const validationResult = initiateTransferSchema.safeParse(body);
@@ -51,9 +68,19 @@ export async function POST(request: NextRequest) {
 
     const { source, reason, amount, recipient, reference } =
       validationResult.data;
+<<<<<<< HEAD
     const clientSessionId =
       typeof body.clientSessionId === 'string'
         ? body.clientSessionId
+=======
+    // `clientSessionId` isn't part of initiateTransferSchema, so it's read
+    // from the raw (already-validated-as-an-object) body instead of
+    // validationResult.data.
+    const bodyRecord = body as Record<string, unknown>;
+    const clientSessionId =
+      typeof bodyRecord.clientSessionId === 'string'
+        ? bodyRecord.clientSessionId
+>>>>>>> emwulrd/main
         : undefined;
 
     telemetry.addLog(span.spanId, 'info', 'Request validated', {
@@ -94,7 +121,10 @@ export async function POST(request: NextRequest) {
       data,
     });
   } catch (error: unknown) {
+<<<<<<< HEAD
     // Capture error in Sentry
+=======
+>>>>>>> emwulrd/main
     Sentry.captureException(error, {
       tags: {
         endpoint: '/api/initiate-transfer',
@@ -107,13 +137,23 @@ export async function POST(request: NextRequest) {
       },
     });
 
+<<<<<<< HEAD
+=======
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+
+>>>>>>> emwulrd/main
     telemetry.addLog(
       span.spanId,
       'error',
       'Unhandled error in transfer initiation',
+<<<<<<< HEAD
       {
         error: error instanceof Error ? error.message : 'Unknown error',
       },
+=======
+      { error: errorMessage },
+>>>>>>> emwulrd/main
     );
 
     console.error('Initiate transfer error:', error);

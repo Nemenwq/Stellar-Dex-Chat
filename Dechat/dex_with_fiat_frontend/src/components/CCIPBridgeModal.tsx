@@ -1,6 +1,10 @@
 'use client';
 
+<<<<<<< HEAD
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+=======
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+>>>>>>> emwulrd/main
 import {
   AlertCircle,
   CheckCircle,
@@ -57,6 +61,32 @@ export default function CCIPBridgeModal({
   const [errorMessage, setErrorMessage] = useState('');
   const [networkChangedWhileActive, setNetworkChangedWhileActive] = useState(false);
 
+<<<<<<< HEAD
+=======
+  // #1179: single sr-only live region announcing bridge state transitions.
+  // The visible per-state sections below aren't in an aria-live container,
+  // so a screen reader user starting a transfer would hear nothing as it
+  // moves through optimistic -> initiating -> polling -> success/error.
+  const bridgeAnnouncement = useMemo(() => {
+    switch (bridgeState) {
+      case 'optimistic':
+        return 'Transfer initiated. Preparing transaction.';
+      case 'initiating':
+        return 'Starting CCIP transfer.';
+      case 'polling':
+        return latestStatus
+          ? `Waiting for CCIP confirmation. Latest status: ${latestStatus}.`
+          : 'Waiting for CCIP confirmation.';
+      case 'success':
+        return `CCIP transfer confirmed. Status: ${latestStatus || 'SUCCESS'}.`;
+      case 'error':
+        return `CCIP transfer error. ${errorMessage}`;
+      default:
+        return '';
+    }
+  }, [bridgeState, latestStatus, errorMessage]);
+
+>>>>>>> emwulrd/main
   // Keep ref in sync with state.
   // Keep ref in sync with state.
   useEffect(() => {
@@ -291,6 +321,13 @@ export default function CCIPBridgeModal({
           </button>
         </div>
 
+<<<<<<< HEAD
+=======
+        <div role="status" aria-live="polite" className="sr-only">
+          {bridgeAnnouncement}
+        </div>
+
+>>>>>>> emwulrd/main
         {networkChangedWhileActive && (
           <div
             role="alert"

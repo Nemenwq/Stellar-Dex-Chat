@@ -109,7 +109,11 @@ describe('CCIPBridgeModal', () => {
 
     expect(screen.getByText('CCIP transfer error')).toBeInTheDocument();
     expect(
+<<<<<<< HEAD
       screen.getByText(/timed out after 10 minutes/i),
+=======
+      screen.getAllByText(/timed out after 10 minutes/i)[0],
+>>>>>>> emwulrd/main
     ).toBeInTheDocument();
   });
 
@@ -584,7 +588,11 @@ describe('CCIPBridgeModal', () => {
 
       expect(screen.getByText('CCIP transfer error')).toBeInTheDocument();
       expect(
+<<<<<<< HEAD
         screen.getByText(/timed out after 10 minutes/i),
+=======
+        screen.getAllByText(/timed out after 10 minutes/i)[0],
+>>>>>>> emwulrd/main
       ).toBeInTheDocument();
     });
   });
@@ -677,7 +685,11 @@ describe('CCIPBridgeModal', () => {
         await screen.findByText('CCIP transfer error'),
       ).toBeInTheDocument();
       expect(
+<<<<<<< HEAD
         screen.getByText(/CCIP transfer failed with status "FAILED"/),
+=======
+        screen.getAllByText(/CCIP transfer failed with status "FAILED"/)[0],
+>>>>>>> emwulrd/main
       ).toBeInTheDocument();
     });
 
@@ -992,4 +1004,49 @@ describe('CCIPBridgeModal', () => {
       expect(screen.getByText('CCIP transfer confirmed')).toBeInTheDocument();
     });
   });
+<<<<<<< HEAD
+=======
+
+  describe('accessibility: live region announcements (#1179)', () => {
+    it('announces confirmation and status through a polite live region while polling', async () => {
+      const fetchTransferStatus = vi
+        .fn()
+        .mockResolvedValueOnce({ status: 'PENDING' });
+
+      render(
+        <CCIPBridgeModal
+          {...defaultProps}
+          fetchTransferStatus={fetchTransferStatus}
+        />,
+      );
+
+      fireEvent.click(screen.getByText('Start CCIP Transfer'));
+
+      await screen.findByText('Waiting for CCIP confirmation…');
+
+      const liveRegion = screen.getByRole('status');
+      expect(liveRegion).toHaveAttribute('aria-live', 'polite');
+      expect(liveRegion.textContent).toMatch(/Waiting for CCIP confirmation/);
+      expect(liveRegion.textContent).toMatch(/PENDING/);
+    });
+
+    it('announces transfer errors through the live region', async () => {
+      const onStartTransfer = vi
+        .fn()
+        .mockRejectedValue(new Error('Insufficient allowance'));
+
+      render(
+        <CCIPBridgeModal {...defaultProps} onStartTransfer={onStartTransfer} />,
+      );
+
+      fireEvent.click(screen.getByText('Start CCIP Transfer'));
+
+      await screen.findByText('CCIP transfer error');
+
+      const liveRegion = screen.getByRole('status');
+      expect(liveRegion.textContent).toMatch(/CCIP transfer error/);
+      expect(liveRegion.textContent).toMatch(/Insufficient allowance/);
+    });
+  });
+>>>>>>> emwulrd/main
 });

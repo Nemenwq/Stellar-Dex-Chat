@@ -12,6 +12,10 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import { toDate } from '@/lib/messageUtils';
+<<<<<<< HEAD
+=======
+import { MAX_AUTO_RETRIES, useMessageRetry } from '@/hooks/useMessageRetry';
+>>>>>>> emwulrd/main
 import { useTranslation } from '@/contexts/TranslationContext';
 import { motion, useReducedMotion } from 'framer-motion';
 import CopyButton from '@/components/ui/CopyButton';
@@ -23,7 +27,16 @@ interface MessageProps {
     actionType: string,
     data?: Record<string, unknown>,
   ) => void;
+<<<<<<< HEAD
   onRetry?: (messageId: string) => void;
+=======
+  /**
+   * Resend a message that failed to send. Receives the message id and the
+   * *original* content the user typed (from `originalPayload` when available),
+   * so the caller never has to reconstruct it and the user never has to retype.
+   */
+  onRetry?: (messageId: string, content: string) => void | Promise<void>;
+>>>>>>> emwulrd/main
   shouldAnimate?: boolean;
 }
 
@@ -44,6 +57,21 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
   const isPending = message.metadata?.status === 'pending';
   const isFailed = message.metadata?.status === 'failed';
 
+<<<<<<< HEAD
+=======
+  // Resend uses the payload captured at send time so the user's original text
+  // survives any post-failure rewrite of `content`.
+  const retryContent = message.originalPayload?.content ?? message.content;
+  const retry = useMessageRetry({
+    messageId: message.id,
+    content: retryContent,
+    isFailed: hasError,
+    onRetry,
+  });
+  // Attempts already recorded on the message, plus the ones this component has
+  // made since it mounted.
+  const totalRetryAttempts = (message.error?.retryAttempts ?? 0) + retry.attempts;
+>>>>>>> emwulrd/main
 
   // Currency conversion hook for transaction amounts
   const amountForConversion = message.metadata?.transactionData?.amountIn 
@@ -107,6 +135,19 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
       h3: ({ children }) => (
         <h3 className="text-sm font-bold mb-1">{children}</h3>
       ),
+<<<<<<< HEAD
+=======
+      a: ({ href, children }) => (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-400 hover:underline"
+        >
+          {children}
+        </a>
+      ),
+>>>>>>> emwulrd/main
     }),
     [isDarkMode],
   );
@@ -114,12 +155,33 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
   // Safely parse the timestamp — guards against deserialized string values
   const timestamp = toDate(message.timestamp);
 
+<<<<<<< HEAD
   return (
     <motion.div
       initial={shouldAnimate ? "initial" : false}
       animate="animate"
       variants={variants}
       className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-8`}
+=======
+  const handleMessageKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (hasError && e.key === 'r' && !e.ctrlKey && !e.metaKey) {
+      retry.retryNow();
+    }
+  };
+
+  return (
+    <motion.div
+      data-testid="message"
+      initial={shouldAnimate ? "initial" : false}
+      animate="animate"
+      variants={variants}
+      role="group"
+      tabIndex={0}
+      aria-label={`${isUser ? 'Your' : 'Assistant'} message`}
+      aria-keyshortcuts={hasError ? 'R' : undefined}
+      onKeyDown={handleMessageKeyDown}
+      className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-8 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent`}
+>>>>>>> emwulrd/main
     >
       <div className={`max-w-[80%] ${isUser ? 'order-2' : 'order-1'}`}>
         {/* Avatar */}
@@ -157,7 +219,11 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
               <div className="whitespace-pre-wrap break-words min-h-[20px] flex items-center">
                 {isPending ? (
                   <div className="flex items-center space-x-2 text-gray-400">
+<<<<<<< HEAD
                     <Loader2 className="w-4 h-4 animate-spin" />
+=======
+                    <Loader2 className={`w-4 h-4 ${shouldReduceMotion ? '' : 'animate-spin'}`} />
+>>>>>>> emwulrd/main
                     <span className="text-sm italic">{t('common.loading')}</span>
                   </div>
                 ) : isUser ? (
@@ -205,6 +271,11 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
             {/* Error State */}
             {hasError && (
               <div
+<<<<<<< HEAD
+=======
+                data-testid="message-error"
+                role="alert"
+>>>>>>> emwulrd/main
                 className={`mt-3 inline-flex flex-col gap-2 rounded-lg border px-3 py-2 text-xs ${
                   isDarkMode
                     ? 'border-red-700 bg-red-950/40 text-red-200'
@@ -217,6 +288,7 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
                     {message.error?.message || 'Failed to send message'}
                   </span>
                 </div>
+<<<<<<< HEAD
                 {message.error?.retryAttempts && message.error.retryAttempts > 0 && (
                   <div className="text-xs opacity-75">
                     Retry attempts: {message.error.retryAttempts}
@@ -234,6 +306,53 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
                     <RotateCcw className="w-3 h-3" />
                     Retry
                   </button>
+=======
+                {totalRetryAttempts > 0 && (
+                  <div className="text-xs opacity-75">
+                    Retry attempts: {totalRetryAttempts}
+                  </div>
+                )}
+                {onRetry && (
+                  <>
+                    <div
+                      className="text-xs opacity-75"
+                      aria-live="polite"
+                      data-testid="message-retry-status"
+                    >
+                      {retry.isRetrying
+                        ? t('chat.resending')
+                        : retry.secondsUntilNextRetry !== null
+                          ? t('chat.retry_countdown', {
+                              seconds: retry.secondsUntilNextRetry,
+                              attempt: retry.attempts + 1,
+                              max: MAX_AUTO_RETRIES,
+                            })
+                          : t('chat.retry_exhausted', {
+                              max: MAX_AUTO_RETRIES,
+                            })}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={retry.retryNow}
+                      disabled={retry.isRetrying}
+                      data-testid="message-retry-button"
+                      aria-label={t('chat.retry_message', {
+                        content: retryContent,
+                      })}
+                      title={retryContent}
+                      className={`mt-2 flex items-center justify-center gap-2 px-3 py-1 rounded-lg text-xs font-medium transition-all transform hover:scale-105 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100 ${
+                        isDarkMode
+                          ? 'bg-red-700/40 hover:bg-red-700/60 border border-red-600'
+                          : 'bg-red-100 hover:bg-red-200 border border-red-300'
+                      }`}
+                    >
+                      <RotateCcw
+                        className={`w-3 h-3 ${retry.isRetrying ? 'animate-spin' : ''}`}
+                      />
+                      {retry.isRetrying ? t('common.loading') : t('common.retry')}
+                    </button>
+                  </>
+>>>>>>> emwulrd/main
                 )}
               </div>
             )}
@@ -384,6 +503,10 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
                           value={message.metadata.transactionData.transactionId}
                           className="flex-shrink-0 p-0.5"
                           iconClassName="w-3 h-3"
+<<<<<<< HEAD
+=======
+                          ariaLabel="Copy transaction ID"
+>>>>>>> emwulrd/main
                         />
                       </div>
                     </div>
@@ -401,6 +524,10 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
                           value={message.metadata.transactionData.txHash}
                           className="flex-shrink-0 p-0.5"
                           iconClassName="w-3 h-3"
+<<<<<<< HEAD
+=======
+                          ariaLabel="Copy transaction hash"
+>>>>>>> emwulrd/main
                         />
                       </div>
                     </div>
@@ -418,6 +545,10 @@ export default function Message({ message, onActionClick, onRetry, shouldAnimate
                           value={message.metadata.transactionData.receiptId}
                           className="flex-shrink-0 p-0.5"
                           iconClassName="w-3 h-3"
+<<<<<<< HEAD
+=======
+                          ariaLabel="Copy receipt ID"
+>>>>>>> emwulrd/main
                         />
                       </div>
                     </div>

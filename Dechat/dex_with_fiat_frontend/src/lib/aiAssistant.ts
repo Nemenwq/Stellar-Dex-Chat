@@ -8,6 +8,94 @@ import {
 import { telemetry } from '@/lib/telemetry';
 import { toastStore } from '@/lib/toastStore';
 
+<<<<<<< HEAD
+=======
+/**
+ * Retry configuration for AI API requests
+ */
+interface RetryConfig {
+  maxRetries?: number;
+  initialDelayMs?: number;
+  maxDelayMs?: number;
+  backoffMultiplier?: number;
+}
+
+/**
+ * Default retry configuration for AI requests
+ */
+const DEFAULT_AI_RETRY_CONFIG: Required<RetryConfig> = {
+  maxRetries: 3,
+  initialDelayMs: 1000,
+  maxDelayMs: 10000,
+  backoffMultiplier: 2,
+};
+
+/**
+ * Calculate delay with exponential backoff and jitter
+ * @param attempt - Current attempt number (0-indexed)
+ * @param config - Retry configuration
+ * @returns Delay in milliseconds
+ */
+function calculateBackoffDelay(
+  attempt: number,
+  config: Required<RetryConfig>,
+): number {
+  const exponentialDelay = config.initialDelayMs * Math.pow(config.backoffMultiplier, attempt);
+  const jitter = exponentialDelay * 0.25 * (Math.random() * 2 - 1);
+  return Math.min(config.maxDelayMs, exponentialDelay + jitter);
+}
+
+/**
+ * Sleep for a specified duration
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Execute a function with retry logic and exponential backoff for AI requests
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  config: RetryConfig = {},
+): Promise<T> {
+  const mergedConfig: Required<RetryConfig> = {
+    ...DEFAULT_AI_RETRY_CONFIG,
+    ...config,
+  };
+
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= mergedConfig.maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+
+      // Don't retry on abort errors
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw error;
+      }
+
+      // Check if error is retryable
+      const isRetryable = isLikelyNetworkError(error);
+
+      if (!isRetryable) {
+        throw error;
+      }
+
+      // Don't wait after the last attempt
+      if (attempt < mergedConfig.maxRetries) {
+        const delay = calculateBackoffDelay(attempt, mergedConfig);
+        await sleep(delay);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+>>>>>>> emwulrd/main
 function isLikelyNetworkError(error: unknown): boolean {
   if (error instanceof DOMException && error.name === 'AbortError') {
     return false;
@@ -23,7 +111,12 @@ function isLikelyNetworkError(error: unknown): boolean {
     return (
       m.includes('failed to fetch') ||
       m.includes('network') ||
+<<<<<<< HEAD
       m.includes('load failed')
+=======
+      m.includes('load failed') ||
+      m.includes('timeout')
+>>>>>>> emwulrd/main
     );
   }
   return false;
@@ -342,6 +435,7 @@ export class AIAssistant {
         };
       }
 
+<<<<<<< HEAD
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -352,6 +446,22 @@ export class AIAssistant {
       if (!response.ok) {
         throw new Error(`AI chat API returned ${response.status}`);
       }
+=======
+      const response = await withRetry(async () => {
+        const res = await fetch('/api/ai/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, context: trimmedContext }),
+          signal: controllerSignal,
+        });
+
+        if (!res.ok) {
+          throw new Error(`AI chat API returned ${res.status}`);
+        }
+
+        return res;
+      });
+>>>>>>> emwulrd/main
 
       const result: AIAnalysisResult = await response.json() as AIAnalysisResult;
 
@@ -775,6 +885,7 @@ Choose one of the next actions below and I'll keep it moving.`;
         return fallbackQuestion;
       }
 
+<<<<<<< HEAD
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -788,6 +899,24 @@ Choose one of the next actions below and I'll keep it moving.`;
         console.warn(`AIAssistant: Follow-up question API returned ${response.status}`);
         return fallbackQuestion;
       }
+=======
+      const response = await withRetry(async () => {
+        const res = await fetch('/api/ai/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: `Generate a single, natural follow-up question for a Stellar DeFi assistant. Intent: ${intent}. Missing data: ${missingData.join(', ')}. Return only the question text.`,
+          }),
+          signal: controllerSignal,
+        });
+
+        if (!res.ok) {
+          throw new Error(`Follow-up question API returned ${res.status}`);
+        }
+
+        return res;
+      });
+>>>>>>> emwulrd/main
 
       const result = await response.json() as AIAnalysisResult;
       const question = result.suggestedResponse || fallbackQuestion;

@@ -7,6 +7,10 @@ import {
   nativeToScVal,
   scValToNative,
   rpc,
+<<<<<<< HEAD
+=======
+  Horizon,
+>>>>>>> emwulrd/main
 } from '@stellar/stellar-sdk';
 import { stroopsToXlm } from '@/lib/stroops';
 import { env } from '@/lib/env';
@@ -47,6 +51,16 @@ export interface FeeEstimate {
 
 const server = new rpc.Server(RPC_URL, { allowHttp: false });
 
+<<<<<<< HEAD
+=======
+const HORIZON_URL =
+  process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL ||
+  (RPC_URL.includes('testnet')
+    ? 'https://horizon-testnet.stellar.org'
+    : 'https://horizon.stellar.org');
+const horizonServer = new Horizon.Server(HORIZON_URL);
+
+>>>>>>> emwulrd/main
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 // Simple in-memory TTL cache for view calls
@@ -401,3 +415,20 @@ export async function getAccruedFees(tokenAddress: string): Promise<bigint> {
   setCachedValue(functionName, result);
   return result;
 }
+<<<<<<< HEAD
+=======
+
+/** Fetches the native XLM balance for the given public key. Returns empty string on failure. */
+export async function fetchXlmBalance(publicKey: string): Promise<string> {
+  try {
+    const account = await horizonServer.loadAccount(publicKey);
+    const native = account.balances.find(
+      (b: Horizon.HorizonApi.BalanceLine): b is Horizon.HorizonApi.BalanceLineNative =>
+        b.asset_type === 'native',
+    );
+    return native ? parseFloat(native.balance).toFixed(2) : '0.00';
+  } catch {
+    return '';
+  }
+}
+>>>>>>> emwulrd/main

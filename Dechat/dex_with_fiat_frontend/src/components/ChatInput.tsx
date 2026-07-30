@@ -1,7 +1,11 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+<<<<<<< HEAD
 import { Send, Loader2, AlertTriangle } from 'lucide-react';
+=======
+import { Send, Loader2, AlertTriangle, Smile } from 'lucide-react';
+>>>>>>> emwulrd/main
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/contexts/TranslationContext';
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
@@ -40,6 +44,11 @@ interface ChatInputProps {
  * - Ctrl+Shift+C (Cmd+Shift+C on Mac): Cancel pending request
  */
 
+<<<<<<< HEAD
+=======
+const COMMON_EMOJIS = ['😊', '😂', '🙏', '👍', '❤️', '🔥', '✅', '🚀', '💰', '📊', '⭐', '🎉'];
+
+>>>>>>> emwulrd/main
 export default function ChatInput({
   onSendMessage,
   onCancelRequest,
@@ -76,8 +85,34 @@ export default function ChatInput({
   const [paletteIndex, setPaletteIndex] = useState(0);
   
   const bottomRef = useRef<HTMLDivElement>(null);
+<<<<<<< HEAD
   const isMobile = useMediaQuery('(max-width: 639px)');
 
+=======
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const isMobile = useMediaQuery('(max-width: 639px)');
+
+  const insertEmoji = (emoji: string) => {
+    const el = textareaRef.current;
+    if (el) {
+      const start = el.selectionStart ?? message.length;
+      const end = el.selectionEnd ?? message.length;
+      const next = message.slice(0, start) + emoji + message.slice(end);
+      setMessage(next);
+      // iOS Safari loses focus when the emoji picker opens; re-focus after state update
+      setTimeout(() => {
+        el.focus();
+        const pos = start + emoji.length;
+        el.setSelectionRange(pos, pos);
+      }, 0);
+    } else {
+      setMessage((prev) => prev + emoji);
+    }
+    setShowEmojiPicker(false);
+  };
+
+>>>>>>> emwulrd/main
   const { execute: executeSubmit, isProcessing: isSubmitting } = useIdempotentAction({
     cooldownMs: 1000,
     logSuppressed: true,
@@ -106,20 +141,38 @@ export default function ChatInput({
   };
 
   const [walletWarning, setWalletWarning] = useState(false);
+<<<<<<< HEAD
+=======
+  const [liveAnnouncement, setLiveAnnouncement] = useState('');
+>>>>>>> emwulrd/main
   const isSubmitDisabled = !message.trim() || isLoading || isSubmitting;
 
   const submitMessage = () => {
     if (!connection.isConnected) {
       setWalletWarning(true);
+<<<<<<< HEAD
+=======
+      setLiveAnnouncement('Wallet disconnected. Reconnect to continue.');
+>>>>>>> emwulrd/main
       return;
     }
     setWalletWarning(false);
     if (!isSubmitDisabled) {
+<<<<<<< HEAD
       executeSubmit(async () => {
         onSendMessage(message.trim());
         setMessage('');
         if (sessionId) clearDraft(sessionId);
         setShowCommands(false);
+=======
+      const messageToSend = message.trim();
+      executeSubmit(async () => {
+        onSendMessage(messageToSend);
+        setMessage('');
+        if (sessionId) clearDraft(sessionId);
+        setShowCommands(false);
+        setLiveAnnouncement('Message sent.');
+>>>>>>> emwulrd/main
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 'chat_message_submit');
     }
@@ -133,8 +186,16 @@ export default function ChatInput({
   useEffect(() => {
     if (connection.isConnected) {
       setWalletWarning(false);
+<<<<<<< HEAD
     }
   }, [connection.isConnected]);
+=======
+      if (walletWarning) {
+        setLiveAnnouncement('Wallet reconnected. You can send messages.');
+      }
+    }
+  }, [connection.isConnected, walletWarning]);
+>>>>>>> emwulrd/main
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (showCommands) {
@@ -237,6 +298,23 @@ export default function ChatInput({
     return () => window.removeEventListener('keydown', handler);
   }, [onNewChat, onOpenHistory, onOpenBridgeModal, onCancelRequest]);
 
+<<<<<<< HEAD
+=======
+  // Close emoji picker on outside click
+  useEffect(() => {
+    if (!showEmojiPicker) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      const picker = document.querySelector('[aria-label="Emoji picker"]');
+      if (picker && !picker.contains(target)) {
+        setShowEmojiPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showEmojiPicker]);
+
+>>>>>>> emwulrd/main
   // Load draft when session changes
   useEffect(() => {
     if (sessionId) {
@@ -383,14 +461,42 @@ export default function ChatInput({
         className={isMobile ? 'flex flex-col gap-2' : 'flex items-end space-x-3'}
       >
         <div className="flex-1 relative min-w-0">
+<<<<<<< HEAD
           <textarea
+=======
+          {showEmojiPicker && (
+            <div
+              className="absolute bottom-full mb-2 left-0 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl p-2 grid grid-cols-6 gap-1"
+              role="dialog"
+              aria-label="Emoji picker"
+            >
+              {COMMON_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => insertEmoji(emoji)}
+                  className="text-xl p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  aria-label={emoji}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+          <textarea
+            ref={textareaRef}
+>>>>>>> emwulrd/main
             data-testid="chat-input-textarea"
             value={message}
             onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => handleInputChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={activePlaceholder}
             disabled={isLoading}
+<<<<<<< HEAD
             aria-describedby="chat-submit-shortcut"
+=======
+            aria-describedby="chat-submit-shortcut chat-input-status"
+>>>>>>> emwulrd/main
             aria-invalid={walletWarning}
             // Drive the border colour from an explicit theme-token class rather
             // than leaving it to the Tailwind utility cascade (which could
@@ -416,12 +522,30 @@ export default function ChatInput({
         </div>
 
         <button
+<<<<<<< HEAD
+=======
+          type="button"
+          onClick={() => setShowEmojiPicker((v) => !v)}
+          title="Insert emoji"
+          aria-label="Insert emoji"
+          aria-expanded={showEmojiPicker}
+          className={`flex items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg transition-colors ${isMobile ? 'h-11 w-11' : 'w-10 h-10'}`}
+        >
+          <Smile className="w-5 h-5" />
+        </button>
+
+        <button
+>>>>>>> emwulrd/main
           type="submit"
           data-testid="chat-input-send"
           disabled={isSubmitDisabled}
           title={`Send message (${submitShortcutLabel})`}
           aria-label={`Send message (${submitShortcutLabel})`}
+<<<<<<< HEAD
           aria-describedby="chat-submit-shortcut"
+=======
+          aria-describedby="chat-submit-shortcut chat-input-status"
+>>>>>>> emwulrd/main
           aria-keyshortcuts={submitShortcutKeys}
           className={`theme-primary-button flex items-center justify-center disabled:bg-gray-300 text-white rounded-lg transition-all duration-200 disabled:cursor-not-allowed transform hover:scale-105 disabled:hover:scale-100 shadow-lg ${
             isMobile ? 'w-full h-11' : 'w-12 h-12'
@@ -435,9 +559,24 @@ export default function ChatInput({
         </button>
       </div>
 
+<<<<<<< HEAD
       <p id="chat-submit-shortcut" className="sr-only" aria-live="polite">
         Send message with {submitShortcutLabel}. The send button stays disabled while a request is pending.
       </p>
+=======
+      <p id="chat-submit-shortcut" className="sr-only">
+        Send message with {submitShortcutLabel}. The send button stays disabled while a request is pending.
+      </p>
+      <p
+        id="chat-input-status"
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {liveAnnouncement}
+      </p>
+>>>>>>> emwulrd/main
 
       {walletWarning && (
         <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 text-xs">

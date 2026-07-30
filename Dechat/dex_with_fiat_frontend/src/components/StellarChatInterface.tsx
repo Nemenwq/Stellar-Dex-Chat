@@ -43,6 +43,10 @@ import ChatHistorySidebar from './ChatHistorySidebar';
 import ChatInput from './ChatInput';
 import ChatMessages from './ChatMessages';
 import ErrorBoundary from './ErrorBoundary';
+<<<<<<< HEAD
+=======
+import NetworkStatusModal from './NetworkStatusModal';
+>>>>>>> emwulrd/main
 import NotificationsCenter from './NotificationsCenter';
 import StellarFiatModal from './StellarFiatModal';
 import UserSettings from './UserSettings';
@@ -52,6 +56,11 @@ import ReceiptDrawer from './ReceiptDrawerWrapper';
 import { useTxHistory } from '@/hooks/useTxHistory';
 import { useChatHistory } from '@/hooks/useChatHistory';
 import { useSplitView } from '@/hooks/useSplitView';
+<<<<<<< HEAD
+=======
+import { useWatchlist } from '@/hooks/useWatchlist';
+import { useWatchedWalletNotifications } from '@/hooks/useWatchedWalletNotifications';
+>>>>>>> emwulrd/main
 import { subscribeToQueue, processQueue } from '@/lib/networkQueue';
 import CopyButton from '@/components/ui/CopyButton';
 import SplitViewComparison from './SplitViewComparison';
@@ -74,6 +83,10 @@ function StellarChatInterfaceContent() {
     sessionExpired,
     clearSessionExpired,
     isNetworkMismatch,
+<<<<<<< HEAD
+=======
+    xlmBalance,
+>>>>>>> emwulrd/main
     error: walletError,
   } = useStellarWallet();
   const { isDarkMode, toggleDarkMode } = useTheme();
@@ -108,6 +121,15 @@ function StellarChatInterfaceContent() {
   >(null);
   const [isReceiptDrawerOpen, setIsReceiptDrawerOpen] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+<<<<<<< HEAD
+=======
+  const [showNetworkStatusModal, setShowNetworkStatusModal] = useState(false);
+
+  // Watched wallet notifications (issue #1032)
+  const { watchlist } = useWatchlist();
+  useWatchedWalletNotifications(watchlist);
+
+>>>>>>> emwulrd/main
   // Show the chat skeleton until the client has hydrated so the first paint
   // isn't an empty conversation pane before messages are restored.
   const [isHydrated, setIsHydrated] = useState(false);
@@ -440,6 +462,21 @@ function StellarChatInterfaceContent() {
     [connect, isNetworkMismatch, sendMessage],
   );
 
+<<<<<<< HEAD
+=======
+  /**
+   * Resend a message that failed to send (issue #1043).
+   *
+   * `content` is the original text captured at send time, so the user never has
+   * to retype it. Both the automatic backoff retries and the manual Retry button
+   * in the message's error state land here.
+   */
+  const handleRetryMessage = useCallback(
+    (_messageId: string, content: string) => sendMessage(content),
+    [sendMessage],
+  );
+
+>>>>>>> emwulrd/main
   // ── Health badge helper ─────────────────────────────────────────────────────
   const healthBadge = {
     checking: {
@@ -549,6 +586,40 @@ function StellarChatInterfaceContent() {
                 {healthBadge.label}
               </div>
               {/* ─────────────────────────────────────────────────────────────── */}
+<<<<<<< HEAD
+=======
+
+              {/* ── Stellar connection status indicator (issue #1030) ─────────── */}
+              {(() => {
+                const connDot = !connection.isConnected
+                  ? 'bg-red-500'
+                  : isNetworkMismatch
+                    ? 'bg-amber-400'
+                    : 'bg-green-400';
+                const connTitle = !connection.isConnected
+                  ? 'Stellar: Disconnected'
+                  : isNetworkMismatch
+                    ? `Stellar: Network mismatch (${connection.network})`
+                    : `Stellar: Connected (${connection.network})`;
+                return (
+                  <button
+                    type="button"
+                    title={connTitle}
+                    aria-label={connTitle}
+                    onClick={() => setShowNetworkStatusModal(true)}
+                    className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium transition-colors ${
+                      isDarkMode
+                        ? 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${connDot}`} />
+                    Stellar
+                  </button>
+                );
+              })()}
+              {/* ─────────────────────────────────────────────────────────────── */}
+>>>>>>> emwulrd/main
             </div>
 
             <div className="flex items-center gap-2">
@@ -635,6 +706,14 @@ function StellarChatInterfaceContent() {
                         {connection.address.slice(0, 6)}…
                         {connection.address.slice(-4)}
                       </span>
+<<<<<<< HEAD
+=======
+                      {xlmBalance && (
+                        <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                          — {xlmBalance} XLM
+                        </span>
+                      )}
+>>>>>>> emwulrd/main
                       {accounts.length > 1 && (
                         <ChevronDown
                           className={`w-3 h-3 transition-transform ${showAccountDropdown ? 'rotate-180' : ''}`}
@@ -896,7 +975,18 @@ function StellarChatInterfaceContent() {
           {/* Messages */}
           <div className="flex-1 min-h-0 flex flex-col">
             {!isHydrated || (isLoading && messages.length === 0) ? (
+<<<<<<< HEAD
               <SkeletonChat />
+=======
+              <div
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                className="flex-1"
+              >
+                <SkeletonChat />
+              </div>
+>>>>>>> emwulrd/main
             ) : (
               <ErrorBoundary
                 isDarkMode={isDarkMode}
@@ -908,6 +998,10 @@ function StellarChatInterfaceContent() {
                 <ChatMessages
                   messages={messages}
                   onActionClick={handleActionClick}
+<<<<<<< HEAD
+=======
+                  onRetry={handleRetryMessage}
+>>>>>>> emwulrd/main
                   isLoading={isLoading}
                 />
               </ErrorBoundary>
@@ -1016,6 +1110,15 @@ function StellarChatInterfaceContent() {
           onClose={() => setShowSettings(false)}
         />
 
+<<<<<<< HEAD
+=======
+        {/* Network status modal (issue #1030) */}
+        <NetworkStatusModal
+          isOpen={showNetworkStatusModal}
+          onClose={() => setShowNetworkStatusModal(false)}
+        />
+
+>>>>>>> emwulrd/main
         {/* Receipt Drawer */}
         <ReceiptDrawer
           isOpen={isReceiptDrawerOpen}

@@ -105,4 +105,40 @@ describe('useCurrencyConversion', () => {
     expect(fetchCryptoPricesMock).toHaveBeenCalledTimes(2);
     hook.cleanup();
   });
+<<<<<<< HEAD
+=======
+
+  // Memory-leak regression test (#1217)
+  // Verifies that an in-flight fetch that resolves after unmount does NOT
+  // attempt to call setState on the unmounted component.
+  it('does not call setState after unmount (memory-leak fix #1217)', async () => {
+    let resolveFetch!: (value: Record<string, Record<string, number>>) => void;
+    fetchCryptoPricesMock.mockReturnValue(
+      new Promise<Record<string, Record<string, number>>>((resolve) => {
+        resolveFetch = resolve;
+      }),
+    );
+
+    // Spy on console.error to detect React's "state update on unmounted
+    // component" warning, which would fire if the bug were still present.
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const hook = await renderHook(10);
+
+    // Unmount before the fetch resolves
+    hook.cleanup();
+
+    // Now resolve the fetch — without the fix this would call setState on the
+    // unmounted component and React would warn.
+    await act(async () => {
+      resolveFetch({ XLM: { usd: 0.5 } });
+      await Promise.resolve();
+    });
+
+    expect(consoleSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('unmounted'),
+    );
+    consoleSpy.mockRestore();
+  });
+>>>>>>> emwulrd/main
 });

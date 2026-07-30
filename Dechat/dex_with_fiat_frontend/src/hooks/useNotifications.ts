@@ -1,6 +1,17 @@
 import { useSyncExternalStore } from 'react';
 import { toastStore, ToastSeverity } from '@/lib/toastStore';
 
+<<<<<<< HEAD
+=======
+function dispatchNotificationTelemetry(event: string, detail?: Record<string, unknown>) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('notification_telemetry', { detail: { event, ...detail } }),
+    );
+  }
+}
+
+>>>>>>> emwulrd/main
 export type NotificationType =
   | 'tx_submit'
   | 'tx_confirm'
@@ -82,6 +93,18 @@ class NotificationStore {
       message,
       severity: NOTIFICATION_TO_SEVERITY[type],
     });
+<<<<<<< HEAD
+=======
+
+    dispatchNotificationTelemetry('notification_added', {
+      id: newNotif.id,
+      type: newNotif.type,
+      message: newNotif.message,
+      severity: NOTIFICATION_TO_SEVERITY[type],
+      read: newNotif.read,
+      timestamp: newNotif.timestamp,
+    });
+>>>>>>> emwulrd/main
   }
 
   markAsRead(id: string) {
@@ -89,6 +112,7 @@ class NotificationStore {
       n.id === id ? { ...n, read: true } : n,
     );
     this.emit();
+<<<<<<< HEAD
   }
 
   markAllAsRead() {
@@ -99,6 +123,28 @@ class NotificationStore {
   clearNotifications() {
     this.notifications = [];
     this.emit();
+=======
+    dispatchNotificationTelemetry('notification_marked_read', { id });
+  }
+
+  markAllAsRead() {
+    const unreadCount = this.notifications.filter((n) => !n.read).length;
+    this.notifications = this.notifications.map((n) => ({ ...n, read: true }));
+    this.emit();
+    dispatchNotificationTelemetry('notifications_marked_all_read', {
+      unreadCount,
+      totalCount: this.notifications.length,
+    });
+  }
+
+  clearNotifications() {
+    const clearedCount = this.notifications.length;
+    this.notifications = [];
+    this.emit();
+    dispatchNotificationTelemetry('notifications_cleared', {
+      count: clearedCount,
+    });
+>>>>>>> emwulrd/main
   }
 }
 

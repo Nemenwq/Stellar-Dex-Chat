@@ -29,6 +29,29 @@ vi.mock('@/lib/stellarContract', () => ({
   BRIDGE_LIMIT_WARNING_PERCENT: 0.9,
 }));
 
+<<<<<<< HEAD
+=======
+vi.mock('@/contexts/UserPreferencesContext', () => ({
+  useUserPreferences: () => ({
+    fiatCurrency: 'usd',
+    currencySymbol: '$',
+    setFiatCurrency: vi.fn(),
+    remindersEnabled: false,
+    setRemindersEnabled: vi.fn(),
+    reminderFrequency: 'weekly',
+    setReminderFrequency: vi.fn(),
+    maskingEnabled: false,
+    setMaskingEnabled: vi.fn(),
+    maskingStyle: 'asterisk',
+    setMaskingStyle: vi.fn(),
+    highValueThreshold: 500,
+    setHighValueThreshold: vi.fn(),
+    twoFactorEnabled: false,
+    setTwoFactorEnabled: vi.fn(),
+  }),
+}));
+
+>>>>>>> emwulrd/main
 const onClose = vi.fn();
 const onDepositSuccess = vi.fn();
 
@@ -205,3 +228,42 @@ describe('StellarFiatModal fiat estimate cancellation pattern (Issue #709)', () 
     expect(states).toEqual(['fast-result']);
   });
 });
+<<<<<<< HEAD
+=======
+// ── Skeleton Loading State Tests ────────────────────────────────
+
+describe('StellarFiatModal skeleton loading state', () => {
+  beforeEach(() => {
+    onClose.mockReset();
+    onDepositSuccess.mockReset();
+  });
+
+  it('shows skeleton loading state when modal opens with isLoadingUI', () => {
+    const { container } = render(
+      React.createElement(StellarFiatModal, {
+        isOpen: true,
+        onClose,
+        defaultAmount: '10',
+      }),
+    );
+
+    // The skeleton should be rendered (SkeletonPayout renders skeleton elements)
+    const skeletonElements = container.querySelectorAll('[class*="animate-pulse"]');
+    expect(skeletonElements.length).toBeGreaterThan(0);
+  });
+
+  it('respects theme context for skeleton display', () => {
+    const { container } = render(
+      React.createElement(StellarFiatModal, {
+        isOpen: true,
+        onClose,
+        defaultAmount: '10',
+      }),
+    );
+
+    // Check that modal has theme classes
+    const modal = container.querySelector('[role="dialog"]');
+    expect(modal?.className).toMatch(/theme-/);
+  });
+});
+>>>>>>> emwulrd/main

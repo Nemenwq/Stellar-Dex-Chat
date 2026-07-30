@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+<<<<<<< HEAD
 
 test.describe('ReceiptDrawer', () => {
   test.beforeEach(async ({ page }) => {
@@ -24,12 +25,23 @@ test.describe('ReceiptDrawer', () => {
     });
 
     await page.waitForTimeout(800);
+=======
+import { gotoChatConnected } from './helpers';
+
+test.describe('ReceiptDrawer', () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoChatConnected(page);
+>>>>>>> emwulrd/main
   });
 
   test('opens from header and closes via accessible close control', async ({
     page,
   }) => {
+<<<<<<< HEAD
     await page.getByRole('button', { name: 'Receipts' }).click();
+=======
+    await page.getByRole('button', { name: 'Receipts' }).first().click();
+>>>>>>> emwulrd/main
     await expect(
       page.getByRole('heading', { name: 'Transaction Receipts' }),
     ).toBeVisible();
@@ -38,8 +50,12 @@ test.describe('ReceiptDrawer', () => {
       .getByRole('button', { name: 'Close transaction receipts' })
       .click();
 
+<<<<<<< HEAD
     await expect(
       page.getByRole('heading', { name: 'Transaction Receipts' }),
     ).toBeHidden();
+=======
+    await expect(page.locator('.receipt-drawer-panel')).toHaveClass(/translate-x-full/);
+>>>>>>> emwulrd/main
   });
 });

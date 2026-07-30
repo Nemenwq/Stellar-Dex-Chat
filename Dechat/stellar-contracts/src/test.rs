@@ -117,7 +117,11 @@ fn test_deposit_and_withdraw() {
 
     let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
     let operator = Address::generate(&env);
+<<<<<<< HEAD
     bridge.execute_withdrawal(&operator, &req_id, &None, &0, &0);
+=======
+    bridge.execute_withdrawal(&req_id, &None, &0, &0);
+>>>>>>> emwulrd/main
 
 
     assert_eq!(token.balance(&user), 900);
@@ -148,7 +152,11 @@ fn test_time_locked_withdrawal() {
     assert_eq!(req.queued_ledger, start_ledger);
 
     let operator = Address::generate(&env);
+<<<<<<< HEAD
     let result = bridge.try_execute_withdrawal(&operator, &req_id, &None, &0, &0);
+=======
+    let result = bridge.try_execute_withdrawal(&req_id, &None, &0, &0);
+>>>>>>> emwulrd/main
 
     assert_eq!(result, Err(Ok(Error::WithdrawalLocked)));
 
@@ -157,7 +165,11 @@ fn test_time_locked_withdrawal() {
         li.sequence_number = start_ledger + 100;
     });
 
+<<<<<<< HEAD
     bridge.execute_withdrawal(&operator, &req_id, &None, &0, &0);
+=======
+    bridge.execute_withdrawal(&req_id, &None, &0, &0);
+>>>>>>> emwulrd/main
 
     assert_eq!(token.balance(&user), 900);
     assert_eq!(token.balance(&contract_id), 100);
@@ -199,7 +211,11 @@ fn test_withdraw_queue_metrics_lifecycle() {
     assert_eq!(bridge.get_wq_oldest_age_ledgers(), Some(l1 - l0));
 
     let operator = Address::generate(&env);
+<<<<<<< HEAD
     bridge.execute_withdrawal(&operator, &r1, &None, &0, &0);
+=======
+    bridge.execute_withdrawal(&r1, &None, &0, &0);
+>>>>>>> emwulrd/main
     assert_eq!(bridge.get_wq_depth(), 1);
     assert_eq!(bridge.get_wq_oldest_queued_ledger(), Some(l1));
     assert_eq!(bridge.get_wq_oldest_age_ledgers(), Some(0));
@@ -258,7 +274,11 @@ fn test_cancel_withdrawal() {
     assert!(bridge.get_withdrawal_request(&req_id).is_none());
 
     let operator = Address::generate(&env);
+<<<<<<< HEAD
     let result = bridge.try_execute_withdrawal(&operator, &req_id, &None, &0, &0);
+=======
+    let result = bridge.try_execute_withdrawal(&req_id, &None, &0, &0);
+>>>>>>> emwulrd/main
 
     assert_eq!(result, Err(Ok(Error::RequestNotFound)));
 }
@@ -502,15 +522,27 @@ fn test_execute_withdrawal_operator_limit_enforced() {
     let operator = Address::generate(&env);
     token_sac.mint(&user, &1_000);
 
+<<<<<<< HEAD
+=======
+    // set_operator_daily_limit stores the limit; execute_withdrawal succeeds regardless
+>>>>>>> emwulrd/main
     bridge.set_operator_daily_limit(&operator, &150);
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     let req1 = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
+<<<<<<< HEAD
     bridge.execute_withdrawal(&operator, &req1, &None, &0, &0);
 
     let req2 = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
     let result = bridge.try_execute_withdrawal(&operator, &req2, &None, &0, &0);
     assert_eq!(result, Err(Ok(Error::OperatorDailyLimitExceeded)));
+=======
+    bridge.execute_withdrawal(&req1, &None, &0, &0);
+
+    let req2 = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
+    bridge.execute_withdrawal(&req2, &None, &0, &0);
+    // Both succeed — per-operator enforcement is a future protocol upgrade
+>>>>>>> emwulrd/main
 }
 
 #[test]
@@ -527,7 +559,11 @@ fn test_execute_withdrawal_operator_limit_resets_after_window() {
     bridge.set_operator_daily_limit(&operator, &150);
 
     let req1 = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
+<<<<<<< HEAD
     bridge.execute_withdrawal(&operator, &req1, &None, &0, &0);
+=======
+    bridge.execute_withdrawal(&req1, &None, &0, &0);
+>>>>>>> emwulrd/main
 
     let start_ledger = env.ledger().sequence();
     env.ledger().with_mut(|li| {
@@ -535,7 +571,11 @@ fn test_execute_withdrawal_operator_limit_resets_after_window() {
     });
 
     let req2 = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
+<<<<<<< HEAD
     bridge.execute_withdrawal(&operator, &req2, &None, &0, &0);
+=======
+    bridge.execute_withdrawal(&req2, &None, &0, &0);
+>>>>>>> emwulrd/main
     assert_eq!(token_sac.balance(&user), 700);
 }
 
@@ -790,7 +830,11 @@ fn test_withdrawal_cooldown_not_triggered_below_threshold() {
     let operator = Address::generate(&env);
     // Withdrawal should succeed immediately (no cooldown recorded)
     let req_id = bridge.request_withdrawal(&user, &50, &token_addr, &None, &0);
+<<<<<<< HEAD
     bridge.execute_withdrawal(&operator, &req_id, &None, &0, &0);
+=======
+    bridge.execute_withdrawal(&req_id, &None, &0, &0);
+>>>>>>> emwulrd/main
     drop(admin);
 }
 
@@ -840,7 +884,11 @@ fn test_withdrawal_cooldown_expires() {
     // Now the request should succeed
     let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
     let operator = Address::generate(&env);
+<<<<<<< HEAD
     bridge.execute_withdrawal(&operator, &req_id, &None, &0, &0);
+=======
+    bridge.execute_withdrawal(&req_id, &None, &0, &0);
+>>>>>>> emwulrd/main
     assert_eq!(token.balance(&user), 4_600); // 5000 - 500 deposited + 100 withdrawn
 }
 
@@ -862,7 +910,11 @@ fn test_withdrawal_cooldown_disabled_when_zeroed() {
     // No cooldown active — withdrawal should go through immediately
     let req_id = bridge.request_withdrawal(&user, &200, &token_addr, &None, &0);
     let operator = Address::generate(&env);
+<<<<<<< HEAD
     bridge.execute_withdrawal(&operator, &req_id, &None, &0, &0);
+=======
+    bridge.execute_withdrawal(&req_id, &None, &0, &0);
+>>>>>>> emwulrd/main
 }
 
 // ── slippage tests ────────────────────────────────────────────────────────
@@ -1076,7 +1128,11 @@ fn test_fallback_oracle_used_when_primary_stale() {
     let env = Env::default();
     env.mock_all_auths();
 
+<<<<<<< HEAD
     let (_, bridge, _admin, token_addr, _token, token_sac) = setup_bridge(&env, 100_000);
+=======
+    let (_, bridge, _admin, token_addr, token, token_sac) = setup_bridge(&env, 100_000);
+>>>>>>> emwulrd/main
 
     // Set primary oracle to a stale oracle that returns None.
     let stale_id = env.register(StaleOracle, ());
@@ -1084,7 +1140,11 @@ fn test_fallback_oracle_used_when_primary_stale() {
 
     // Set fallback oracle to one that returns a valid price.
     let fallback_id = env.register(FallbackPriceOracle, ());
+<<<<<<< HEAD
     bridge.set_fallback_oracle(&fallback_id);
+=======
+    bridge.set_oracle(&fallback_id);
+>>>>>>> emwulrd/main
 
     let user = Address::generate(&env);
     token_sac.mint(&user, &100_000);
@@ -1100,7 +1160,11 @@ fn test_fallback_oracle_used_when_primary_stale() {
         &600,
         &None,
     );
+<<<<<<< HEAD
     assert_eq!(_token.balance(&user), 99_000);
+=======
+    assert_eq!(token.balance(&user), 99_000);
+>>>>>>> emwulrd/main
 }
 
 #[test]
@@ -1116,7 +1180,11 @@ fn test_fallback_oracle_still_fails_when_both_stale() {
 
     // Set fallback oracle to another stale oracle.
     let stale_fallback_id = env.register(StaleOracle, ());
+<<<<<<< HEAD
     bridge.set_fallback_oracle(&stale_fallback_id);
+=======
+    bridge.set_oracle(&stale_fallback_id);
+>>>>>>> emwulrd/main
 
     let user = Address::generate(&env);
     token_sac.mint(&user, &100_000);
@@ -1324,7 +1392,11 @@ fn test_pause_blocks_state_changing_user_operations_until_unpaused() {
     );
     let operator = Address::generate(&env);
     assert_eq!(
+<<<<<<< HEAD
         bridge.try_execute_withdrawal(&operator, &req_id, &None, &0, &0),
+=======
+        bridge.try_execute_withdrawal(&req_id, &None, &0, &0),
+>>>>>>> emwulrd/main
         Err(Ok(Error::ContractPaused))
     );
     assert_eq!(
@@ -1379,7 +1451,11 @@ fn test_operator_cap_enforced() {
     let operator = Address::generate(&env);
     // Withdrawal should succeed immediately (no cooldown recorded)
     let req_id = bridge.request_withdrawal(&user, &50, &token_addr, &None, &0);
+<<<<<<< HEAD
     bridge.execute_withdrawal(&operator, &req_id, &None, &0, &0);
+=======
+    bridge.execute_withdrawal(&req_id, &None, &0, &0);
+>>>>>>> emwulrd/main
     drop(admin);
 }
 
@@ -1727,6 +1803,31 @@ fn test_deny_address_blocks_request_withdrawal() {
 }
 
 #[test]
+<<<<<<< HEAD
+=======
+fn test_deny_address_blocks_state_reads() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _admin, token_addr, _, token_sac) = setup_bridge(&env, 10_000);
+    let user = Address::generate(&env);
+    token_sac.mint(&user, &5_000);
+
+    bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    let _req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
+    bridge.deny_address(&user);
+
+    // Deposits and withdrawals are blocked for denied addresses.
+    let result = bridge.try_deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
+    assert_eq!(result, Err(Ok(Error::AddressDenied)));
+
+    // View functions still work (they don't check denylist).
+    let receipt = bridge.get_receipt_by_index(&0);
+    assert_eq!(receipt.unwrap().amount, 500);
+}
+
+#[test]
+>>>>>>> emwulrd/main
 fn test_migrate_escrow_already_complete() {
     let env = Env::default();
     env.mock_all_auths();
@@ -1850,7 +1951,11 @@ fn test_is_denied_emits_event_for_denied_address() {
 
     // At least one event was emitted (DenyAddressEvent + IsDeniedCheckedEvent)
     let events = env.events().all();
+<<<<<<< HEAD
     assert!(!events.is_empty(), "expected events to be emitted");
+=======
+    assert!(!events.events().is_empty(), "expected events to be emitted");
+>>>>>>> emwulrd/main
 }
 
 #[test]
@@ -1866,7 +1971,11 @@ fn test_is_denied_emits_event_for_non_denied_address() {
     assert!(!result);
 
     let events = env.events().all();
+<<<<<<< HEAD
     assert!(!events.is_empty(), "IsDeniedCheckedEvent should be emitted even for non-denied address");
+=======
+    assert!(!events.events().is_empty(), "IsDeniedCheckedEvent should be emitted even for non-denied address");
+>>>>>>> emwulrd/main
 }
 
 #[test]
@@ -1905,6 +2014,7 @@ fn test_get_denied_addresses_safe_iteration() {
     let empty = bridge.get_denied_addresses(&100, &10);
     assert_eq!(empty.len(), 0);
 }
+<<<<<<< HEAD
     let env = Env::default();
     env.mock_all_auths();
 
@@ -1921,6 +2031,8 @@ fn test_get_denied_addresses_safe_iteration() {
     assert_eq!(escrow.amount, 100);
     assert!(escrow.migrated);
 }
+=======
+>>>>>>> emwulrd/main
 
 // ── batch admin operations tests ──────────────────────────────────────────
 #[test]
@@ -2175,7 +2287,11 @@ fn test_withdraw_fees_success() {
     assert_eq!(bridge.get_accrued_fees(&token_addr), 200);
 
     // Withdraw fees
+<<<<<<< HEAD
     bridge.withdraw_fees(&Some(recipient.clone()), &token_addr, &100, &0);
+=======
+    bridge.withdraw_fees(&recipient, &token_addr, &100);
+>>>>>>> emwulrd/main
     assert_eq!(bridge.get_accrued_fees(&token_addr), 100);
     assert_eq!(token.balance(&recipient), 100);
     assert_eq!(token.balance(&contract_id), 900);
@@ -2247,7 +2363,11 @@ fn test_withdraw_fees_exceeds_accrued() {
     bridge.accrue_fee(&token_addr, &50);
 
     // Amount (100) exceeds available fees (50) — returns FeeWithdrawalExceedsBalance
+<<<<<<< HEAD
     let result = bridge.try_withdraw_fees(&Some(Address::generate(&env)), &token_addr, &100, &0);
+=======
+    let result = bridge.try_withdraw_fees(&Address::generate(&env), &token_addr, &100);
+>>>>>>> emwulrd/main
     assert_eq!(result, Err(Ok(Error::FeeWithdrawalExceedsBalance)));
 }
 
@@ -2261,7 +2381,11 @@ fn test_withdraw_fees_zero_accrued_returns_no_fees_error() {
     let (_, bridge, _, token_addr, _, _) = setup_bridge(&env, 10_000);
 
     // No fees accrued at all — must return NoFeesToWithdraw
+<<<<<<< HEAD
     let result = bridge.try_withdraw_fees(&Some(Address::generate(&env)), &token_addr, &1, &0);
+=======
+    let result = bridge.try_withdraw_fees(&Address::generate(&env), &token_addr, &1);
+>>>>>>> emwulrd/main
     assert_eq!(result, Err(Ok(Error::NoFeesToWithdraw)));
 }
 
@@ -2315,7 +2439,11 @@ fn test_fee_vault_isolation_from_principal() {
     assert_eq!(bridge.get_accrued_fees(&token_addr), 200);
 
     // Withdraw fees does NOT affect total_deposited or total_withdrawn
+<<<<<<< HEAD
     bridge.withdraw_fees(&Some(fee_recipient.clone()), &token_addr, &200, &0);
+=======
+    bridge.withdraw_fees(&fee_recipient, &token_addr, &200);
+>>>>>>> emwulrd/main
     assert_eq!(bridge.get_total_deposited(), 1_000);
     assert_eq!(bridge.get_total_withdrawn(), 0);
     assert_eq!(bridge.get_accrued_fees(&token_addr), 0);
@@ -2938,18 +3066,30 @@ fn test_circuit_breaker_also_blocks_execute_withdrawal() {
     token_sac.mint(&user, &5_000);
 
     bridge.deposit(&user, &2000, &token_addr, &Bytes::new(&env), &0, &0, &None);
+<<<<<<< HEAD
     bridge.set_circuit_breaker_threshold(&500);
+=======
+    bridge.set_circuit_breaker_threshold(&300);
+>>>>>>> emwulrd/main
 
     // Queue both withdrawal requests before tripping the breaker
     let r1 = bridge.request_withdrawal(&user, &400, &token_addr, &None, &0);
     let r2 = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
 
     // Executing r1 exceeds threshold and trips the breaker
+<<<<<<< HEAD
     bridge.execute_withdrawal(&admin, &r1, &None, &0, &0);
     assert!(bridge.is_circuit_breaker_tripped());
 
     // The second queued withdrawal execution is now blocked
     let result = bridge.try_execute_withdrawal(&admin, &r2, &None, &0, &0);
+=======
+    bridge.execute_withdrawal(&r1, &None, &0, &0);
+    assert!(bridge.is_circuit_breaker_tripped());
+
+    // The second queued withdrawal execution is now blocked
+    let result = bridge.try_execute_withdrawal(&r2, &None, &0, &0);
+>>>>>>> emwulrd/main
     assert_eq!(result, Err(Ok(Error::CircuitBreakerActive)));
 }
 
@@ -3063,7 +3203,11 @@ fn test_tier_prioritization_higher_tier_waits() {
     assert_eq!(next, Some(r0));
 
     // Execute tier 0 — now tier 2 should surface
+<<<<<<< HEAD
     bridge.execute_withdrawal(&admin, &r0, &None, &0, &0);
+=======
+    bridge.execute_withdrawal(&r0, &None, &0, &0);
+>>>>>>> emwulrd/main
     let next_after = bridge.get_next_priority_withdrawal();
     assert_eq!(next_after, Some(r2));
 }
@@ -3086,7 +3230,11 @@ fn test_tier_fifo_within_same_tier() {
     assert_eq!(next, Some(r_first));
 
     // After executing first, second should surface
+<<<<<<< HEAD
     bridge.execute_withdrawal(&admin, &r_first, &None, &0, &0);
+=======
+    bridge.execute_withdrawal(&r_first, &None, &0, &0);
+>>>>>>> emwulrd/main
     let next_after = bridge.get_next_priority_withdrawal();
     assert_eq!(next_after, Some(r_second));
 }
@@ -3132,7 +3280,11 @@ fn test_get_receipt_by_index_valid() {
 
     let receipt_hash = bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
+<<<<<<< HEAD
     let receipt = bridge.get_receipt_by_index(&0);
+=======
+    let receipt = bridge.get_receipt_by_index(&0).expect("receipt should exist");
+>>>>>>> emwulrd/main
     assert_eq!(receipt.id, receipt_hash);
     assert_eq!(receipt.depositor, user);
     assert_eq!(receipt.amount, 100);
@@ -3152,12 +3304,20 @@ fn test_get_receipt_by_index_out_of_range() {
     // Index 1 does not exist (only one deposit at index 0)
     assert_eq!(
         bridge.try_get_receipt_by_index(&1),
+<<<<<<< HEAD
         Err(Ok(Error::ReceiptIndexOutOfBounds))
+=======
+        Ok(Ok(None))
+>>>>>>> emwulrd/main
     );
     // Large out-of-range index
     assert_eq!(
         bridge.try_get_receipt_by_index(&999),
+<<<<<<< HEAD
         Err(Ok(Error::ReceiptIndexOutOfBounds))
+=======
+        Ok(Ok(None))
+>>>>>>> emwulrd/main
     );
 }
 
@@ -3174,16 +3334,28 @@ fn test_get_receipt_by_index_nonexistent_index() {
 
     // The receipt at index 0 should be accessible
     let receipt = bridge.get_receipt_by_index(&0);
+<<<<<<< HEAD
     assert_eq!(receipt.amount, 100);
+=======
+    assert_eq!(receipt.unwrap().amount, 100);
+>>>>>>> emwulrd/main
 
     // Indexes that were never written return ReceiptIndexOutOfBounds.
     assert_eq!(
         bridge.try_get_receipt_by_index(&50),
+<<<<<<< HEAD
         Err(Ok(Error::ReceiptIndexOutOfBounds))
     );
     assert_eq!(
         bridge.try_get_receipt_by_index(&u64::MAX),
         Err(Ok(Error::ReceiptIndexOutOfBounds))
+=======
+        Ok(Ok(None))
+    );
+    assert_eq!(
+        bridge.try_get_receipt_by_index(&u64::MAX),
+        Ok(Ok(None))
+>>>>>>> emwulrd/main
     );
 }
 
@@ -3204,7 +3376,11 @@ fn test_get_receipt_by_index_stale_temporary_index_returns_not_found() {
 
     assert_eq!(
         bridge.try_get_receipt_by_index(&0),
+<<<<<<< HEAD
         Err(Ok(Error::ReceiptNotFound))
+=======
+        Ok(Ok(None))
+>>>>>>> emwulrd/main
     );
 }
 
@@ -3227,7 +3403,11 @@ fn test_get_receipt_by_index_missing_persistent_receipt_returns_not_found() {
 
     assert_eq!(
         bridge.try_get_receipt_by_index(&0),
+<<<<<<< HEAD
         Err(Ok(Error::ReceiptNotFound))
+=======
+        Ok(Ok(None))
+>>>>>>> emwulrd/main
     );
 }
 
@@ -3244,7 +3424,11 @@ fn test_event_version_get_receipt_by_index() {
     // get_receipt_by_index is a read-only query and does not emit events;
     // verify the receipt is returned with the expected versioned deposit id.
     let receipt = bridge.get_receipt_by_index(&0);
+<<<<<<< HEAD
     assert_eq!(receipt.amount, 100);
+=======
+    assert_eq!(receipt.unwrap().amount, 100);
+>>>>>>> emwulrd/main
 }
 
 // ── get_receipt_by_index circuit breaker tests ───────────────────────────
@@ -3521,7 +3705,11 @@ fn test_event_snapshot_fees_withdrawn() {
     });
 
     assert_bridge_events_have_version(&env, &contract_id, || {
+<<<<<<< HEAD
         bridge.withdraw_fees(&Some(recipient.clone()), &token_addr, &150, &0);
+=======
+        bridge.withdraw_fees(&recipient, &token_addr, &150);
+>>>>>>> emwulrd/main
     });
 }
 
@@ -4552,7 +4740,11 @@ fn test_execute_upgrade_before_delay_fails_with_upgrade_not_ready() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 500);
 
     let proposed_wasm_hash = BytesN::from_array(&env, &[7u8; 32]);
+<<<<<<< HEAD
     bridge.propose_upgrade(&proposed_wasm_hash, &1000, &0u32);
+=======
+    bridge.propose_upgrade(&proposed_wasm_hash);
+>>>>>>> emwulrd/main
 
     let result = bridge.try_execute_upgrade();
     assert_eq!(result, Err(Ok(Error::UpgradeNotReady)));
@@ -4566,7 +4758,11 @@ fn test_cancel_upgrade_removes_pending_proposal() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 500);
 
     let proposed_wasm_hash = BytesN::from_array(&env, &[9u8; 32]);
+<<<<<<< HEAD
     bridge.propose_upgrade(&proposed_wasm_hash, &1000, &0u32);
+=======
+    bridge.propose_upgrade(&proposed_wasm_hash);
+>>>>>>> emwulrd/main
     assert!(bridge.get_upgrade_proposal().is_some());
 
     bridge.cancel_upgrade();
@@ -4605,7 +4801,11 @@ fn test_execute_upgrade_after_delay_succeeds() {
     let wasm_hash = env
         .deployer()
         .upload_contract_wasm(Bytes::from_slice(&env, fixture_wasm.as_slice()));
+<<<<<<< HEAD
     bridge.propose_upgrade(&wasm_hash, &1000, &0u32);
+=======
+    bridge.propose_upgrade(&wasm_hash);
+>>>>>>> emwulrd/main
 
     let start = env.ledger().sequence();
     env.ledger().with_mut(|li| {
@@ -4691,7 +4891,11 @@ fn test_deposit_invariant_receipt_issued_event() {
     let receipt_id = bridge.deposit(&user, &100, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
     // Verify receipt was created (receipts are indexed, so we get by index 0)
+<<<<<<< HEAD
     let receipt = bridge.get_receipt_by_index(&0);
+=======
+    let receipt = bridge.get_receipt_by_index(&0).expect("receipt should exist");
+>>>>>>> emwulrd/main
     assert_eq!(receipt.depositor, user);
     assert_eq!(receipt.amount, 100);
     assert!(!receipt.refunded);
@@ -4913,7 +5117,11 @@ fn test_withdraw_fees_edge_case_zero_amount() {
 
     let (_, bridge, _, token_addr, _, _) = setup_bridge(&env, 1000);
 
+<<<<<<< HEAD
     let result = bridge.try_withdraw_fees(&Some(Address::generate(&env)), &token_addr, &0, &0);
+=======
+    let result = bridge.try_withdraw_fees(&Address::generate(&env), &token_addr, &0);
+>>>>>>> emwulrd/main
     assert_eq!(result, Err(Ok(Error::ZeroAmount)));
 }
 
@@ -4924,7 +5132,11 @@ fn test_withdraw_fees_edge_case_negative_amount() {
 
     let (_, bridge, _, token_addr, _, _) = setup_bridge(&env, 1000);
 
+<<<<<<< HEAD
     let result = bridge.try_withdraw_fees(&Some(Address::generate(&env)), &token_addr, &-100, &0);
+=======
+    let result = bridge.try_withdraw_fees(&Address::generate(&env), &token_addr, &-100);
+>>>>>>> emwulrd/main
     assert_eq!(result, Err(Ok(Error::ZeroAmount)));
 }
 
@@ -4942,7 +5154,11 @@ fn test_withdraw_fees_edge_case_exact_amount() {
     bridge.accrue_fee(&token_addr, &100);
 
     // Withdraw exactly the accrued amount
+<<<<<<< HEAD
     bridge.withdraw_fees(&Some(recipient.clone()), &token_addr, &100, &0);
+=======
+    bridge.withdraw_fees(&recipient, &token_addr, &100);
+>>>>>>> emwulrd/main
 
     assert_eq!(bridge.get_accrued_fees(&token_addr), 0);
     assert_eq!(token.balance(&recipient), 100);
@@ -4960,7 +5176,11 @@ fn test_withdraw_fees_edge_case_exceeds_accrued() {
 
     bridge.accrue_fee(&token_addr, &50);
 
+<<<<<<< HEAD
     let result = bridge.try_withdraw_fees(&Some(Address::generate(&env)), &token_addr, &100, &0);
+=======
+    let result = bridge.try_withdraw_fees(&Address::generate(&env), &token_addr, &100);
+>>>>>>> emwulrd/main
     assert_eq!(result, Err(Ok(Error::FeeWithdrawalExceedsBalance)));
 }
 
@@ -4971,7 +5191,11 @@ fn test_withdraw_fees_edge_case_no_fees_accrued() {
 
     let (_, bridge, _, token_addr, _, _) = setup_bridge(&env, 1000);
 
+<<<<<<< HEAD
     let result = bridge.try_withdraw_fees(&Some(Address::generate(&env)), &token_addr, &1, &0);
+=======
+    let result = bridge.try_withdraw_fees(&Address::generate(&env), &token_addr, &1);
+>>>>>>> emwulrd/main
     assert_eq!(result, Err(Ok(Error::NoFeesToWithdraw)));
 }
 
@@ -4988,6 +5212,7 @@ fn test_withdraw_fees_edge_case_multiple_withdrawals() {
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
     bridge.accrue_fee(&token_addr, &300);
 
+<<<<<<< HEAD
     bridge.withdraw_fees(&Some(recipient.clone()), &token_addr, &100, &0);
     assert_eq!(bridge.get_accrued_fees(&token_addr), 200);
 
@@ -4995,6 +5220,15 @@ fn test_withdraw_fees_edge_case_multiple_withdrawals() {
     assert_eq!(bridge.get_accrued_fees(&token_addr), 100);
 
     bridge.withdraw_fees(&Some(recipient.clone()), &token_addr, &100, &2);
+=======
+    bridge.withdraw_fees(&recipient, &token_addr, &100);
+    assert_eq!(bridge.get_accrued_fees(&token_addr), 200);
+
+    bridge.withdraw_fees(&recipient, &token_addr, &100);
+    assert_eq!(bridge.get_accrued_fees(&token_addr), 100);
+
+    bridge.withdraw_fees(&recipient, &token_addr, &100);
+>>>>>>> emwulrd/main
     assert_eq!(bridge.get_accrued_fees(&token_addr), 0);
 }
 
@@ -5009,6 +5243,7 @@ fn test_withdraw_fees_edge_case_stale_nonce() {
     token_sac.mint(&user, &1000);
 
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
+<<<<<<< HEAD
     bridge.accrue_fee(&token_addr, &200);
 
     bridge.withdraw_fees(&Some(recipient.clone()), &token_addr, &100, &0);
@@ -5016,6 +5251,15 @@ fn test_withdraw_fees_edge_case_stale_nonce() {
     // Replay with nonce 0 should fail with StaleNonce
     let result = bridge.try_withdraw_fees(&Some(recipient.clone()), &token_addr, &100, &0);
     assert_eq!(result, Err(Ok(Error::StaleNonce)));
+=======
+    bridge.accrue_fee(&token_addr, &100);
+
+    bridge.withdraw_fees(&recipient, &token_addr, &100);
+
+    // Second withdrawal exceeds remaining accrued fees (0 left)
+    let result = bridge.try_withdraw_fees(&recipient, &token_addr, &1);
+    assert_eq!(result, Err(Ok(Error::NoFeesToWithdraw)));
+>>>>>>> emwulrd/main
 }
 
 #[test]
@@ -5031,7 +5275,11 @@ fn test_withdraw_fees_edge_case_emits_event() {
     bridge.deposit(&user, &500, &token_addr, &Bytes::new(&env), &0, &0, &None);
     bridge.accrue_fee(&token_addr, &100);
 
+<<<<<<< HEAD
     bridge.withdraw_fees(&Some(recipient.clone()), &token_addr, &50, &0);
+=======
+    bridge.withdraw_fees(&recipient, &token_addr, &50);
+>>>>>>> emwulrd/main
 
     let events = env.events().all().filter_by_contract(&contract_id);
     let raw = events.events();
@@ -5064,7 +5312,11 @@ fn test_withdraw_fees_event_schema_fields_are_correct() {
 
     // Withdraw 150 of 400 accrued; remaining_fees should become 250.
     assert_bridge_events_have_version(&env, &contract_id, || {
+<<<<<<< HEAD
         bridge.withdraw_fees(&Some(recipient.clone()), &token_addr, &150, &0);
+=======
+        bridge.withdraw_fees(&recipient, &token_addr, &150);
+>>>>>>> emwulrd/main
     });
 
     // ── Post-condition checks ─────────────────────────────────────────────
@@ -5132,22 +5384,38 @@ fn test_withdraw_fees_event_remaining_fees_reflects_vault_balance() {
     bridge.accrue_fee(&token_addr, &600);
 
     // First partial withdrawal: 200 out of 600
+<<<<<<< HEAD
     bridge.withdraw_fees(&Some(recipient.clone()), &token_addr, &200, &0);
+=======
+    bridge.withdraw_fees(&recipient, &token_addr, &200);
+>>>>>>> emwulrd/main
     assert_eq!(bridge.get_accrued_fees(&token_addr), 400,
         "vault should have 400 remaining after first withdrawal");
 
     // Second partial withdrawal: 100 out of 400
+<<<<<<< HEAD
     bridge.withdraw_fees(&Some(recipient.clone()), &token_addr, &100, &1);
+=======
+    bridge.withdraw_fees(&recipient, &token_addr, &100);
+>>>>>>> emwulrd/main
     assert_eq!(bridge.get_accrued_fees(&token_addr), 300,
         "vault should have 300 remaining after second withdrawal");
 
     // Full drain of the rest
+<<<<<<< HEAD
     bridge.withdraw_fees(&Some(recipient.clone()), &token_addr, &300, &2);
+=======
+    bridge.withdraw_fees(&recipient, &token_addr, &300);
+>>>>>>> emwulrd/main
     assert_eq!(bridge.get_accrued_fees(&token_addr), 0,
         "vault should be fully drained after third withdrawal");
 
     // Attempting one more withdrawal must fail — no fees left
+<<<<<<< HEAD
     let result = bridge.try_withdraw_fees(&Some(recipient.clone()), &token_addr, &1, &3);
+=======
+    let result = bridge.try_withdraw_fees(&recipient, &token_addr, &1);
+>>>>>>> emwulrd/main
     assert_eq!(result, Err(Ok(Error::NoFeesToWithdraw)));
 }
 
@@ -5168,7 +5436,11 @@ fn test_withdraw_fees_emits_vault_reconciled_event_issue_840() {
             .set(&DataKey::FeeVault(token_addr.clone()), &400i128);
     });
 
+<<<<<<< HEAD
     bridge.withdraw_fees(&Some(recipient.clone()), &token_addr, &100, &0);
+=======
+    bridge.withdraw_fees(&recipient, &token_addr, &100);
+>>>>>>> emwulrd/main
 
     let events = env.events().all().filter_by_contract(&contract_id);
     let raw = events.events();

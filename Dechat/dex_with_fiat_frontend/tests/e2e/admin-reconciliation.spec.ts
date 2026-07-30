@@ -1,24 +1,60 @@
+<<<<<<< HEAD
 import { test, expect, Page } from '@playwright/test';
 
 test.describe('Admin Reconciliation E2E', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/admin/reconciliation');
+=======
+import { test, expect } from '@playwright/test';
+import {
+  gotoAdminReconciliation,
+  mockSorobanRpc,
+  mockReconciliationApi,
+  MOCK_ADMIN_ADDRESS,
+  connectMockWallet,
+  installMockWalletBridge,
+  adminReconciliationHeading,
+} from './helpers';
+
+/** Non-admin wallet address (valid 56-char Stellar key). */
+const NON_ADMIN_ADDRESS =
+  'G9876543210987654321098765432109876543210987654321098765';
+
+test.describe('Admin Reconciliation E2E', () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoAdminReconciliation(page);
+>>>>>>> emwulrd/main
   });
 
   test.describe('Page load', () => {
     test('loads the reconciliation dashboard for admin users', async ({ page }) => {
+<<<<<<< HEAD
       const heading = page.getByRole('heading', { name: /Admin Reconciliation Dashboard/i });
       await expect(heading).toBeVisible({ timeout: 15_000 });
+=======
+      await expect(adminReconciliationHeading(page)).toBeVisible({
+        timeout: 20_000,
+      });
+>>>>>>> emwulrd/main
       await expect(page.getByText(/Export CSV/i)).toBeVisible();
     });
 
     test('renders filter controls', async ({ page }) => {
+<<<<<<< HEAD
       const statusSelect = page.getByLabel(/Status/i);
       await expect(statusSelect).toBeVisible({ timeout: 10_000 });
       await expect(statusSelect).toHaveValue('all');
 
       await expect(page.getByLabel(/Start Date/i)).toBeVisible();
       await expect(page.getByLabel(/End Date/i)).toBeVisible();
+=======
+      const statusSelect = page.getByRole('combobox').first();
+      await expect(statusSelect).toBeVisible({ timeout: 10_000 });
+      await expect(statusSelect).toHaveValue('all');
+
+      const dateInputs = page.locator('input[type="date"]');
+      await expect(dateInputs).toHaveCount(2);
+>>>>>>> emwulrd/main
     });
 
     test('renders reconciliation table with records', async ({ page }) => {
@@ -31,8 +67,12 @@ test.describe('Admin Reconciliation E2E', () => {
 
   test.describe('Filtering', () => {
     test('filters records by status', async ({ page }) => {
+<<<<<<< HEAD
       const statusSelect = page.getByLabel(/Status/i);
       await page.waitForLoadState('networkidle');
+=======
+      const statusSelect = page.getByRole('combobox').first();
+>>>>>>> emwulrd/main
       await statusSelect.selectOption('matched');
 
       const rows = page.locator('tbody tr');
@@ -42,6 +82,7 @@ test.describe('Admin Reconciliation E2E', () => {
       }
     });
 
+<<<<<<< HEAD
     test('shows "No records found" when filter matches nothing', async ({ page }) => {
       const statusSelect = page.getByLabel(/Status/i);
       await page.waitForLoadState('networkidle');
@@ -57,6 +98,28 @@ test.describe('Admin Reconciliation E2E', () => {
     test('resets to all records when status filter is changed back', async ({ page }) => {
       const statusSelect = page.getByLabel(/Status/i);
       await page.waitForLoadState('networkidle');
+=======
+    test('shows "No records found" when filter matches nothing', async ({
+      page,
+    }) => {
+      const statusSelect = page.getByRole('combobox').first();
+      await statusSelect.selectOption('error');
+
+      // Narrow date range so no records match
+      const dateInputs = page.locator('input[type="date"]');
+      await dateInputs.nth(0).fill('2099-01-01');
+      await dateInputs.nth(1).fill('2099-12-31');
+
+      await expect(
+        page.getByText(/No records found matching the filters/i),
+      ).toBeVisible();
+    });
+
+    test('resets to all records when status filter is changed back', async ({
+      page,
+    }) => {
+      const statusSelect = page.getByRole('combobox').first();
+>>>>>>> emwulrd/main
 
       await statusSelect.selectOption('matched');
       await statusSelect.selectOption('all');
@@ -74,16 +137,22 @@ test.describe('Admin Reconciliation E2E', () => {
       await expect(exportBtn).toBeEnabled();
     });
 
+<<<<<<< HEAD
     test('triggers CSV download on click', async ({ page, context }) => {
       await context.grantPermissions(['clipboard-read', 'clipboard-write']);
 
       const downloadPromise = page.waitForEvent('download', { timeout: 10_000 });
+=======
+    test('triggers CSV download on click', async ({ page }) => {
+      const downloadPromise = page.waitForEvent('download', { timeout: 20_000 });
+>>>>>>> emwulrd/main
       const exportBtn = page.getByRole('button', { name: /Export CSV/i });
       await exportBtn.click();
       const download = await downloadPromise;
       expect(download.suggestedFilename()).toMatch(/reconciliation.*\.csv/);
     });
   });
+<<<<<<< HEAD
 
   test.describe('Non-admin redirect', () => {
     test('non-admin users are redirected away from reconciliation page', async ({ page }) => {
@@ -95,5 +164,30 @@ test.describe('Admin Reconciliation E2E', () => {
 
       expect(isLanding || isDashboard).toBe(true);
     });
+=======
+});
+
+test.describe('Admin Reconciliation E2E — access control', () => {
+  test('non-admin users are redirected away from reconciliation page', async ({
+    page,
+  }) => {
+    await mockSorobanRpc(page, { adminAddress: MOCK_ADMIN_ADDRESS });
+    await mockReconciliationApi(page);
+    await installMockWalletBridge(page);
+    await page.goto('/admin/reconciliation');
+    await page.waitForLoadState('domcontentloaded');
+    await page.evaluate(() => window.clearBridgeCache?.());
+    await connectMockWallet(page, NON_ADMIN_ADDRESS);
+    await expect(page.getByText(/Verifying admin access/i)).toBeHidden({
+      timeout: 30_000,
+    });
+
+    await expect(adminReconciliationHeading(page)).toBeHidden({
+      timeout: 20_000,
+    });
+    await expect(
+      page.getByRole('button', { name: /start bridging/i }),
+    ).toBeVisible({ timeout: 20_000 });
+>>>>>>> emwulrd/main
   });
 });

@@ -1,6 +1,11 @@
 import React from 'react';
+<<<<<<< HEAD
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+=======
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, render, screen, fireEvent, cleanup } from '@testing-library/react';
+>>>>>>> emwulrd/main
 import { useNotifications } from '@/hooks/useNotifications';
 import '@testing-library/jest-dom';
 import NotificationsCenter from '../NotificationsCenter';
@@ -8,12 +13,32 @@ import NotificationsCenter from '../NotificationsCenter';
 const mockMarkAllAsRead = vi.fn();
 const mockClearNotifications = vi.fn();
 const mockMarkAsRead = vi.fn();
+<<<<<<< HEAD
 
 vi.mock('@/hooks/useNotifications', () => ({
   useNotifications: vi.fn(() => ({
     notifications: [],
     unreadCount: 0,
     markAsRead: mockMarkAllAsRead,
+=======
+const emptyNotifications: ReturnType<typeof useNotifications>['notifications'] = [];
+
+function resetNotificationsMock() {
+  vi.mocked(useNotifications).mockImplementation(() => ({
+    notifications: emptyNotifications,
+    unreadCount: 0,
+    markAsRead: mockMarkAsRead,
+    markAllAsRead: mockMarkAllAsRead,
+    clearNotifications: mockClearNotifications,
+  }));
+}
+
+vi.mock('@/hooks/useNotifications', () => ({
+  useNotifications: vi.fn(() => ({
+    notifications: emptyNotifications,
+    unreadCount: 0,
+    markAsRead: mockMarkAsRead,
+>>>>>>> emwulrd/main
     markAllAsRead: mockMarkAllAsRead,
     clearNotifications: mockClearNotifications,
   })),
@@ -42,10 +67,28 @@ function makeNotification(overrides = {}) {
   };
 }
 
+<<<<<<< HEAD
 describe('NotificationsCenter – rendering', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+=======
+async function openNotificationsPanel() {
+  render(<NotificationsCenter />);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: /notifications/i }));
+}
+
+describe('NotificationsCenter – rendering', () => {
+  beforeEach(() => {
+    resetNotificationsMock();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    resetNotificationsMock();
+>>>>>>> emwulrd/main
   });
 
   it('renders the bell button', () => {
@@ -58,6 +101,7 @@ describe('NotificationsCenter – rendering', () => {
     expect(screen.queryByText('Notifications')).not.toBeInTheDocument();
   });
 
+<<<<<<< HEAD
   it('shows the dropdown when the bell button is clicked', () => {
     render(<NotificationsCenter />);
     fireEvent.click(screen.getByRole('button', { name: /notifications/i }));
@@ -67,6 +111,17 @@ describe('NotificationsCenter – rendering', () => {
   it('shows unread badge when there are unread notifications', () => {
     vi.mocked(useNotifications).mockReturnValueOnce({
       notifications: [makeNotification()],
+=======
+  it('shows the dropdown when the bell button is clicked', async () => {
+    await openNotificationsPanel();
+    expect(screen.getByText('Notifications')).toBeInTheDocument();
+  });
+
+  it('shows unread badge when there are unread notifications', async () => {
+    const notifications = [makeNotification()];
+    vi.mocked(useNotifications).mockReturnValue({
+      notifications,
+>>>>>>> emwulrd/main
       unreadCount: 1,
       markAsRead: mockMarkAsRead,
       markAllAsRead: mockMarkAllAsRead,
@@ -74,7 +129,11 @@ describe('NotificationsCenter – rendering', () => {
     });
 
     render(<NotificationsCenter />);
+<<<<<<< HEAD
     expect(screen.getByText('1')).toBeInTheDocument();
+=======
+    expect(await screen.findByText('1')).toBeInTheDocument();
+>>>>>>> emwulrd/main
   });
 
   it('bell button exposes aria-expanded reflecting open state', () => {
@@ -86,17 +145,33 @@ describe('NotificationsCenter – rendering', () => {
     expect(btn).toHaveAttribute('aria-expanded', 'true');
   });
 
+<<<<<<< HEAD
   it('shows "No notifications yet" when list is empty and panel is open', () => {
     render(<NotificationsCenter />);
     fireEvent.click(screen.getByRole('button', { name: /notifications/i }));
+=======
+  it('shows "No notifications yet" when list is empty and panel is open', async () => {
+    await openNotificationsPanel();
+>>>>>>> emwulrd/main
     expect(screen.getByText(/No notifications yet/i)).toBeInTheDocument();
   });
 });
 
 describe('NotificationsCenter – keyboard shortcuts', () => {
+<<<<<<< HEAD
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+=======
+  beforeEach(() => {
+    resetNotificationsMock();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    resetNotificationsMock();
+>>>>>>> emwulrd/main
   });
 
   it('Escape closes the panel when it is open', () => {
@@ -219,9 +294,20 @@ describe('NotificationsCenter – keyboard shortcuts', () => {
 });
 
 describe('NotificationsCenter – click-outside', () => {
+<<<<<<< HEAD
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+=======
+  beforeEach(() => {
+    resetNotificationsMock();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    resetNotificationsMock();
+>>>>>>> emwulrd/main
   });
 
   it('closes when clicking outside the dropdown', () => {

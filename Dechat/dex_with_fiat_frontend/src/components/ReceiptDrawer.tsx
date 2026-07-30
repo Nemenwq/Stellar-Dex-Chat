@@ -9,6 +9,10 @@ import {
   CheckCircle2,
   AlertCircle,
   Trash2,
+<<<<<<< HEAD
+=======
+  Printer,
+>>>>>>> emwulrd/main
 } from 'lucide-react';
 import { TransactionHistoryEntry } from '@/types';
 import { useTranslation } from '@/contexts/TranslationContext';
@@ -16,6 +20,10 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useTransactionFilters } from '@/hooks/useTransactionFilters';
 import { FilterChipBar } from './filters/FilterChipBar';
 import SkeletonReceipt from '../components/ui/skeleton/SkeletonReceipt';
+<<<<<<< HEAD
+=======
+import ReceiptQrCode from './ReceiptQrCode';
+>>>>>>> emwulrd/main
 
 interface ReceiptDrawerProps {
   isOpen: boolean;
@@ -24,6 +32,158 @@ interface ReceiptDrawerProps {
   onClearHistory?: () => void;
 }
 
+<<<<<<< HEAD
+=======
+function getReceiptQrValue(tx: TransactionHistoryEntry): string {
+  if (tx.txHash) {
+    return `https://stellar.expert/explorer/testnet/tx/${tx.txHash}`;
+  }
+  if (tx.reference) {
+    return `stellar-dex-receipt:${tx.reference}`;
+  }
+  return `stellar-dex-receipt:${tx.id}`;
+}
+
+/** Print styles injected into <head> once. */
+const PRINT_STYLES = `
+@media print {
+  /* Isolate receipt drawer from the rest of the page (works when nested in Next.js layout) */
+  body * {
+    visibility: hidden;
+  }
+
+  #receipt-drawer-root,
+  #receipt-drawer-root * {
+    visibility: visible;
+  }
+
+  #receipt-drawer-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  /* Remove drawer chrome — keep receipt data prominent */
+  .receipt-drawer-backdrop,
+  .receipt-drawer-header-actions,
+  .receipt-drawer-close-btn,
+  .receipt-drawer-clear-btn,
+  .receipt-drawer-print-btn,
+  .receipt-drawer-filters,
+  .receipt-drawer-footer,
+  .receipt-drawer-skeleton,
+  .receipt-print-hide {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Make drawer fill the page */
+  .receipt-drawer-panel {
+    position: static !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  .receipt-drawer-panel > div {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Receipt content area */
+  .receipt-drawer-content {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Receipt cards — clean bordered blocks, page-break safe */
+  .receipt-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border: 1px solid #cbd5e1 !important;
+    background: #fff !important;
+    color: #0f172a !important;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    box-shadow: none !important;
+  }
+
+  .receipt-card * {
+    color: #0f172a !important;
+  }
+
+  .receipt-card .receipt-status-badge {
+    border: 1px solid #cbd5e1 !important;
+    background: #f8fafc !important;
+  }
+
+  /* Full tx hash on print (link title holds the complete hash) */
+  .receipt-tx-hash-link {
+    text-decoration: none !important;
+    color: #1d4ed8 !important;
+    overflow: visible !important;
+    white-space: normal !important;
+    word-break: break-all !important;
+    font-size: 0 !important;
+  }
+
+  .receipt-tx-hash-link::after {
+    content: attr(title);
+    font-size: 9px;
+    font-family: ui-monospace, monospace;
+    word-break: break-all;
+  }
+
+  /* Header stays at top of print page */
+  .receipt-drawer-header {
+    border-bottom: 2px solid #0f172a !important;
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+    background: #fff !important;
+  }
+
+  .receipt-drawer-header h2 {
+    color: #0f172a !important;
+  }
+
+  /* QR code: crisp, high-contrast, no cropping */
+  .receipt-qr-wrapper {
+    border-top: 1px solid #cbd5e1 !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .receipt-qr-code {
+    width: 128px !important;
+    height: 128px !important;
+    min-width: 128px !important;
+    min-height: 128px !important;
+    max-width: none !important;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .receipt-qr-label {
+    color: #64748b !important;
+  }
+
+  @page {
+    margin: 16mm;
+    size: auto;
+  }
+}
+`;
+
+>>>>>>> emwulrd/main
 export default function ReceiptDrawer({
   isOpen,
   onClose,
@@ -34,6 +194,24 @@ export default function ReceiptDrawer({
   const { isDarkMode } = useTheme();
 
   const [isLoading, setIsLoading] = useState(true);
+<<<<<<< HEAD
+=======
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Keyboard shortcuts: Escape closes, Backspace/Delete clears history (issue #528)
+
+
+  // Inject print styles once
+  useEffect(() => {
+    const id = 'receipt-print-styles';
+    if (!document.getElementById(id)) {
+      const style = document.createElement('style');
+      style.id = id;
+      style.textContent = PRINT_STYLES;
+      document.head.appendChild(style);
+    }
+  }, []);
+>>>>>>> emwulrd/main
 
   // Keyboard shortcuts: Escape closes, Backspace/Delete clears history (issue #528)
   const handleKeyDown = useCallback(
@@ -41,11 +219,21 @@ export default function ReceiptDrawer({
       if (!isOpen) return;
       if (e.key === 'Escape') {
         onClose();
+<<<<<<< HEAD
       } else if ((e.key === 'Backspace' || e.key === 'Delete') && onClearHistory) {
         onClearHistory();
       }
     },
     [isOpen, onClose, onClearHistory],
+=======
+      } else if ((e.key === 'Backspace' || e.key === 'Delete') && onClearHistory && !isDeleting) {
+        setIsDeleting(true);
+        onClearHistory();
+        setTimeout(() => setIsDeleting(false), 300);
+      }
+    },
+    [isOpen, onClose, onClearHistory, isDeleting],
+>>>>>>> emwulrd/main
   );
 
   useEffect(() => {
@@ -63,6 +251,13 @@ export default function ReceiptDrawer({
     }
   }, [isOpen]);
 
+<<<<<<< HEAD
+=======
+  const handlePrint = useCallback(() => {
+    window.print();
+  }, []);
+
+>>>>>>> emwulrd/main
   // Use transaction filters hook
   const {
     filterState,
@@ -73,6 +268,7 @@ export default function ReceiptDrawer({
     getFilterChipTone,
   } = useTransactionFilters(transactions);
 
+<<<<<<< HEAD
   // Determine which transactions to display
   const displayTransactions = filteredTransactions;
 
@@ -83,34 +279,85 @@ export default function ReceiptDrawer({
         className={`fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity z-[100] ${
           isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
+=======
+  const displayTransactions = filteredTransactions;
+
+  return (
+    <div id="receipt-drawer-root">
+      {/* Backdrop */}
+      <div
+        className={`receipt-drawer-backdrop fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity z-[100] ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+>>>>>>> emwulrd/main
         onClick={onClose}
       />
 
       {/* Drawer */}
       <div
+<<<<<<< HEAD
         className={`fixed top-0 right-0 h-full w-full max-w-md bg-white dark:bg-gray-900 shadow-2xl z-[101] transform transition-transform duration-300 ease-in-out ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
         aria-busy={isLoading}
         role="dialog"
         aria-modal="true"
+=======
+        className={`receipt-drawer-panel fixed top-0 right-0 h-full w-full max-w-md bg-white dark:bg-gray-900 shadow-2xl z-[101] transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'
+          }`}
+        aria-busy={isLoading}
+        role="dialog"
+        aria-modal="true"
+        aria-hidden={!isOpen}
+>>>>>>> emwulrd/main
         aria-label="Transaction receipts — press Escape to close"
       >
         <div className="flex flex-col h-full">
           {/* Header */}
+<<<<<<< HEAD
           <div className="flex items-center justify-between p-4 border-b dark:border-gray-800">
+=======
+          <div className="receipt-drawer-header flex items-center justify-between p-4 border-b dark:border-gray-800">
+>>>>>>> emwulrd/main
             <div className="flex items-center gap-2">
               <Receipt className="w-5 h-5 text-blue-600" />
               <h2 className="text-lg font-bold dark:text-white">
                 {t('receipt.title')}
               </h2>
             </div>
+<<<<<<< HEAD
             <div className="flex items-center gap-2">
               {transactions.length > 0 && onClearHistory && (
                 <button
                   onClick={onClearHistory}
                   className="p-2 text-gray-500 hover:text-red-500 transition-colors"
                   title="Clear history (Backspace)"
+=======
+            <div className="receipt-drawer-header-actions flex items-center gap-2">
+              {/* Print button */}
+              {transactions.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handlePrint}
+                  className="receipt-drawer-print-btn p-2 text-gray-500 hover:text-blue-600 transition-colors"
+                  title="Print receipts (Ctrl+P)"
+                  aria-label="Print transaction receipts"
+                >
+                  <Printer className="w-5 h-5" />
+                </button>
+              )}
+              {transactions.length > 0 && onClearHistory && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDeleting(true);
+                    onClearHistory();
+                    setTimeout(() => setIsDeleting(false), 300);
+                  }}
+                  disabled={isDeleting}
+                  className="receipt-drawer-clear-btn p-2 text-gray-500 hover:text-red-500 disabled:opacity-50 transition-colors"
+                  title="Clear history (Backspace)"
+                  aria-busy={isDeleting}
+>>>>>>> emwulrd/main
                 >
                   <Trash2 className="w-5 h-5" />
                 </button>
@@ -119,7 +366,11 @@ export default function ReceiptDrawer({
                 type="button"
                 onClick={onClose}
                 aria-label="Close transaction receipts"
+<<<<<<< HEAD
                 className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+=======
+                className="receipt-drawer-close-btn p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+>>>>>>> emwulrd/main
               >
                 <X className="w-6 h-6" />
               </button>
@@ -127,6 +378,7 @@ export default function ReceiptDrawer({
           </div>
 
           {/* Filter Chips */}
+<<<<<<< HEAD
           <FilterChipBar
             filterState={filterState}
             filterStats={filterStats}
@@ -139,6 +391,22 @@ export default function ReceiptDrawer({
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {isLoading ? (
               <div className="space-y-4">
+=======
+          <div className="receipt-drawer-filters">
+            <FilterChipBar
+              filterState={filterState}
+              filterStats={filterStats}
+              getFilterChipTone={getFilterChipTone}
+              onFilterChange={toggleFilter}
+              onClearAll={clearAllFilters}
+            />
+          </div>
+
+          {/* Content */}
+          <div className="receipt-drawer-content flex-1 overflow-y-auto p-4 space-y-4">
+            {isLoading ? (
+              <div className="receipt-drawer-skeleton space-y-4">
+>>>>>>> emwulrd/main
                 <SkeletonReceipt />
                 <SkeletonReceipt />
                 <SkeletonReceipt />
@@ -166,33 +434,56 @@ export default function ReceiptDrawer({
               displayTransactions.map((tx) => (
                 <div
                   key={tx.id}
+<<<<<<< HEAD
                   className={`p-4 rounded-xl border transition-all hover:shadow-md ${
                     isDarkMode
                       ? 'bg-gray-800 border-gray-700 hover:border-gray-600'
                       : 'bg-gray-50 border-gray-200 hover:border-gray-300'
                   }`}
+=======
+                  className={`receipt-card p-4 rounded-xl border transition-all hover:shadow-md ${isDarkMode
+                      ? 'bg-gray-800 border-gray-700 hover:border-gray-600'
+                      : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                    }`}
+>>>>>>> emwulrd/main
                 >
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex items-center gap-2">
                       {tx.status === 'completed' ? (
+<<<<<<< HEAD
                         <CheckCircle2 className="w-4 h-4 text-green-500" />
                       ) : tx.status === 'failed' ? (
                         <AlertCircle className="w-4 h-4 text-red-500" />
                       ) : (
                         <Clock className="w-4 h-4 text-amber-500 animate-pulse" />
+=======
+                        <CheckCircle2 className="receipt-print-hide w-4 h-4 text-green-500" />
+                      ) : tx.status === 'failed' ? (
+                        <AlertCircle className="receipt-print-hide w-4 h-4 text-red-500" />
+                      ) : (
+                        <Clock className="receipt-print-hide w-4 h-4 text-amber-500 animate-pulse" />
+>>>>>>> emwulrd/main
                       )}
                       <span className="text-sm font-semibold capitalize dark:text-gray-200">
                         {tx.kind}
                       </span>
                     </div>
                     <span
+<<<<<<< HEAD
                       className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                         tx.status === 'completed'
+=======
+                      className={`receipt-status-badge text-[10px] px-2 py-0.5 rounded-full font-medium ${tx.status === 'completed'
+>>>>>>> emwulrd/main
                           ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200'
                           : tx.status === 'failed'
                             ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200'
                             : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200'
+<<<<<<< HEAD
                       }`}
+=======
+                        }`}
+>>>>>>> emwulrd/main
                     >
                       {tx.status}
                     </span>
@@ -224,13 +515,21 @@ export default function ReceiptDrawer({
                           href={`https://stellar.expert/explorer/testnet/tx/${tx.txHash}`}
                           target="_blank"
                           rel="noopener noreferrer"
+<<<<<<< HEAD
                           className="flex items-center gap-1 text-blue-500 hover:underline font-mono text-[10px] min-w-0 truncate"
+=======
+                          className="receipt-tx-hash-link flex items-center gap-1 text-blue-500 hover:underline font-mono text-[10px] min-w-0 truncate"
+>>>>>>> emwulrd/main
                           title={tx.txHash}
                         >
                           {tx.txHash.length > 16
                             ? `${tx.txHash.substring(0, 8)}...${tx.txHash.substring(tx.txHash.length - 6)}`
                             : tx.txHash}
+<<<<<<< HEAD
                           <ExternalLink className="w-3 h-3 shrink-0" />
+=======
+                          <ExternalLink className="receipt-print-hide w-3 h-3 shrink-0" />
+>>>>>>> emwulrd/main
                         </a>
                       </div>
                     )}
@@ -238,6 +537,13 @@ export default function ReceiptDrawer({
                       <span className="truncate min-w-0 mr-2" title={tx.id}>{tx.id}</span>
                       <span className="shrink-0">{new Date(tx.createdAt).toLocaleString()}</span>
                     </div>
+<<<<<<< HEAD
+=======
+                    <ReceiptQrCode
+                      value={getReceiptQrValue(tx)}
+                      label={`Verify ${tx.kind} transaction`}
+                    />
+>>>>>>> emwulrd/main
                   </div>
                 </div>
               ))
@@ -245,13 +551,21 @@ export default function ReceiptDrawer({
           </div>
 
           {/* Footer */}
+<<<<<<< HEAD
           <div className="p-4 border-t dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+=======
+          <div className="receipt-drawer-footer p-4 border-t dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+>>>>>>> emwulrd/main
             <p className="text-[10px] text-gray-500 text-center uppercase tracking-widest font-medium">
               Stellar DexFiat Verified Receipt
             </p>
           </div>
         </div>
       </div>
+<<<<<<< HEAD
     </>
+=======
+    </div>
+>>>>>>> emwulrd/main
   );
 }
