@@ -136,3 +136,93 @@ describe('AdminGuard', () => {
     expect(await screen.findByText('Failed to verify admin status. Please try again.')).toBeInTheDocument();
   });
 });
+
+// ── ARIA live-region tests (issue #1176) ──────────────────────────────────
+describe('AdminGuard ARIA live-region announcements', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('loading state has aria-live="polite" announcement', () => {
+    vi.mocked(useStellarWallet).mockReturnValue({
+      connection: { address: 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDE' },
+    } as any);
+    vi.mocked(getAdmin).mockImplementation(() => new Promise(() => {})); // Never resolves
+
+    render(
+      <AdminGuard>
+        <div data-testid="protected-content">Secret content</div>
+      </AdminGuard>
+    );
+
+    const statusElement = screen.getByText('Verifying admin access...');
+    expect(statusElement).toHaveAttribute('role', 'status');
+    expect(statusElement).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('loading spinner has role="status" and aria-label', () => {
+    vi.mocked(useStellarWallet).mockReturnValue({
+      connection: { address: 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDE' },
+    } as any);
+    vi.mocked(getAdmin).mockImplementation(() => new Promise(() => {}));
+
+    const { container } = render(
+      <AdminGuard>
+        <div data-testid="protected-content">Secret content</div>
+      </AdminGuard>
+    );
+
+    const spinner = container.querySelector('[role="status"][aria-label="Loading spinner"]');
+    expect(spinner).toBeInTheDocument();
+  });
+
+  it('error message has role="alert" and aria-live="assertive"', async () => {
+    vi.mocked(useStellarWallet).mockReturnValue({
+      connection: { address: 'invalid' },
+    } as any);
+
+    render(
+      <AdminGuard>
+        <div data-testid="protected-content">Secret content</div>
+      </AdminGuard>
+    );
+
+    const errorHeading = await screen.findByRole('alert');
+    expect(errorHeading).toHaveAttribute('aria-live', 'assertive');
+    expect(errorHeading).toHaveTextContent('Invalid wallet address format. Access denied.');
+  });
+
+  it('error icon has role="img" and aria-label', async () => {
+    vi.mocked(useStellarWallet).mockReturnValue({
+      connection: { address: 'short' },
+    } as any);
+
+    const { container } = render(
+      <AdminGuard>
+        <div data-testid="protected-content">Secret content</div>
+      </AdminGuard>
+    );
+
+    await waitFor(() => {
+      const errorIcon = container.querySelector('[role="img"][aria-label="Error icon"]');
+      expect(errorIcon).toBeInTheDocument();
+    });
+  });
+
+  it('retry button has descriptive aria-label', async () => {
+    const validAddr = 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDE';
+    vi.mocked(useStellarWallet).mockReturnValue({
+      connection: { address: validAddr },
+    } as any);
+    vi.mocked(getAdmin).mockRejectedValue(new Error('RPC failure'));
+
+    render(
+      <AdminGuard>
+        <div data-testid="protected-content">Secret content</div>
+      </AdminGuard>
+    );
+
+    const retryButton = await screen.findByRole('button', { name: /reload page to retry/i });
+    expect(retryButton).toBeInTheDocument();
+  });
+});
