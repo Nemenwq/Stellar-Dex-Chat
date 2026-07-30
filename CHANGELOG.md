@@ -213,6 +213,7 @@ All notable changes to this project will be documented in this file.
 - **frontend:** Add structured telemetry and retry helpers for notifications, pagination, CCIP explorer, and audit log
 - **frontend:** Add accessibility and loading states
 - **frontend:** Add request retry with exponential backoff to analytics.ts
+- Add request validation/rate limiting, error boundary, and ARIA labels
 
 ### Fixed
 
@@ -586,6 +587,8 @@ All notable changes to this project will be documented in this file.
 - **dx:** Add coverage PR comment + unit tests for wallet/theme/preferences contexts
 - **changelog:** Update changelog [skip ci]
 - Add test coverage, CI lockfile check, dependabot config, and docs reorg
+- **changelog:** Update changelog [skip ci]
+- **deps:** Bump actions/download-artifact from 4.3.0 to 8.0.1
 
 ### Deprecated
 
