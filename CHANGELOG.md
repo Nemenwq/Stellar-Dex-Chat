@@ -212,6 +212,7 @@ All notable changes to this project will be documented in this file.
 - **frontend:** Add skeleton loading states to TransactionAmountDisplay and StellarFiatModal
 - **frontend:** Add structured telemetry and retry helpers for notifications, pagination, CCIP explorer, and audit log
 - **frontend:** Add accessibility and loading states
+- **frontend:** Add request retry with exponential backoff to analytics.ts
 
 ### Fixed
 
@@ -579,6 +580,8 @@ All notable changes to this project will be documented in this file.
 - **changelog:** Update changelog [skip ci]
 - **frontend:** Add comprehensive unit test coverage for useEffectiveDarkMode.ts
 - **frontend:** Add unit test coverage for useChatPagination.ts
+- **changelog:** Update changelog [skip ci]
+- **frontend:** Add unit test coverage for useChatHistory hook #1165
 
 ### Deprecated
 
