@@ -584,6 +584,8 @@ All notable changes to this project will be documented in this file.
 - **frontend:** Add unit test coverage for useChatHistory hook #1165
 - **changelog:** Update changelog [skip ci]
 - **dx:** Add coverage PR comment + unit tests for wallet/theme/preferences contexts
+- **changelog:** Update changelog [skip ci]
+- Add test coverage, CI lockfile check, dependabot config, and docs reorg
 
 ### Deprecated
 
