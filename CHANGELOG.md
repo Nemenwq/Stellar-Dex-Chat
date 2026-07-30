@@ -211,6 +211,7 @@ All notable changes to this project will be documented in this file.
 - **frontend:** Add accessibility and loading states
 - **frontend:** Add skeleton loading states to TransactionAmountDisplay and StellarFiatModal
 - **frontend:** Add structured telemetry and retry helpers for notifications, pagination, CCIP explorer, and audit log
+- **frontend:** Add accessibility and loading states
 
 ### Fixed
 
@@ -575,6 +576,9 @@ All notable changes to this project will be documented in this file.
 - **changelog:** Update changelog [skip ci]
 - **changelog:** Update changelog [skip ci]
 - **readme:** Document invariant test suites and repo conventions
+- **changelog:** Update changelog [skip ci]
+- **frontend:** Add comprehensive unit test coverage for useEffectiveDarkMode.ts
+- **frontend:** Add unit test coverage for useChatPagination.ts
 
 ### Deprecated
 
