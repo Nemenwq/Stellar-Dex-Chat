@@ -510,9 +510,8 @@ describe('useChatHistory hook', () => {
       });
 
       // Create another session to switch to
-      let otherId = '';
       act(() => {
-        otherId = result.current.createNewSession();
+        result.current.createNewSession();
       });
 
       // Load the first session

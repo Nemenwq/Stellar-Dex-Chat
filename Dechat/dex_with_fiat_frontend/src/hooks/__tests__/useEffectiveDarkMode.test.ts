@@ -35,13 +35,17 @@ describe('useEffectiveDarkMode', () => {
       })),
     });
 
-    // Mock MutationObserver
-    global.MutationObserver = vi.fn().mockImplementation((callback) => ({
-      observe: vi.fn(),
-      disconnect: mutationObserverDisconnectSpy,
-      takeRecords: vi.fn(),
-      _callback: callback,
-    })) as any;
+    // Mock MutationObserver. mockImplementation must be a regular function,
+    // not an arrow function — `new MutationObserver(...)` invokes it via
+    // [[Construct]], which arrow functions don't support.
+    global.MutationObserver = vi.fn().mockImplementation(function (callback) {
+      return {
+        observe: vi.fn(),
+        disconnect: mutationObserverDisconnectSpy,
+        takeRecords: vi.fn(),
+        _callback: callback,
+      };
+    }) as any;
   });
 
   afterEach(() => {
@@ -104,7 +108,7 @@ describe('useEffectiveDarkMode', () => {
 
   it('reacts to data-theme MutationObserver callbacks', () => {
     let observerCallback: () => void = () => {};
-    global.MutationObserver = vi.fn().mockImplementation((callback) => {
+    global.MutationObserver = vi.fn().mockImplementation(function (callback) {
       observerCallback = callback;
       return {
         observe: vi.fn(),
