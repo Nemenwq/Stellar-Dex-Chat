@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { ContractEvent } from '../../../types/events';
+<<<<<<< HEAD
+
+const DATA_DIR = path.join(process.cwd(), 'data');
+const EVENTS_FILE = path.join(DATA_DIR, 'contract-events.json');
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const limit = parseInt(searchParams.get('limit') || '20', 10);
+    const offset = parseInt(searchParams.get('offset') || '0', 10);
+=======
 import { applyRateLimit, getClientIp } from '@/lib/rateLimit';
 import { eventsQuerySchema } from '@/lib/apiSchemas';
 
@@ -34,6 +45,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { limit, offset } = validationResult.data;
+>>>>>>> emwulrd/main
 
     if (!fs.existsSync(EVENTS_FILE)) {
       return NextResponse.json({ events: [], total: 0 });

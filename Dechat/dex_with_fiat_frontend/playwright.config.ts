@@ -6,8 +6,12 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
+<<<<<<< HEAD
+  reporter: 'html',
+=======
   timeout: 60_000,
   reporter: process.env.CI ? [['github'], ['html']] : 'html',
+>>>>>>> emwulrd/main
   use: {
     baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',
@@ -28,9 +32,15 @@ export default defineConfig({
     },
   ],
   webServer: {
+<<<<<<< HEAD
+    command: 'npm run dev',
+    url: 'http://localhost:3000',
+    reuseExistingServer: !process.env.CI,
+=======
     command: process.env.CI ? 'npx next start' : 'npx next dev --turbopack',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+>>>>>>> emwulrd/main
   },
 });

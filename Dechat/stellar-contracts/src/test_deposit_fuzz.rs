@@ -21,11 +21,19 @@ fn setup_bridge(
     env: &Env,
 ) -> (
     Address,
+<<<<<<< HEAD
+    FiatBridgeClient,
+    Address,
+    Address,
+    token::Client,
+    token::StellarAssetClient,
+=======
     FiatBridgeClient<'_>,
     Address,
     Address,
     token::Client<'_>,
     token::StellarAssetClient<'_>,
+>>>>>>> emwulrd/main
 ) {
     let admin = Address::generate(env);
     let (token_client, token_admin) = create_token_contract(env, &admin);

@@ -8,12 +8,18 @@ import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useToast } from '@/hooks/useToast';
 import { useEffectiveDarkMode } from '@/hooks/useEffectiveDarkMode';
 import EmptyState from '@/components/ui/EmptyState';
+<<<<<<< HEAD
+=======
 import Skeleton from '@/components/ui/skeleton/Skeleton';
+>>>>>>> emwulrd/main
 
 interface SplitViewComparisonProps {
   splitView: UseSplitViewReturn;
   sessions: ChatSession[];
+<<<<<<< HEAD
+=======
   isLoading?: boolean;
+>>>>>>> emwulrd/main
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +224,10 @@ function ThreadPane({
 export default function SplitViewComparison({
   splitView,
   sessions,
+<<<<<<< HEAD
+=======
   isLoading = false,
+>>>>>>> emwulrd/main
 }: SplitViewComparisonProps) {
   const {
     state,
@@ -303,7 +312,10 @@ export default function SplitViewComparison({
       role="dialog"
       aria-modal="true"
       aria-labelledby={dialogTitleId}
+<<<<<<< HEAD
+=======
       aria-busy={isLoading}
+>>>>>>> emwulrd/main
       data-testid="split-view-comparison"
       data-effective-theme={effectiveTheme}
     >
@@ -354,6 +366,9 @@ export default function SplitViewComparison({
 
       {/* Two panes */}
       <div className="flex flex-1 min-h-0 overflow-hidden flex-col md:flex-row">
+<<<<<<< HEAD
+        {bothEmpty ? (
+=======
         {isLoading ? (
           <div className="flex flex-1 min-h-0 overflow-hidden flex-col md:flex-row gap-4 p-4">
             {[1, 2].map((index) => (
@@ -368,6 +383,7 @@ export default function SplitViewComparison({
             ))}
           </div>
         ) : bothEmpty ? (
+>>>>>>> emwulrd/main
           <EmptyState
             icon={Columns2}
             title="No threads to compare"

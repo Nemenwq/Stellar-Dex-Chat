@@ -17,7 +17,10 @@ import {
   setAllowed,
 } from '@stellar/freighter-api';
 import { Networks } from '@stellar/stellar-sdk';
+<<<<<<< HEAD
+=======
 import { fetchXlmBalance } from '@/lib/stellarContract';
+>>>>>>> emwulrd/main
 
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const STORAGE_KEY_ADDRESS = 'stellar_address';
@@ -70,7 +73,10 @@ interface StellarWalletContextType {
   connection: StellarWalletConnection;
   accounts: WalletAccount[];
   selectedAccountIndex: number;
+<<<<<<< HEAD
+=======
   xlmBalance: string;
+>>>>>>> emwulrd/main
   selectAccount: (index: number) => void;
   connect: () => Promise<void>;
   disconnect: () => void;
@@ -92,9 +98,28 @@ const defaultConnection: StellarWalletConnection = {
   networkPassphrase: '',
 };
 
+<<<<<<< HEAD
+const StellarWalletContext = createContext<StellarWalletContextType>({
+  connection: defaultConnection,
+  accounts: [],
+  selectedAccountIndex: 0,
+  selectAccount: () => {},
+  connect: async () => {},
+  disconnect: () => {},
+  signTx: async () => '',
+  isFreighterInstalled: false,
+  isLoading: false,
+  error: null,
+  sessionExpired: false,
+  clearSessionExpired: () => {},
+  mockConnect: () => {},
+  isNetworkMismatch: false,
+});
+=======
 const StellarWalletContext = createContext<
   StellarWalletContextType | undefined
 >(undefined);
+>>>>>>> emwulrd/main
 
 export function StellarWalletProvider({ children }: { children: ReactNode }) {
   const [connection, setConnection] =
@@ -105,7 +130,10 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
+<<<<<<< HEAD
+=======
   const [xlmBalance, setXlmBalance] = useState('');
+>>>>>>> emwulrd/main
 
   useEffect(() => {
     const check = async () => {
@@ -164,7 +192,10 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
               network: netResult.network || 'TESTNET',
               networkPassphrase: netResult.networkPassphrase || '',
             });
+<<<<<<< HEAD
+=======
             fetchXlmBalance(addrResult.address).then(setXlmBalance).catch(() => {});
+>>>>>>> emwulrd/main
           }
         })
         .catch(() => {});
@@ -222,7 +253,10 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
         network: netResult.network || 'TESTNET',
         networkPassphrase: passphrase,
       });
+<<<<<<< HEAD
+=======
       fetchXlmBalance(addr).then(setXlmBalance).catch(() => {});
+>>>>>>> emwulrd/main
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to connect Freighter',
@@ -239,7 +273,10 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
     setConnection(defaultConnection);
     setAccounts([]);
     setSelectedAccountIndex(0);
+<<<<<<< HEAD
+=======
     setXlmBalance('');
+>>>>>>> emwulrd/main
     setError(null);
     setSessionExpired(false);
   }, []);
@@ -271,7 +308,10 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
         }));
         localStorage.setItem(STORAGE_KEY_ADDRESS, selectedAccount.address);
         localStorage.setItem(STORAGE_KEY_TIMESTAMP, String(Date.now()));
+<<<<<<< HEAD
+=======
         fetchXlmBalance(selectedAccount.address).then(setXlmBalance).catch(() => {});
+>>>>>>> emwulrd/main
       } catch (err) {
         setError(
           err instanceof Error ? err.message : 'Failed to switch account',
@@ -315,7 +355,10 @@ export function StellarWalletProvider({ children }: { children: ReactNode }) {
         connection,
         accounts,
         selectedAccountIndex,
+<<<<<<< HEAD
+=======
         xlmBalance,
+>>>>>>> emwulrd/main
         selectAccount,
         connect,
         disconnect,

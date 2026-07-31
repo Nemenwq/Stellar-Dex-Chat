@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react';
 import { toastStore, ToastSeverity } from '@/lib/toastStore';
 
+<<<<<<< HEAD
+=======
 function dispatchNotificationTelemetry(event: string, detail?: Record<string, unknown>) {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
@@ -9,6 +11,7 @@ function dispatchNotificationTelemetry(event: string, detail?: Record<string, un
   }
 }
 
+>>>>>>> emwulrd/main
 export type NotificationType =
   | 'tx_submit'
   | 'tx_confirm'
@@ -90,6 +93,8 @@ class NotificationStore {
       message,
       severity: NOTIFICATION_TO_SEVERITY[type],
     });
+<<<<<<< HEAD
+=======
 
     dispatchNotificationTelemetry('notification_added', {
       id: newNotif.id,
@@ -99,6 +104,7 @@ class NotificationStore {
       read: newNotif.read,
       timestamp: newNotif.timestamp,
     });
+>>>>>>> emwulrd/main
   }
 
   markAsRead(id: string) {
@@ -106,6 +112,18 @@ class NotificationStore {
       n.id === id ? { ...n, read: true } : n,
     );
     this.emit();
+<<<<<<< HEAD
+  }
+
+  markAllAsRead() {
+    this.notifications = this.notifications.map((n) => ({ ...n, read: true }));
+    this.emit();
+  }
+
+  clearNotifications() {
+    this.notifications = [];
+    this.emit();
+=======
     dispatchNotificationTelemetry('notification_marked_read', { id });
   }
 
@@ -126,6 +144,7 @@ class NotificationStore {
     dispatchNotificationTelemetry('notifications_cleared', {
       count: clearedCount,
     });
+>>>>>>> emwulrd/main
   }
 }
 

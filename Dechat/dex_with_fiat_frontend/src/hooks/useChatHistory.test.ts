@@ -1,3 +1,9 @@
+<<<<<<< HEAD
+import { describe, expect, it } from 'vitest';
+import { ChatSession } from '@/types';
+
+// Pure utility tests for pin ordering logic (mirrors useChatHistory internals)
+=======
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { ChatSession, ChatMessage } from '@/types';
@@ -11,6 +17,7 @@ vi.mock('@/contexts/StellarWalletContext', () => ({
 }));
 
 // Pure utility tests for pin ordering logic and stale-closure regression (#1223)
+>>>>>>> emwulrd/main
 
 function sortSessions(sessions: ChatSession[]): ChatSession[] {
   return [...sessions].sort((a, b) => {
@@ -115,6 +122,8 @@ describe('Thread pinning ordering', () => {
     expect(sorted[1].id).toBe(noPinField.id);
   });
 });
+<<<<<<< HEAD
+=======
 
 // ---------------------------------------------------------------------------
 // Race-condition regression tests (#1213)
@@ -1074,3 +1083,4 @@ describe('useChatHistory hook', () => {
     });
   });
 });
+>>>>>>> emwulrd/main

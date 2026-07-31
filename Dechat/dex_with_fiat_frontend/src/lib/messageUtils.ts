@@ -1,6 +1,13 @@
 /**
  * Safely converts a timestamp value to a Date object.
  *
+<<<<<<< HEAD
+ * When ChatMessage objects are serialized to JSON (e.g. persisted in
+ * localStorage) and then parsed back, the `timestamp` field becomes an ISO
+ * string instead of a Date instance. Calling `.toLocaleTimeString()` on a
+ * plain string throws a TypeError, which was the root cause of the
+ * intermittent UI crash / rendering glitch reported in Message.tsx.
+=======
  * This function provides a robust way to handle timestamp values that may be
  * either Date instances or ISO strings. When ChatMessage objects are serialized
  * to JSON (e.g., persisted in localStorage) and then parsed back, the `timestamp`
@@ -44,6 +51,7 @@
  * This function is particularly important in React components that display
  * timestamps, as it ensures consistent Date objects regardless of the data
  * source (API response vs. localStorage cache).
+>>>>>>> emwulrd/main
  */
 export function toDate(value: Date | string | unknown): Date {
     if (value instanceof Date) return value;

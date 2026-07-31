@@ -27,7 +27,10 @@ import {
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '../contexts/ThemeContext';
+<<<<<<< HEAD
+=======
 import { fetchTickerData } from '../lib/cryptoPriceService';
+>>>>>>> emwulrd/main
 import CopyButton from '@/components/ui/CopyButton';
 import OfflineStatusBanner from '@/components/OfflineStatusBanner';
 
@@ -58,7 +61,11 @@ const FeatureCard: React.FC<FeatureCardProps> = ({
       <div className="bg-[var(--color-surface-muted)] border border-[var(--color-border)] rounded-xl p-6 hover:border-blue-500/50 transition-all duration-300 hover:bg-[var(--color-surface)] backdrop-blur-sm shadow-sm hover:shadow-md">
         <div className="flex items-center space-x-4 mb-4">
           <div className="w-12 h-12 bg-blue-600/10 rounded-lg flex items-center justify-center">
+<<<<<<< HEAD
+            <Icon className="w-6 h-6 text-blue-500" />
+=======
             <Icon className="w-6 h-6 text-blue-500" aria-hidden="true" />
+>>>>>>> emwulrd/main
           </div>
           <h3 className="text-xl font-semibold text-[var(--color-text-primary)]">
             {title}
@@ -112,9 +119,12 @@ export default function LandingPage() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const { isDarkMode, toggleDarkMode } = useTheme();
   const [heroVisible, setHeroVisible] = useState(false);
+<<<<<<< HEAD
+=======
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
   const [xlmChange, setXlmChange] = useState<number | null>(null);
   const [priceLoading, setPriceLoading] = useState(true);
+>>>>>>> emwulrd/main
 
   const contractAddress =
     'CB4L7Q6M3N7Z6K4L2A3B5C6D7E8F9G0H1I2J3K4L5M6N7O8P9Q0R1S2T3U4V5W6X7Y8Z9'; // Replace with actual deployed address
@@ -123,6 +133,8 @@ export default function LandingPage() {
     setHeroVisible(true);
   }, []);
 
+<<<<<<< HEAD
+=======
   // Fetch XLM price data every 60 seconds
   useEffect(() => {
     const fetchPrice = async () => {
@@ -146,10 +158,13 @@ export default function LandingPage() {
     return () => clearInterval(interval);
   }, []);
 
+>>>>>>> emwulrd/main
   const handleGetStarted = () => {
     router.push('/chat');
   };
 
+<<<<<<< HEAD
+=======
   // #1185: "g" launches the app (same as the Get Started CTA), "d" toggles
   // the theme. Ignored while focus is in the email field (or any other
   // form control) so typing "g"/"d" there isn't hijacked.
@@ -174,6 +189,7 @@ export default function LandingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
+>>>>>>> emwulrd/main
   const handleEmailSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitted(true);
@@ -353,12 +369,18 @@ export default function LandingPage() {
                 className="group flex items-center space-x-2 bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] px-8 py-4 rounded-lg text-lg font-semibold transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-blue-500/25"
                 aria-label="Start bridging: open the chat app"
               >
+<<<<<<< HEAD
+                <Play className="w-5 h-5" />
+                <span>Start Bridging</span>
+                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" />
+=======
                 <Play className="w-5 h-5" aria-hidden="true" />
                 <span>Start Bridging</span>
                 <ArrowRight
                   className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300"
                   aria-hidden="true"
                 />
+>>>>>>> emwulrd/main
               </button>
 
               <a
@@ -384,6 +406,8 @@ export default function LandingPage() {
                 <CopyButton value={contractAddress} />
               </div>
             </div>
+<<<<<<< HEAD
+=======
 
             {/* XLM Price Chart Widget */}
             <div className="mt-4 bg-[var(--color-surface-muted)] border border-[var(--color-border)] rounded-xl p-6 max-w-md mx-auto">
@@ -424,6 +448,7 @@ export default function LandingPage() {
                 24h change • Refreshes every 60s
               </p>
             </div>
+>>>>>>> emwulrd/main
           </div>
         </section>
 
@@ -475,10 +500,14 @@ export default function LandingPage() {
 
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
               <div className="text-center p-6 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] hover:border-blue-500/50 transition-all duration-300">
+<<<<<<< HEAD
+                <Network className="w-12 h-12 text-blue-500 mx-auto mb-4" />
+=======
                 <Network
                   className="w-12 h-12 text-blue-500 mx-auto mb-4"
                   aria-hidden="true"
                 />
+>>>>>>> emwulrd/main
                 <h3 className="text-lg font-semibold mb-2 text-[var(--color-text-primary)]">
                   Soroban
                 </h3>
@@ -488,10 +517,14 @@ export default function LandingPage() {
                 </p>
               </div>
               <div className="text-center p-6 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] hover:border-purple-500/50 transition-all duration-300">
+<<<<<<< HEAD
+                <Shield className="w-12 h-12 text-purple-500 mx-auto mb-4" />
+=======
                 <Shield
                   className="w-12 h-12 text-purple-500 mx-auto mb-4"
                   aria-hidden="true"
                 />
+>>>>>>> emwulrd/main
                 <h3 className="text-lg font-semibold mb-2 text-[var(--color-text-primary)]">
                   Stellar Network
                 </h3>
@@ -501,10 +534,14 @@ export default function LandingPage() {
                 </p>
               </div>
               <div className="text-center p-6 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] hover:border-green-500/50 transition-all duration-300">
+<<<<<<< HEAD
+                <Cpu className="w-12 h-12 text-green-500 mx-auto mb-4" />
+=======
                 <Cpu
                   className="w-12 h-12 text-green-500 mx-auto mb-4"
                   aria-hidden="true"
                 />
+>>>>>>> emwulrd/main
                 <h3 className="text-lg font-semibold mb-2 text-[var(--color-text-primary)]">
                   AI-Optimized
                 </h3>
@@ -514,10 +551,14 @@ export default function LandingPage() {
                 </p>
               </div>
               <div className="text-center p-6 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] hover:border-yellow-500/50 transition-all duration-300">
+<<<<<<< HEAD
+                <Lock className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
+=======
                 <Lock
                   className="w-12 h-12 text-yellow-500 mx-auto mb-4"
                   aria-hidden="true"
                 />
+>>>>>>> emwulrd/main
                 <h3 className="text-lg font-semibold mb-2 text-[var(--color-text-primary)]">
                   Freighter Wallet
                 </h3>
@@ -552,7 +593,11 @@ export default function LandingPage() {
             <div className="grid md:grid-cols-2 gap-12">
               <div>
                 <h3 className="text-2xl font-semibold mb-6 flex items-center text-[var(--color-text-primary)]">
+<<<<<<< HEAD
+                  <Network className="w-6 h-6 mr-3 text-blue-500" />
+=======
                   <Network className="w-6 h-6 mr-3 text-blue-500" aria-hidden="true" />
+>>>>>>> emwulrd/main
                   Stellar Assets
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
@@ -583,7 +628,11 @@ export default function LandingPage() {
 
               <div>
                 <h3 className="text-2xl font-semibold mb-6 flex items-center text-[var(--color-text-primary)]">
+<<<<<<< HEAD
+                  <Globe className="w-6 h-6 mr-3 text-green-500" />
+=======
                   <Globe className="w-6 h-6 mr-3 text-green-500" aria-hidden="true" />
+>>>>>>> emwulrd/main
                   Fiat Currencies
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
@@ -661,15 +710,22 @@ export default function LandingPage() {
                   key={index}
                   className="bg-[var(--color-surface)] p-6 rounded-xl border border-[var(--color-border)] shadow-sm"
                 >
+<<<<<<< HEAD
+                  <div className="flex items-center mb-4">
+=======
                   <div
                     className="flex items-center mb-4"
                     aria-label={`Rating: ${testimonial.rating} out of 5 stars`}
                   >
+>>>>>>> emwulrd/main
                     {[...Array(testimonial.rating)].map((_, i) => (
                       <Star
                         key={i}
                         className="w-5 h-5 text-yellow-400 fill-current"
+<<<<<<< HEAD
+=======
                         aria-hidden="true"
+>>>>>>> emwulrd/main
                       />
                     ))}
                   </div>
@@ -788,12 +844,17 @@ export default function LandingPage() {
                 </button>
               </form>
             ) : (
+<<<<<<< HEAD
+              <div className="flex items-center justify-center space-x-2 text-green-400">
+                <CheckCircle className="w-6 h-6" />
+=======
               <div
                 className="flex items-center justify-center space-x-2 text-green-400"
                 role="status"
                 aria-live="polite"
               >
                 <CheckCircle className="w-6 h-6" aria-hidden="true" />
+>>>>>>> emwulrd/main
                 <span className="text-lg">
                   Welcome to Stellar DeFi! Launching DeFi Hub...
                 </span>
@@ -903,21 +964,33 @@ export default function LandingPage() {
                   href="#"
                   className="flex items-center text-gray-400 hover:text-white transition-colors"
                 >
+<<<<<<< HEAD
+                  <FileText className="w-4 h-4 mr-2" />
+=======
                   <FileText className="w-4 h-4 mr-2" aria-hidden="true" />
+>>>>>>> emwulrd/main
                   Documentation
                 </a>
                 <a
                   href="#"
                   className="flex items-center text-gray-400 hover:text-white transition-colors"
                 >
+<<<<<<< HEAD
+                  <HelpCircle className="w-4 h-4 mr-2" />
+=======
                   <HelpCircle className="w-4 h-4 mr-2" aria-hidden="true" />
+>>>>>>> emwulrd/main
                   Help Center
                 </a>
                 <a
                   href="#"
                   className="flex items-center text-gray-400 hover:text-white transition-colors"
                 >
+<<<<<<< HEAD
+                  <MessageSquare className="w-4 h-4 mr-2" />
+=======
                   <MessageSquare className="w-4 h-4 mr-2" aria-hidden="true" />
+>>>>>>> emwulrd/main
                   Community
                 </a>
                 <a
@@ -940,6 +1013,17 @@ export default function LandingPage() {
               <h3 className="text-lg font-semibold mb-6">Contact</h3>
               <div className="space-y-4">
                 <div className="flex items-center text-gray-400">
+<<<<<<< HEAD
+                  <Mail className="w-4 h-4 mr-3" />
+                  <span>support@dexfiat.com</span>
+                </div>
+                <div className="flex items-center text-gray-400">
+                  <Phone className="w-4 h-4 mr-3" />
+                  <span>+1 (555) 123-4567</span>
+                </div>
+                <div className="flex items-start text-gray-400">
+                  <MapPin className="w-4 h-4 mr-3 mt-1" />
+=======
                   <Mail className="w-4 h-4 mr-3" aria-hidden="true" />
                   <span>support@dexfiat.com</span>
                 </div>
@@ -949,6 +1033,7 @@ export default function LandingPage() {
                 </div>
                 <div className="flex items-start text-gray-400">
                   <MapPin className="w-4 h-4 mr-3 mt-1" aria-hidden="true" />
+>>>>>>> emwulrd/main
                   <span>
                     San Francisco, CA
                     <br />

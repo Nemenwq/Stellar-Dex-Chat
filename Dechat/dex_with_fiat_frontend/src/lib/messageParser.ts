@@ -1,5 +1,10 @@
 import type { TransactionData } from '@/types';
 
+<<<<<<< HEAD
+export interface ParsedMessage {
+  amount?: string;
+  token?: string;
+=======
 /**
  * Result of a deterministic regex-based parse of a user chat message.
  *
@@ -19,6 +24,7 @@ export interface ParsedMessage {
   /** Normalised token symbol, `"XLM"` currently the only supported value. */
   token?: string;
   /** Normalised ISO 4217 fiat code (`"NGN"`, `"USD"`, `"EUR"`, `"GBP"`). */
+>>>>>>> emwulrd/main
   fiatCurrency?: string;
 }
 
@@ -68,6 +74,8 @@ const NUMBER_PATTERN = /\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?/;
  * Extract amount, token, and fiat currency from a user message using
  * deterministic regex rules. Runs before (and is merged with) AI extraction
  * so that numeric fields have a reliable, non-hallucinated source of truth.
+<<<<<<< HEAD
+=======
  *
  * @param message - Raw user message (e.g. `"send 100 XLM"`, `"50 usd"`).
  * @returns A {@link ParsedMessage} with whichever fields could be matched.
@@ -83,6 +91,7 @@ const NUMBER_PATTERN = /\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?/;
  * ```
  *
  * @see {@link mergeParserWithAI} for combining parser output with AI data.
+>>>>>>> emwulrd/main
  */
 export function parseMessage(message: string): ParsedMessage {
   const result: ParsedMessage = {};
@@ -96,6 +105,8 @@ export function parseMessage(message: string): ParsedMessage {
   return result;
 }
 
+<<<<<<< HEAD
+=======
 /**
  * Match a recognised token alias against the message text.
  *
@@ -105,12 +116,15 @@ export function parseMessage(message: string): ParsedMessage {
  * @param text - Normalised message string.
  * @returns The normalised token symbol (`"XLM"`) or `undefined`.
  */
+>>>>>>> emwulrd/main
 function extractToken(text: string): string | undefined {
   const match = text.match(TOKEN_PATTERN);
   if (match) return TOKEN_MAP[match[1].toLowerCase()];
   return undefined;
 }
 
+<<<<<<< HEAD
+=======
 /**
  * Match a recognised fiat currency alias or symbol.
  *
@@ -122,6 +136,7 @@ function extractToken(text: string): string | undefined {
  * @returns The normalised ISO 4217 code (`"NGN"`, `"USD"`, `"EUR"`, `"GBP"`)
  *          or `undefined` when no match is found.
  */
+>>>>>>> emwulrd/main
 function extractFiatCurrency(text: string): string | undefined {
   const symbolMatch = text.match(FIAT_SYMBOL_PATTERN);
   if (symbolMatch) return FIAT_MAP[symbolMatch[1]];
@@ -132,6 +147,8 @@ function extractFiatCurrency(text: string): string | undefined {
   return undefined;
 }
 
+<<<<<<< HEAD
+=======
 /**
  * Extract the first numeric value from a message string.
  *
@@ -143,6 +160,7 @@ function extractFiatCurrency(text: string): string | undefined {
  * @returns The raw number string (e.g. `"100"`, `"50.5"`) or `undefined`
  *          when no valid number is present.
  */
+>>>>>>> emwulrd/main
 function extractAmount(text: string): string | undefined {
   const match = text.match(NUMBER_PATTERN);
   if (!match) return undefined;
@@ -155,6 +173,12 @@ function extractAmount(text: string): string | undefined {
 }
 
 /**
+<<<<<<< HEAD
+ * Merge parser output into AI-extracted data. The parser takes precedence
+ * for numeric fields (`amountIn`) because regex extraction is deterministic
+ * and avoids AI hallucination of numbers. Non-numeric AI fields are preserved
+ * when the parser has no opinion.
+=======
  * Merge parser output into AI-extracted data.
  *
  * The parser takes precedence for numeric fields (`amountIn`, `tokenIn`,
@@ -174,6 +198,7 @@ function extractAmount(text: string): string | undefined {
  * mergeParserWithAI(parserResult, aiData);
  * // → { amountIn: "100", tokenIn: "XLM", fiatCurrency: "NGN" }
  * ```
+>>>>>>> emwulrd/main
  */
 export function mergeParserWithAI(
   parserResult: ParsedMessage,

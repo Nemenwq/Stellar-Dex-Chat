@@ -1,5 +1,9 @@
 'use client';
 
+<<<<<<< HEAD
+import { TELEMETRY_SCHEMA_VERSION, getTelemetryConsent, ChatEvent } from './chatTelemetry';
+
+=======
 /**
  * @file Consent-gated telemetry for the transaction-filter UI.
  *
@@ -30,12 +34,29 @@ import { TELEMETRY_SCHEMA_VERSION, getTelemetryConsent, ChatEvent } from './chat
  *   round and cleared) via {@link FilterCyclePayload}.
  * - `filter_shortcut` — a keyboard shortcut was used to drive one of the above.
  */
+>>>>>>> emwulrd/main
 export type FilterEventName =
   | 'filter_toggle'
   | 'filter_clear_all'
   | 'filter_cycle'
   | 'filter_shortcut';
 
+<<<<<<< HEAD
+export interface FilterTogglePayload {
+  category: string;
+  value: string;
+  enabled: boolean;
+}
+
+export interface FilterCyclePayload {
+  category: string;
+  nextValue?: string;
+  isCleared: boolean;
+}
+
+export interface FilterShortcutPayload {
+  key: string;
+=======
 /** Payload for `filter_toggle`, emitted by {@link filterTelemetry.toggle}. */
 export interface FilterTogglePayload {
   /** Filter category that was touched, e.g. `'status'`, `'asset'`, `'network'`. */
@@ -65,10 +86,16 @@ export interface FilterShortcutPayload {
   /** The pressed key, lower-cased, without its `Ctrl`/`Cmd`+`Shift` modifiers. */
   key: string;
   /** Logical action the shortcut ran, e.g. `'clear_all'`, `'cycle_status'`. */
+>>>>>>> emwulrd/main
   action: string;
 }
 
 /**
+<<<<<<< HEAD
+ * Emit a filter-related telemetry event.
+ * Reuses the 'chat:telemetry' event name for centralized collection,
+ * but uses distinct names for filtering actions.
+=======
  * Build a {@link ChatEvent} envelope for a filter action and dispatch it on the
  * shared `chat:telemetry` window channel.
  *
@@ -97,6 +124,7 @@ export interface FilterShortcutPayload {
  *   `CustomEvent` constructor failure are all swallowed on purpose so telemetry
  *   can never break the filter UI. The trade-off is that delivery failures are
  *   silent — do not use this channel for anything the app depends on.
+>>>>>>> emwulrd/main
  */
 function emit<P extends object>(
   name: FilterEventName,
@@ -109,7 +137,11 @@ function emit<P extends object>(
         // We cast name as ChatEventName to satisfy the ChatEvent type if needed,
         // or we could define a more generic TelemetryEvent type.
         // For now, let's keep it compatible with existing listeners.
+<<<<<<< HEAD
+      name: name as unknown as ChatEvent['name'], 
+=======
       name: name as unknown as ChatEvent['name'],
+>>>>>>> emwulrd/main
       version: TELEMETRY_SCHEMA_VERSION,
       timestamp: Date.now(),
       payload: payload as Record<string, unknown>,
@@ -131,6 +163,9 @@ function emit<P extends object>(
   }
 }
 
+<<<<<<< HEAD
+export const filterTelemetry = {
+=======
 /**
  * Public entry point for recording transaction-filter interactions.
  *
@@ -166,10 +201,13 @@ export const filterTelemetry = {
    * @param payload - Category, value, and the resulting on/off state. Pass the
    *   state the filter is moving *to*, not the one it came from.
    */
+>>>>>>> emwulrd/main
   toggle(payload: FilterTogglePayload): void {
     emit('filter_toggle', payload);
   },
 
+<<<<<<< HEAD
+=======
   /**
    * Record that every filter category was reset in a single action.
    *
@@ -177,10 +215,13 @@ export const filterTelemetry = {
    * once per bulk reset, not once per cleared category, so "clear all" stays
    * distinguishable from a burst of {@link filterTelemetry.toggle} calls.
    */
+>>>>>>> emwulrd/main
   clearAll(): void {
     emit('filter_clear_all', {});
   },
 
+<<<<<<< HEAD
+=======
   /**
    * Record that a category was advanced to its next value, or wrapped past the
    * end and cleared.
@@ -188,10 +229,13 @@ export const filterTelemetry = {
    * @param payload - The category, the value it landed on, and whether the
    *   cycle wrapped. Omit `nextValue` when `isCleared` is `true`.
    */
+>>>>>>> emwulrd/main
   cycle(payload: FilterCyclePayload): void {
     emit('filter_cycle', payload);
   },
 
+<<<<<<< HEAD
+=======
   /**
    * Record that a keyboard shortcut drove a filter action.
    *
@@ -202,6 +246,7 @@ export const filterTelemetry = {
    *
    * @param payload - The key pressed and the logical action it triggered.
    */
+>>>>>>> emwulrd/main
   shortcut(payload: FilterShortcutPayload): void {
     emit('filter_shortcut', payload);
   },

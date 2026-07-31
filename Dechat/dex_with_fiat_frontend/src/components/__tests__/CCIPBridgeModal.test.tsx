@@ -109,7 +109,11 @@ describe('CCIPBridgeModal', () => {
 
     expect(screen.getByText('CCIP transfer error')).toBeInTheDocument();
     expect(
+<<<<<<< HEAD
+      screen.getByText(/timed out after 10 minutes/i),
+=======
       screen.getAllByText(/timed out after 10 minutes/i)[0],
+>>>>>>> emwulrd/main
     ).toBeInTheDocument();
   });
 
@@ -584,7 +588,11 @@ describe('CCIPBridgeModal', () => {
 
       expect(screen.getByText('CCIP transfer error')).toBeInTheDocument();
       expect(
+<<<<<<< HEAD
+        screen.getByText(/timed out after 10 minutes/i),
+=======
         screen.getAllByText(/timed out after 10 minutes/i)[0],
+>>>>>>> emwulrd/main
       ).toBeInTheDocument();
     });
   });
@@ -677,7 +685,11 @@ describe('CCIPBridgeModal', () => {
         await screen.findByText('CCIP transfer error'),
       ).toBeInTheDocument();
       expect(
+<<<<<<< HEAD
+        screen.getByText(/CCIP transfer failed with status "FAILED"/),
+=======
         screen.getAllByText(/CCIP transfer failed with status "FAILED"/)[0],
+>>>>>>> emwulrd/main
       ).toBeInTheDocument();
     });
 
@@ -992,6 +1004,8 @@ describe('CCIPBridgeModal', () => {
       expect(screen.getByText('CCIP transfer confirmed')).toBeInTheDocument();
     });
   });
+<<<<<<< HEAD
+=======
 
   describe('accessibility: live region announcements (#1179)', () => {
     it('announces confirmation and status through a polite live region while polling', async () => {
@@ -1034,4 +1048,5 @@ describe('CCIPBridgeModal', () => {
       expect(liveRegion.textContent).toMatch(/Insufficient allowance/);
     });
   });
+>>>>>>> emwulrd/main
 });

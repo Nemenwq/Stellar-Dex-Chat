@@ -75,8 +75,17 @@ export default function AdminGuard({ children }: AdminGuardProps) {
             borderColor: 'var(--color-border)',
             borderTopColor: 'var(--color-primary)',
           }}
+<<<<<<< HEAD
+          role="status"
+          aria-label="Loading spinner"
+        />
+        <span className="theme-text-secondary ml-3 font-medium" role="status" aria-live="polite">
+          Verifying admin access...
+        </span>
+=======
         />
         <span className="theme-text-secondary ml-3 font-medium">Verifying admin access...</span>
+>>>>>>> emwulrd/main
       </div>
     );
   }
@@ -84,15 +93,29 @@ export default function AdminGuard({ children }: AdminGuardProps) {
   if (error) {
     return (
       <div className="theme-app flex h-screen flex-col items-center justify-center p-6 text-center">
+<<<<<<< HEAD
+        <div className="mb-4" style={{ color: 'var(--color-danger)' }} role="img" aria-label="Error icon">
+=======
         <div className="mb-4" style={{ color: 'var(--color-danger)' }}>
+>>>>>>> emwulrd/main
           <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
+<<<<<<< HEAD
+        <h2 className="theme-text-primary text-xl font-bold mb-2" role="alert" aria-live="assertive">
+          {error}
+        </h2>
+        <button
+          onClick={() => window.location.reload()}
+          className="theme-primary-button rounded-lg px-4 py-2 text-sm font-medium"
+          aria-label="Reload page to retry"
+=======
         <h2 className="theme-text-primary text-xl font-bold mb-2">{error}</h2>
         <button
           onClick={() => window.location.reload()}
           className="theme-primary-button rounded-lg px-4 py-2 text-sm font-medium"
+>>>>>>> emwulrd/main
         >
           Try Again
         </button>

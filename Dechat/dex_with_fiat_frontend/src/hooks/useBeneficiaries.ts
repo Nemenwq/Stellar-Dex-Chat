@@ -1,6 +1,10 @@
 'use client';
 
+<<<<<<< HEAD
+import { useState, useEffect, useCallback } from 'react';
+=======
 import { useState, useEffect, useCallback, useRef } from 'react';
+>>>>>>> emwulrd/main
 
 const KEYBOARD_SHORTCUTS = {
   ADD_BENEFICIARY: 'Ctrl+B',
@@ -24,6 +28,8 @@ export interface Beneficiary {
 
 const STORAGE_KEY = 'stellar_beneficiaries';
 
+<<<<<<< HEAD
+=======
 /**
  * Request deduplication system to prevent duplicate API calls.
  * Concurrent fetches for the same key share one in-flight promise,
@@ -63,10 +69,25 @@ class RequestDeduplicator {
 
 const deduplicator = new RequestDeduplicator();
 
+>>>>>>> emwulrd/main
 function generateId(): string {
   return `ben_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
+<<<<<<< HEAD
+export function useBeneficiaries() {
+  const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>([]);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isMounted || typeof window === 'undefined') return;
+=======
 /**
  * Fetch beneficiaries from the API with request deduplication.
  * All concurrent requests for the same key will share the same in-flight promise.
@@ -133,6 +154,7 @@ export function useBeneficiaries(options?: { fetchFromApi?: boolean; userId?: st
   // Load from localStorage if not fetching from API
   useEffect(() => {
     if (fetchFromApi || typeof window === 'undefined') return;
+>>>>>>> emwulrd/main
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -143,7 +165,11 @@ export function useBeneficiaries(options?: { fetchFromApi?: boolean; userId?: st
       setBeneficiaries([]);
     }
     setIsLoaded(true);
+<<<<<<< HEAD
+  }, [isMounted]);
+=======
   }, [fetchFromApi]);
+>>>>>>> emwulrd/main
 
   useEffect(() => {
     if (!isLoaded || typeof window === 'undefined') return;

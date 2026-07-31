@@ -1,9 +1,15 @@
 'use client';
 
+<<<<<<< HEAD
+import { useEffect } from 'react';
+import { useToast } from '@/hooks/useToast';
+import { getOrCreateClientSessionId } from '@/lib/clientSession';
+=======
 import { useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/useToast';
 import { getOrCreateClientSessionId } from '@/lib/clientSession';
 import { chatTelemetry } from '@/lib/chatTelemetry';
+>>>>>>> emwulrd/main
 
 interface PaymentStatusStreamEvent {
   reference: string;
@@ -16,6 +22,8 @@ interface PaymentStatusStreamEvent {
 export function usePaystackWebhookStatus() {
   const { addToast } = useToast();
 
+<<<<<<< HEAD
+=======
   // #1218: Hold addToast in a ref so the EventSource onmessage handler always
   // calls the latest version without needing addToast in the effect dependency
   // array. Without this, every render that produces a new addToast reference
@@ -26,6 +34,7 @@ export function usePaystackWebhookStatus() {
     addToastRef.current = addToast;
   }, [addToast]);
 
+>>>>>>> emwulrd/main
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
@@ -44,6 +53,10 @@ export function usePaystackWebhookStatus() {
     eventSource.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data) as PaymentStatusStreamEvent;
+<<<<<<< HEAD
+        if (payload.status === 'success') {
+          addToast({
+=======
         chatTelemetry.paymentStatus({
           status: payload.status,
           reference: payload.reference,
@@ -52,6 +65,7 @@ export function usePaystackWebhookStatus() {
         });
         if (payload.status === 'success') {
           addToastRef.current({
+>>>>>>> emwulrd/main
             message: 'Payment confirmed!',
             severity: 'success',
             durationMs: 5000,
@@ -60,7 +74,11 @@ export function usePaystackWebhookStatus() {
         }
 
         if (payload.status === 'failed' || payload.status === 'reversed') {
+<<<<<<< HEAD
+          addToast({
+=======
           addToastRef.current({
+>>>>>>> emwulrd/main
             message: 'Payment failed – please retry',
             severity: 'error',
             durationMs: 5000,
@@ -78,5 +96,9 @@ export function usePaystackWebhookStatus() {
     return () => {
       eventSource.close();
     };
+<<<<<<< HEAD
+  }, [addToast]);
+=======
   }, []); // EventSource is created once per mount; addToast is accessed via ref
+>>>>>>> emwulrd/main
 }

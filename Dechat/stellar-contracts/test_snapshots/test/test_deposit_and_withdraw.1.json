@@ -25,6 +25,9 @@
         }
       ]
     ],
+<<<<<<< HEAD
+    [],
+=======
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
@@ -63,6 +66,7 @@
         }
       ]
     ],
+>>>>>>> emwulrd/main
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
@@ -139,6 +143,8 @@
             }
           ]
         }
+<<<<<<< HEAD
+=======
       ],
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
@@ -172,6 +178,7 @@
           },
           "sub_invocations": []
         }
+>>>>>>> emwulrd/main
       ]
     ],
     [],
@@ -691,6 +698,8 @@
                       "key": {
                         "vec": [
                           {
+<<<<<<< HEAD
+=======
                             "symbol": "SetLimitMaxCap"
                           }
                         ]
@@ -703,6 +712,7 @@
                       "key": {
                         "vec": [
                           {
+>>>>>>> emwulrd/main
                             "symbol": "Signers"
                           }
                         ]
@@ -834,7 +844,11 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": {
                 "ledger_key_nonce": {
+<<<<<<< HEAD
+                  "nonce": "4837995959683129791"
+=======
                   "nonce": "2032731177588607455"
+>>>>>>> emwulrd/main
                 }
               },
               "durability": "temporary",
@@ -851,6 +865,9 @@
           "data": {
             "contract_data": {
               "ext": "v0",
+<<<<<<< HEAD
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+=======
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": {
                 "ledger_key_nonce": {
@@ -872,6 +889,7 @@
             "contract_data": {
               "ext": "v0",
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+>>>>>>> emwulrd/main
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "5541220902715666415"
@@ -891,7 +909,11 @@
           "data": {
             "contract_data": {
               "ext": "v0",
+<<<<<<< HEAD
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
+=======
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+>>>>>>> emwulrd/main
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "1033654523790656264"
@@ -911,6 +933,12 @@
           "data": {
             "contract_data": {
               "ext": "v0",
+<<<<<<< HEAD
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "2032731177588607455"
+=======
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
               "key": {
                 "ledger_key_nonce": {
@@ -935,6 +963,7 @@
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "8370022561469687789"
+>>>>>>> emwulrd/main
                 }
               },
               "durability": "temporary",

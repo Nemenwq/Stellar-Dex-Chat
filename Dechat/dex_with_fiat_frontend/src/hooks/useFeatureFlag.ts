@@ -57,6 +57,19 @@ export function useFeatureFlag(flag: FeatureFlag, scrollTargetId?: string) {
       return;
     }
 
+<<<<<<< HEAD
+    const newEnabled = getFeatureFlag(flag);
+    setIsEnabled(newEnabled);
+    trackFeatureFlag(flag, newEnabled);
+
+    // Auto-scroll behavior: if flag becomes enabled and scrollTargetId is provided, scroll to it
+    if (newEnabled && scrollTargetId && typeof window !== 'undefined') {
+      const element = document.getElementById(scrollTargetId);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+=======
     function evaluate() {
       const newEnabled = getFeatureFlag(flag);
       setIsEnabled(newEnabled);
@@ -81,6 +94,7 @@ export function useFeatureFlag(flag: FeatureFlag, scrollTargetId?: string) {
       window.addEventListener('storage', evaluate);
       return () => window.removeEventListener('storage', evaluate);
     }
+>>>>>>> emwulrd/main
   }, [flag, scrollTargetId]);
 
   return isEnabled;

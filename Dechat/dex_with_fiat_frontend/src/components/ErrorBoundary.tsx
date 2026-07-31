@@ -36,6 +36,8 @@ export default class ErrorBoundary extends React.Component<
     return { hasError: true };
   }
 
+<<<<<<< HEAD
+=======
   // #1184: "r" / "Enter" retries the same way the button's onClick does,
   // for keyboard users who'd rather not reach for the mouse after a crash.
   // Only acts while the fallback is actually showing, and ignores the
@@ -72,6 +74,7 @@ export default class ErrorBoundary extends React.Component<
     window.removeEventListener('keydown', this.handleKeyDown);
   }
 
+>>>>>>> emwulrd/main
   public componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('Chat UI crashed:', error, errorInfo);
 
@@ -127,11 +130,24 @@ export default class ErrorBoundary extends React.Component<
             </p>
             <button
               type="button"
+<<<<<<< HEAD
+              onClick={() => {
+                if (this.props.onRetry) {
+                  this.setState({ hasError: false });
+                  this.props.onRetry();
+                  return;
+                }
+                window.location.reload();
+              }}
+=======
               onClick={this.retry}
+>>>>>>> emwulrd/main
               className="mt-5 inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
             >
               {this.props.retryLabel ?? 'Reload'}
             </button>
+<<<<<<< HEAD
+=======
             <p
               className={`mt-3 text-xs ${
                 isDarkMode ? 'text-gray-400' : 'text-gray-500'
@@ -159,6 +175,7 @@ export default class ErrorBoundary extends React.Component<
               </kbd>{' '}
               to retry
             </p>
+>>>>>>> emwulrd/main
           </div>
         </div>
       );

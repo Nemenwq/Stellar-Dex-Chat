@@ -76,6 +76,8 @@ vi.mock('@/lib/receipt', () => ({
   downloadReceipt: vi.fn(),
 }));
 
+<<<<<<< HEAD
+=======
 vi.mock('@/contexts/UserPreferencesContext', () => ({
   useUserPreferences: () => ({
     fiatCurrency: 'usd',
@@ -96,6 +98,7 @@ vi.mock('@/contexts/UserPreferencesContext', () => ({
   }),
 }));
 
+>>>>>>> emwulrd/main
 // Pass-through: strip the hook's own idempotency guard so the test exercises
 // the component's rapid-click protection directly.
 vi.mock('@/hooks/useIdempotentAction', () => ({

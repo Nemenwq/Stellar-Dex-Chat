@@ -23,6 +23,9 @@ export async function POST(request: NextRequest) {
       endpoint: '/api/verify-account',
     });
 
+<<<<<<< HEAD
+    const body = await request.json();
+=======
     let body: unknown;
     try {
       body = await request.json();
@@ -39,6 +42,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+>>>>>>> emwulrd/main
 
     // Validate with Zod
     const validationResult = verifyAccountSchema.safeParse(body);
@@ -90,6 +94,13 @@ export async function POST(request: NextRequest) {
 
     console.error('Account verification error:', error);
 
+<<<<<<< HEAD
+    const axiosError = error as {
+      response?: { status?: number; data?: { message?: string } };
+    };
+
+    if (axiosError.response?.status === 422) {
+=======
     // Use a type-safe narrowing helper instead of an unsafe cast.
     const httpError =
       error !== null &&
@@ -99,6 +110,7 @@ export async function POST(request: NextRequest) {
         : null;
 
     if (httpError?.response?.status === 422) {
+>>>>>>> emwulrd/main
       telemetry.finishSpan(span.spanId, {
         success: false,
         error: 'Invalid account number or bank code',
@@ -110,8 +122,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+<<<<<<< HEAD
+    if (axiosError.response?.data?.message) {
+      const message = axiosError.response.data.message;
+=======
     if (httpError?.response?.data?.message) {
       const message = httpError.response.data.message;
+>>>>>>> emwulrd/main
       telemetry.finishSpan(span.spanId, {
         success: false,
         error: message,

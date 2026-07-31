@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+<<<<<<< HEAD
+=======
 import { chatTelemetry } from '@/lib/chatTelemetry';
 
 /**
@@ -25,13 +27,17 @@ async function verifyConnectivity(): Promise<boolean> {
     return false;
   }
 }
+>>>>>>> emwulrd/main
 
 /**
  * Hook to track network online/offline status
  * Provides isOnline state and watchers for online/offline events
+<<<<<<< HEAD
+=======
  *
  * Uses navigator.onLine as the primary indicator but also performs
  * real connectivity checks to detect captive portals and false positives.
+>>>>>>> emwulrd/main
  */
 export function useOnlineStatus() {
   const [isOnline, setIsOnline] = useState<boolean>(true);
@@ -41,6 +47,13 @@ export function useOnlineStatus() {
     // Set initial state
     if (typeof window !== 'undefined') {
       setIsOnline(window.navigator.onLine);
+<<<<<<< HEAD
+    }
+
+    const handleOnline = () => {
+      setIsOnline(true);
+      setWasOffline(true);
+=======
       chatTelemetry.networkStatus({
         status: window.navigator.onLine ? 'online' : 'offline',
         source: 'initial',
@@ -57,12 +70,16 @@ export function useOnlineStatus() {
       if (hasConnectivity) {
         setWasOffline(true);
       }
+>>>>>>> emwulrd/main
     };
 
     const handleOffline = () => {
       setIsOnline(false);
       setWasOffline(true);
+<<<<<<< HEAD
+=======
       chatTelemetry.networkStatus({ status: 'offline', source: 'browser-event' });
+>>>>>>> emwulrd/main
     };
 
     if (typeof window !== 'undefined') {

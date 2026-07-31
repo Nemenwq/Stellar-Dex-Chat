@@ -1,4 +1,8 @@
+<<<<<<< HEAD
+import { renderHook, act } from '@testing-library/react';
+=======
 import { renderHook, act, waitFor } from '@testing-library/react';
+>>>>>>> emwulrd/main
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { useBeneficiaries } from './useBeneficiaries';
 
@@ -21,7 +25,11 @@ describe('useBeneficiaries', () => {
   });
 
   afterEach(() => {
+<<<<<<< HEAD
+    // No timer cleanup needed for this hook
+=======
     vi.restoreAllMocks();
+>>>>>>> emwulrd/main
   });
 
   it('loads beneficiaries from localStorage on mount', () => {
@@ -156,6 +164,8 @@ describe('useBeneficiaries', () => {
     expect(result.current.beneficiaries).toEqual(mockBeneficiaries);
     expect(result.current.isLoaded).toBe(true);
   });
+<<<<<<< HEAD
+=======
 
   it('does not update state after unmount when API fetch completes', async () => {
     let resolveFetch!: (value: Response) => void;
@@ -217,4 +227,5 @@ describe('useBeneficiaries', () => {
       expect(result.current.isLoaded).toBe(true);
     });
   });
+>>>>>>> emwulrd/main
 });

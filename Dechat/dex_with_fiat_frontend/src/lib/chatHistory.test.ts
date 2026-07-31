@@ -161,6 +161,12 @@ describe('ChatHistoryManager - Export Functionality', () => {
 
   describe('exportSession (legacy)', () => {
     it('should use JSON format for backward compatibility', () => {
+<<<<<<< HEAD
+      const exported = ChatHistoryManager.exportSession(mockSession);
+      const json = ChatHistoryManager.exportSessionAsJSON(mockSession);
+
+      expect(exported).toBe(json);
+=======
       const exported = JSON.parse(ChatHistoryManager.exportSession(mockSession));
       const json = JSON.parse(ChatHistoryManager.exportSessionAsJSON(mockSession));
 
@@ -171,6 +177,7 @@ describe('ChatHistoryManager - Export Functionality', () => {
       delete exported.metadata.exportedAt;
       delete json.metadata.exportedAt;
       expect(exported).toEqual(json);
+>>>>>>> emwulrd/main
     });
   });
 

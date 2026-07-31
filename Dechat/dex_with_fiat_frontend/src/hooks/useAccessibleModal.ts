@@ -1,3 +1,6 @@
+<<<<<<< HEAD
+import { useEffect, RefObject } from 'react';
+=======
 'use client';
 
 import { useEffect, useRef, RefObject } from 'react';
@@ -20,6 +23,7 @@ export interface AccessibleModalOptions {
    */
   onError?: (message: string) => void;
 }
+>>>>>>> emwulrd/main
 
 function getFocusable(container: HTMLElement): HTMLElement[] {
   const selector =
@@ -29,6 +33,8 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
   );
 }
 
+<<<<<<< HEAD
+=======
 // ── Body scroll lock ──────────────────────────────────────────────────────
 //
 // The lock is reference-counted at module scope rather than snapshotted per
@@ -85,10 +91,14 @@ function releaseScrollLock(): void {
  *   between renders; the latest value is always used.
  * @param options - See {@link AccessibleModalOptions}.
  */
+>>>>>>> emwulrd/main
 export function useAccessibleModal(
   isOpen: boolean,
   containerRef: RefObject<HTMLElement | null>,
   onClose: () => void,
+<<<<<<< HEAD
+) {
+=======
   options?: AccessibleModalOptions,
 ) {
   // Keep the latest callbacks reachable from the effect without listing them as
@@ -101,12 +111,27 @@ export function useAccessibleModal(
     onErrorRef.current = options?.onError;
   });
 
+>>>>>>> emwulrd/main
   useEffect(() => {
     if (!isOpen) {
       return;
     }
 
     const previousActive = document.activeElement as HTMLElement | null;
+<<<<<<< HEAD
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const container = containerRef.current;
+    if (container) {
+      const focusable = getFocusable(container);
+      if (focusable.length > 0) {
+        focusable[0].focus();
+      } else {
+        container.focus();
+      }
+    }
+=======
     acquireScrollLock();
 
     let disposed = false;
@@ -164,11 +189,16 @@ export function useAccessibleModal(
     };
 
     applyInitialFocus(false);
+>>>>>>> emwulrd/main
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
+<<<<<<< HEAD
+        onClose();
+=======
         onCloseRef.current();
+>>>>>>> emwulrd/main
         return;
       }
 
@@ -179,7 +209,10 @@ export function useAccessibleModal(
       const focusable = getFocusable(containerRef.current);
       if (focusable.length === 0) {
         event.preventDefault();
+<<<<<<< HEAD
+=======
         reportError();
+>>>>>>> emwulrd/main
         return;
       }
 
@@ -199,6 +232,13 @@ export function useAccessibleModal(
     document.addEventListener('keydown', onKeyDown);
 
     return () => {
+<<<<<<< HEAD
+      document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = originalOverflow;
+      previousActive?.focus();
+    };
+  }, [containerRef, isOpen, onClose]);
+=======
       disposed = true;
       if (retryFrame !== null) {
         cancelAnimationFrame(retryFrame);
@@ -220,4 +260,5 @@ export function useAccessibleModal(
       }
     };
   }, [containerRef, isOpen]);
+>>>>>>> emwulrd/main
 }

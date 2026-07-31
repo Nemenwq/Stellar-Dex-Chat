@@ -1,13 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+<<<<<<< HEAD
+import { renderHook } from '@testing-library/react';
+import { useEffectiveDarkMode } from '../useEffectiveDarkMode';
+=======
 import { renderHook, act } from '@testing-library/react';
 import { useEffectiveDarkMode } from '../useEffectiveDarkMode';
 import { useTheme } from '@/contexts/ThemeContext';
+>>>>>>> emwulrd/main
 
 vi.mock('@/contexts/ThemeContext', () => ({
   useTheme: vi.fn(() => ({ isDarkMode: false, toggleDarkMode: vi.fn() })),
 }));
 
 describe('useEffectiveDarkMode', () => {
+<<<<<<< HEAD
+  beforeEach(() => {
+    document.documentElement.removeAttribute('data-theme');
+=======
   let addEventListenerSpy: any;
   let removeEventListenerSpy: any;
   let mutationObserverDisconnectSpy: any;
@@ -46,6 +55,7 @@ describe('useEffectiveDarkMode', () => {
         _callback: callback,
       };
     }) as any;
+>>>>>>> emwulrd/main
   });
 
   afterEach(() => {
@@ -63,6 +73,8 @@ describe('useEffectiveDarkMode', () => {
     const { result } = renderHook(() => useEffectiveDarkMode());
     expect(result.current).toBe(false);
   });
+<<<<<<< HEAD
+=======
 
   it('falls back to ThemeContext isDarkMode when data-theme is null', () => {
     vi.mocked(useTheme).mockReturnValue({ isDarkMode: true, toggleDarkMode: vi.fn() });
@@ -134,4 +146,5 @@ describe('useEffectiveDarkMode', () => {
     expect(removeEventListenerSpy).toHaveBeenCalledWith('change', expect.any(Function));
     expect(mutationObserverDisconnectSpy).toHaveBeenCalledTimes(1);
   });
+>>>>>>> emwulrd/main
 });

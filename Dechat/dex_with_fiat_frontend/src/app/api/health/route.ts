@@ -3,6 +3,15 @@ import { NextResponse } from 'next/server';
 export const runtime = 'edge';
 
 export async function GET() {
+<<<<<<< HEAD
+  return NextResponse.json(
+    {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+    },
+    { status: 200 },
+  );
+=======
   try {
     return NextResponse.json(
       {
@@ -21,4 +30,5 @@ export async function GET() {
       { status: 503 },
     );
   }
+>>>>>>> emwulrd/main
 }

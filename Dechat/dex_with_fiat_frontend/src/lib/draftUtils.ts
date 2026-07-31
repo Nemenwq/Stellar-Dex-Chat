@@ -1,15 +1,24 @@
+<<<<<<< HEAD
+=======
 /**
  * Represents a message draft stored in localStorage.
  *
  * @property content - The draft message content.
  * @property timestamp - Unix timestamp in milliseconds when the draft was saved.
  */
+>>>>>>> emwulrd/main
 export interface Draft {
   content: string;
   timestamp: number;
 }
 
 const DRAFT_PREFIX = 'chat_draft_';
+<<<<<<< HEAD
+const DEFAULT_TTL = 86400; // 24 hours in seconds
+
+/**
+ * Saves a message draft for a specific session.
+=======
 /** Default time-to-live for drafts in seconds (24 hours). */
 const DEFAULT_TTL = 86400; // 24 hours in seconds
 
@@ -42,6 +51,7 @@ const DEFAULT_TTL = 86400; // 24 hours in seconds
  * @see {@link getDraft} - Retrieve a saved draft
  * @see {@link clearDraft} - Explicitly clear a draft
  * @see {@link clearExpiredDrafts} - Clean up old drafts
+>>>>>>> emwulrd/main
  */
 export const saveDraft = (sessionId: string, content: string): void => {
   if (typeof window === 'undefined' || !sessionId) return;
@@ -56,14 +66,24 @@ export const saveDraft = (sessionId: string, content: string): void => {
     timestamp: Date.now(),
   };
   try {
+<<<<<<< HEAD
+    // Use sessionStorage for transient per-tab drafts so they're preserved
+    // across background/foreground transitions but not across separate tabs.
+    sessionStorage.setItem(`${DRAFT_PREFIX}${sessionId}`, JSON.stringify(draft));
+  } catch (e) {
+    console.error('Failed to save draft to sessionStorage', e);
+=======
     localStorage.setItem(`${DRAFT_PREFIX}${sessionId}`, JSON.stringify(draft));
   } catch (e) {
     console.error('Failed to save draft to localStorage', e);
+>>>>>>> emwulrd/main
   }
 };
 
 /**
  * Retrieves a message draft for a specific session, checking for expiry.
+<<<<<<< HEAD
+=======
  *
  * This function fetches a draft from localStorage and validates that it has not
  * exceeded its time-to-live (TTL). Expired drafts are automatically cleared and
@@ -94,6 +114,7 @@ export const saveDraft = (sessionId: string, content: string): void => {
  * @see {@link saveDraft} - Save a draft
  * @see {@link clearDraft} - Explicitly clear a draft
  * @see {@link clearExpiredDrafts} - Clean up old drafts
+>>>>>>> emwulrd/main
  */
 export const getDraft = (sessionId: string, ttlSeconds: number = DEFAULT_TTL): string | null => {
   if (typeof window === 'undefined' || !sessionId) return null;
@@ -116,6 +137,12 @@ export const getDraft = (sessionId: string, ttlSeconds: number = DEFAULT_TTL): s
     console.error('Failed to parse draft', e);
     return null;
   }
+<<<<<<< HEAD
+};
+
+/**
+ * Clears a specific message draft.
+=======
 }
 
 /**
@@ -148,10 +175,21 @@ export const getDraft = (sessionId: string, ttlSeconds: number = DEFAULT_TTL): s
  * @see {@link saveDraft} - Save a draft
  * @see {@link getDraft} - Retrieve a saved draft
  * @see {@link clearExpiredDrafts} - Clean up old drafts
+>>>>>>> emwulrd/main
  */
 export const clearDraft = (sessionId: string): void => {
   if (typeof window === 'undefined' || !sessionId) return;
   try {
+<<<<<<< HEAD
+    sessionStorage.removeItem(`${DRAFT_PREFIX}${sessionId}`);
+  } catch (e) {
+    console.error('Failed to clear draft from sessionStorage', e);
+  }
+};
+
+/**
+ * Clears all drafts that have expired.
+=======
     localStorage.removeItem(`${DRAFT_PREFIX}${sessionId}`);
   } catch (e) {
     console.error('Failed to clear draft from localStorage', e);
@@ -188,6 +226,7 @@ export const clearDraft = (sessionId: string): void => {
  * @see {@link saveDraft} - Save a draft
  * @see {@link getDraft} - Retrieve a saved draft (also clears expired drafts)
  * @see {@link clearDraft} - Clear a specific draft
+>>>>>>> emwulrd/main
  */
 export const clearExpiredDrafts = (ttlSeconds: number = DEFAULT_TTL): void => {
   if (typeof window === 'undefined') return;
@@ -195,11 +234,20 @@ export const clearExpiredDrafts = (ttlSeconds: number = DEFAULT_TTL): void => {
   const now = Date.now();
   const keysToRemove: string[] = [];
 
+<<<<<<< HEAD
+  // Use index-based iteration so it works correctly in jsdom where
+  // Object.keys(localStorage) may not enumerate spied-on keys.
+=======
+>>>>>>> emwulrd/main
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
     if (key && key.startsWith(DRAFT_PREFIX)) {
       try {
+<<<<<<< HEAD
+        const item = sessionStorage.getItem(key);
+=======
         const item = localStorage.getItem(key);
+>>>>>>> emwulrd/main
         if (item) {
           const draft: Draft = JSON.parse(item);
           const expiryTime = draft.timestamp + ttlSeconds * 1000;
@@ -214,4 +262,8 @@ export const clearExpiredDrafts = (ttlSeconds: number = DEFAULT_TTL): void => {
   }
 
   keysToRemove.forEach((key) => localStorage.removeItem(key));
+<<<<<<< HEAD
+};
+=======
 }
+>>>>>>> emwulrd/main

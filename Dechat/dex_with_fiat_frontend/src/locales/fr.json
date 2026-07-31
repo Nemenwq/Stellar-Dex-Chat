@@ -35,11 +35,15 @@
       "convert": "Convertir 100 USDC en USD"
     },
     "error_message": "Échec de l'envoi du message. Vérifiez votre connexion.",
+<<<<<<< HEAD
+    "cancelled_message": "Demande annulée par l'utilisateur."
+=======
     "cancelled_message": "Demande annulée par l'utilisateur.",
     "resending": "Renvoi en cours…",
     "retry_countdown": "Nouvelle tentative automatique dans {seconds}s (essai {attempt} sur {max})",
     "retry_exhausted": "Tentatives automatiques épuisées après {max} essais.",
     "retry_message": "Renvoyer le message : {content}"
+>>>>>>> emwulrd/main
   },
   "header": {
     "title": "DexFiat · Stellar",
@@ -56,6 +60,8 @@
     "amount": "Montant",
     "status": "Statut",
     "date": "Date"
+<<<<<<< HEAD
+=======
   },
   "errors": {
     "101": "Le contrat n'a pas été initialisé.",
@@ -92,5 +98,6 @@
     "803": "Une ou plusieurs opérations du lot ont échoué.",
     "901": "Le nonce fourni est invalide (nonce trop élevé/futur).",
     "902": "Le nonce fourni a déjà été utilisé (tentative de rejeu)."
+>>>>>>> emwulrd/main
   }
 }

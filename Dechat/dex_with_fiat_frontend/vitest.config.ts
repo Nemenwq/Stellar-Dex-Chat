@@ -22,7 +22,11 @@ export default defineConfig({
     },
     coverage: {
       provider: 'v8',
+<<<<<<< HEAD
+      reporter: ['text'],
+=======
       reporter: ['text', 'json-summary'],
+>>>>>>> emwulrd/main
       cleanOnRerun: true,
       exclude: [
         '**/*.{test,spec}.{ts,tsx}',

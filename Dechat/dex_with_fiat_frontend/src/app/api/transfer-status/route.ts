@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getPayoutProvider } from '@/lib/payout/providers/registry';
+<<<<<<< HEAD
+
+export async function POST(request: NextRequest) {
+  try {
+    const { reference } = await request.json();
+
+    if (!reference) {
+      return NextResponse.json(
+        { success: false, message: 'Reference is required' },
+=======
 import { applyRateLimit, getClientIp } from '@/lib/rateLimit';
 import { transferStatusSchema } from '@/lib/apiSchemas';
 
@@ -18,10 +28,13 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json(
         { success: false, message: 'Request body must be valid JSON' },
+>>>>>>> emwulrd/main
         { status: 400 },
       );
     }
 
+<<<<<<< HEAD
+=======
     const validationResult = transferStatusSchema.safeParse(body);
     if (!validationResult.success) {
       return NextResponse.json(
@@ -36,6 +49,7 @@ export async function POST(request: NextRequest) {
 
     const { reference } = validationResult.data;
 
+>>>>>>> emwulrd/main
     const provider = getPayoutProvider();
     const data = await provider.checkTransferStatus({ reference });
 

@@ -30,6 +30,17 @@ export const hasMoreMessages = (
 };
 
 /**
+<<<<<<< HEAD
+ * Calculates the next count of visible messages
+ */
+export const getNextMessageCount = (
+  allMessages: ChatMessage[],
+  currentVisibleCount: number,
+  pageSize: number = DEFAULT_PAGE_SIZE
+): number => {
+  const nextCount = currentVisibleCount + pageSize;
+  return Math.min(nextCount, allMessages.length);
+=======
  * Calculates the next count of visible items (generic version)
  */
 export const getNextMessageCount = <T,>(
@@ -40,4 +51,5 @@ export const getNextMessageCount = <T,>(
   const totalCount = typeof allItems === 'number' ? allItems : allItems.length;
   const nextCount = currentVisibleCount + pageSize;
   return Math.min(nextCount, totalCount);
+>>>>>>> emwulrd/main
 };

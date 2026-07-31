@@ -7,6 +7,9 @@ import { useTheme } from '@/contexts/ThemeContext';
  * Resolves the active colour scheme for components that render outside the
  * normal theme tree (e.g. full-screen overlays).
  *
+<<<<<<< HEAD
+ * Priority: ThemeContext → `data-theme` on `<html>` → `prefers-color-scheme`.
+=======
  * Priority: `data-theme` on `<html>` → ThemeContext → `prefers-color-scheme`.
  *
  * Memory-leak fix (#1219): the previous implementation read
@@ -21,13 +24,18 @@ import { useTheme } from '@/contexts/ThemeContext';
  * Fix: track `data-theme` via a `MutationObserver` scoped to the `<html>`
  * element's attribute changes. The observer is created once on mount and
  * disconnected in the cleanup function — no subscription leak.
+>>>>>>> emwulrd/main
  */
 export function useEffectiveDarkMode(): boolean {
   const { isDarkMode } = useTheme();
   const [systemPrefersDark, setSystemPrefersDark] = useState(false);
+<<<<<<< HEAD
+
+=======
   const [dataTheme, setDataTheme] = useState<string | null>(null);
 
   // Observe prefers-color-scheme changes
+>>>>>>> emwulrd/main
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
       return;
@@ -41,6 +49,13 @@ export function useEffectiveDarkMode(): boolean {
     return () => mql.removeEventListener('change', handler);
   }, []);
 
+<<<<<<< HEAD
+  if (typeof document !== 'undefined') {
+    const dataTheme = document.documentElement.getAttribute('data-theme');
+    if (dataTheme === 'dark') return true;
+    if (dataTheme === 'light') return false;
+  }
+=======
   // Observe data-theme attribute changes on <html> via MutationObserver so
   // the value is always current and never read synchronously during render.
   useEffect(() => {
@@ -65,6 +80,7 @@ export function useEffectiveDarkMode(): boolean {
 
   if (dataTheme === 'dark') return true;
   if (dataTheme === 'light') return false;
+>>>>>>> emwulrd/main
 
   return isDarkMode || systemPrefersDark;
 }

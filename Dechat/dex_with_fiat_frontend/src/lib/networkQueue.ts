@@ -2,9 +2,12 @@
 
 import { toastStore } from './toastStore';
 
+<<<<<<< HEAD
+=======
 // Re-export for testing — spying on this object works across module boundaries.
 export { toastStore as _toastStoreForTesting };
 
+>>>>>>> emwulrd/main
 declare global {
   interface Window {
     __networkQueueListenerAdded?: boolean;
@@ -64,10 +67,16 @@ async function processQueue(): Promise<void> {
 
     try {
       const result = await request.task();
+<<<<<<< HEAD
+      request.resolve(result as never);
+      // Notify user of successful retry
+      toastStore.addToast('Message sent!', 'success');
+=======
       // Look up toastStore at call time to ensure mocks are respected in tests.
       const { toastStore: ts } = await import('./toastStore');
       ts.addToast('Message sent!', 'success');
       request.resolve(result as never);
+>>>>>>> emwulrd/main
     } catch (error) {
       if (request.attempts < MAX_RETRY && isNetworkError(error)) {
         request.attempts += 1;
@@ -75,8 +84,13 @@ async function processQueue(): Promise<void> {
         notifyListeners();
         break;
       } else {
+<<<<<<< HEAD
+        // Notify user of final failure
+        toastStore.addToast('Could not send. Please try again.', 'error');
+=======
         const { toastStore: ts } = await import('./toastStore');
         ts.addToast('Could not send. Please try again.', 'error');
+>>>>>>> emwulrd/main
         request.reject(error);
       }
     }

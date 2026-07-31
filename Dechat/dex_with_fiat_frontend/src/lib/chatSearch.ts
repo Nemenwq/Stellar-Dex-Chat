@@ -21,6 +21,8 @@ export interface SearchResults {
   totalMessages: number;
 }
 
+<<<<<<< HEAD
+=======
 export interface DebouncedFn<T extends (...args: unknown[]) => void> {
   (...args: Parameters<T>): void;
   /** Cancel any pending invocation. Call on component unmount to avoid stale callbacks. */
@@ -30,10 +32,19 @@ export interface DebouncedFn<T extends (...args: unknown[]) => void> {
   updateFn(newFn: T): void;
 }
 
+>>>>>>> emwulrd/main
 /** Debounce helper — returns a debounced version of `fn`. */
 export function debounce<T extends (...args: unknown[]) => void>(
   fn: T,
   delayMs: number,
+<<<<<<< HEAD
+): (...args: Parameters<T>) => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return (...args: Parameters<T>) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delayMs);
+  };
+=======
 ): DebouncedFn<T> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   // Store the latest fn so callers can update it via updateFn() without
@@ -60,6 +71,7 @@ export function debounce<T extends (...args: unknown[]) => void>(
   };
 
   return debounced;
+>>>>>>> emwulrd/main
 }
 
 /**
@@ -142,11 +154,17 @@ export function searchChatHistory(
   const hasWallet = walletAddress.trim().length > 0;
   const hasDate = dateFrom.trim().length > 0 || dateTo.trim().length > 0;
 
+<<<<<<< HEAD
+  // If no filters at all, return empty
+  if (!hasKeyword && !hasWallet && !hasDate) {
+    return { matches: [], totalSessions: sessions.length, totalMessages: 0 };
+=======
   const totalMessages = sessions.reduce((sum, s) => sum + s.messages.length, 0);
 
   // If no filters at all, return early with accurate counts but no matches.
   if (!hasKeyword && !hasWallet && !hasDate) {
     return { matches: [], totalSessions: sessions.length, totalMessages };
+>>>>>>> emwulrd/main
   }
 
   const matches: MessageMatch[] = [];
@@ -177,5 +195,9 @@ export function searchChatHistory(
     }
   }
 
+<<<<<<< HEAD
+  const totalMessages = sessions.reduce((sum, s) => sum + s.messages.length, 0);
+=======
+>>>>>>> emwulrd/main
   return { matches, totalSessions: sessions.length, totalMessages };
 }

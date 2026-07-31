@@ -1,5 +1,21 @@
 import React from 'react';
 import { describe, expect, it, vi, afterEach } from 'vitest';
+<<<<<<< HEAD
+import { render, screen, cleanup } from '@testing-library/react';
+import LandingPage from '@/components/LandingPage';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+  }),
+}));
+
+vi.mock('../../contexts/ThemeContext', () => ({
+  useTheme: () => ({
+    isDarkMode: false,
+    toggleDarkMode: vi.fn(),
+  }),
+=======
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { useRouter } from 'next/navigation';
 import LandingPage from '@/components/LandingPage';
@@ -16,6 +32,7 @@ vi.mock('../../contexts/ThemeContext', () => ({
     isDarkMode: false,
     toggleDarkMode: vi.fn(),
   })),
+>>>>>>> emwulrd/main
   ThemeProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
@@ -52,6 +69,8 @@ describe('LandingPage – accessibility', () => {
     expect(screen.getByRole('link', { name: /DexFiat on Twitter/i })).toBeDefined();
     expect(screen.getByRole('link', { name: /DexFiat on GitHub/i })).toBeDefined();
   });
+<<<<<<< HEAD
+=======
 
   it('labels each testimonial star rating for screen readers', () => {
     render(<LandingPage />);
@@ -108,4 +127,5 @@ describe('LandingPage – keyboard shortcuts (#1185)', () => {
 
     expect(push).not.toHaveBeenCalled();
   });
+>>>>>>> emwulrd/main
 });

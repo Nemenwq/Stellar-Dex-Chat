@@ -25,6 +25,10 @@
         }
       ]
     ],
+<<<<<<< HEAD
+    [],
+=======
+>>>>>>> emwulrd/main
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
@@ -32,6 +36,12 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+<<<<<<< HEAD
+              "function_name": "set_limit",
+              "args": [
+                {
+                  "i128": "500"
+=======
               "function_name": "init",
               "args": [
                 {
@@ -55,6 +65,7 @@
                 },
                 {
                   "u32": 1
+>>>>>>> emwulrd/main
                 }
               ]
             }
@@ -63,6 +74,10 @@
         }
       ]
     ],
+<<<<<<< HEAD
+    [],
+=======
+>>>>>>> emwulrd/main
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
@@ -73,10 +88,14 @@
               "function_name": "set_limit",
               "args": [
                 {
+<<<<<<< HEAD
+                  "i128": "50"
+=======
                   "address": "CCABDO7UZXYE4W6GVSEGSNNZTKSLFQGKXXQTH6OX7M7GKZ4Z6CUJNGZN"
                 },
                 {
                   "i128": "1000"
+>>>>>>> emwulrd/main
                 }
               ]
             }
@@ -145,6 +164,8 @@
             "contract_data": {
               "ext": "v0",
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+<<<<<<< HEAD
+=======
               "key": {
                 "vec": [
                   {
@@ -237,6 +258,7 @@
             "contract_data": {
               "ext": "v0",
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+>>>>>>> emwulrd/main
               "key": "ledger_key_contract_instance",
               "durability": "persistent",
               "val": {
@@ -261,11 +283,18 @@
                       "key": {
                         "vec": [
                           {
+<<<<<<< HEAD
+                            "symbol": "BridgeLimit"
+=======
                             "symbol": "AntiSandwichDelay"
+>>>>>>> emwulrd/main
                           }
                         ]
                       },
                       "val": {
+<<<<<<< HEAD
+                        "i128": "50"
+=======
                         "u32": 0
                       }
                     },
@@ -415,6 +444,7 @@
                       },
                       "val": {
                         "u32": 1
+>>>>>>> emwulrd/main
                       }
                     },
                     {
@@ -433,11 +463,18 @@
                       "key": {
                         "vec": [
                           {
+<<<<<<< HEAD
+                            "symbol": "TotalDeposited"
+=======
                             "symbol": "UpgradeDelay"
+>>>>>>> emwulrd/main
                           }
                         ]
                       },
                       "val": {
+<<<<<<< HEAD
+                        "i128": "0"
+=======
                         "u32": 1000
                       }
                     },
@@ -461,6 +498,7 @@
                       },
                       "val": {
                         "u64": "0"
+>>>>>>> emwulrd/main
                       }
                     }
                   ]
@@ -470,7 +508,11 @@
           },
           "ext": "v0"
         },
+<<<<<<< HEAD
+        "live_until": 4095
+=======
         "live_until": 535680
+>>>>>>> emwulrd/main
       },
       {
         "entry": {
@@ -627,7 +669,11 @@
           },
           "ext": "v0"
         },
+<<<<<<< HEAD
+        "live_until": 4095
+=======
         "live_until": 535680
+>>>>>>> emwulrd/main
       }
     ]
   },

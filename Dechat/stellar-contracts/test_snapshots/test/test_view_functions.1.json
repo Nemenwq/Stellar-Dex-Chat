@@ -1,3 +1,6 @@
+<<<<<<< HEAD
+fatal: path 'stellar-contracts/test_snapshots/test/test_view_functions.1.json' does not exist in 'HEAD'
+=======
 {
   "generators": {
     "address": 4,
@@ -591,3 +594,4 @@
   },
   "events": []
 }
+>>>>>>> emwulrd/main

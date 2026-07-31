@@ -1,5 +1,8 @@
 const CLIENT_SESSION_KEY = 'stellar_client_session_id';
 
+<<<<<<< HEAD
+export function getOrCreateClientSessionId() {
+=======
 // In-memory fallback, shared across every call in this module instance.
 //
 // Root cause (#1227): `getOrCreateClientSessionId` read/wrote
@@ -37,10 +40,15 @@ export function clientSessionUsedFallbackStorage(): boolean {
 }
 
 export function getOrCreateClientSessionId(): string {
+>>>>>>> emwulrd/main
   if (typeof window === 'undefined') {
     return '';
   }
 
+<<<<<<< HEAD
+  const existing = window.sessionStorage.getItem(CLIENT_SESSION_KEY);
+  if (existing) {
+=======
   if (cachedSessionId) {
     return cachedSessionId;
   }
@@ -60,10 +68,14 @@ export function getOrCreateClientSessionId(): string {
 
   if (existing) {
     cachedSessionId = existing;
+>>>>>>> emwulrd/main
     return existing;
   }
 
   const nextId = crypto.randomUUID();
+<<<<<<< HEAD
+  window.sessionStorage.setItem(CLIENT_SESSION_KEY, nextId);
+=======
 
   try {
     window.sessionStorage.setItem(CLIENT_SESSION_KEY, nextId);
@@ -78,5 +90,6 @@ export function getOrCreateClientSessionId(): string {
   // Cache in memory regardless of whether persistence succeeded, so that
   // *this* page load stays consistent even if storage is unavailable.
   cachedSessionId = nextId;
+>>>>>>> emwulrd/main
   return nextId;
 }

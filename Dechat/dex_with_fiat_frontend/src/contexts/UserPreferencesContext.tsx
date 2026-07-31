@@ -8,10 +8,14 @@ const REMINDERS_ENABLED_KEY = 'reminders-enabled';
 const REMINDER_FREQUENCY_KEY = 'reminder-frequency';
 const MASKING_ENABLED_KEY = 'content-masking-enabled';
 const MASKING_STYLE_KEY = 'content-masking-style';
+<<<<<<< HEAD
+const DEFAULT_CURRENCY = 'usd';
+=======
 const HIGH_VALUE_THRESHOLD_KEY = 'high-value-threshold';
 const TWO_FACTOR_ENABLED_KEY = 'two-factor-enabled';
 const DEFAULT_CURRENCY = 'usd';
 const DEFAULT_HIGH_VALUE_THRESHOLD = 500;
+>>>>>>> emwulrd/main
 
 export const SUPPORTED_FIAT_CURRENCIES = [
   { code: 'usd', label: 'USD — US Dollar', symbol: '$' },
@@ -38,10 +42,13 @@ interface UserPreferencesContextType {
   setMaskingEnabled: (enabled: boolean) => void;
   maskingStyle: MaskingStyle;
   setMaskingStyle: (style: MaskingStyle) => void;
+<<<<<<< HEAD
+=======
   highValueThreshold: number;
   setHighValueThreshold: (threshold: number) => void;
   twoFactorEnabled: boolean;
   setTwoFactorEnabled: (enabled: boolean) => void;
+>>>>>>> emwulrd/main
 }
 
 const UserPreferencesContext = createContext<
@@ -58,8 +65,11 @@ export function UserPreferencesProvider({
   const [reminderFrequencyState, setReminderFrequencyState] = useState<'weekly' | 'monthly'>('weekly');
   const [maskingEnabledState, setMaskingEnabledState] = useState(false);
   const [maskingStyleState, setMaskingStyleState] = useState<MaskingStyle>('asterisk');
+<<<<<<< HEAD
+=======
   const [highValueThresholdState, setHighValueThresholdState] = useState(DEFAULT_HIGH_VALUE_THRESHOLD);
   const [twoFactorEnabledState, setTwoFactorEnabledState] = useState(true);
+>>>>>>> emwulrd/main
 
   // Restore saved preferences on mount
   useEffect(() => {
@@ -92,6 +102,11 @@ export function UserPreferencesProvider({
     }
 
     const savedMaskingStyle = localStorage.getItem(MASKING_STYLE_KEY) as MaskingStyle | null;
+<<<<<<< HEAD
+    if (savedMaskingStyle && ['asterisk', 'block', 'initial', 'pipe'].includes(savedMaskingStyle)) {
+      setMaskingStyleState(savedMaskingStyle as MaskingStyle);
+    }
+=======
     if (savedMaskingStyle && ['asterisk', 'block', 'initial', 'pipe', 'address'].includes(savedMaskingStyle)) {
       setMaskingStyleState(savedMaskingStyle as MaskingStyle);
     }
@@ -108,6 +123,7 @@ export function UserPreferencesProvider({
     if (savedTwoFactor !== null) {
       setTwoFactorEnabledState(savedTwoFactor === 'true');
     }
+>>>>>>> emwulrd/main
   }, []);
 
   const setFiatCurrency = (currency: FiatCurrencyCode) => {
@@ -135,6 +151,8 @@ export function UserPreferencesProvider({
     localStorage.setItem(MASKING_STYLE_KEY, style);
   };
 
+<<<<<<< HEAD
+=======
   const setHighValueThreshold = (threshold: number) => {
     setHighValueThresholdState(threshold);
     localStorage.setItem(HIGH_VALUE_THRESHOLD_KEY, String(threshold));
@@ -145,6 +163,7 @@ export function UserPreferencesProvider({
     localStorage.setItem(TWO_FACTOR_ENABLED_KEY, String(enabled));
   };
 
+>>>>>>> emwulrd/main
   const currencySymbol =
     SUPPORTED_FIAT_CURRENCIES.find((c) => c.code === fiatCurrencyState)?.symbol ?? '$';
 
@@ -162,10 +181,13 @@ export function UserPreferencesProvider({
         setMaskingEnabled,
         maskingStyle: maskingStyleState,
         setMaskingStyle,
+<<<<<<< HEAD
+=======
         highValueThreshold: highValueThresholdState,
         setHighValueThreshold,
         twoFactorEnabled: twoFactorEnabledState,
         setTwoFactorEnabled,
+>>>>>>> emwulrd/main
       }}
     >
       {children}

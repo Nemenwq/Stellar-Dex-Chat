@@ -14,7 +14,10 @@ import {
 import EmptyState from '@/components/ui/EmptyState';
 import CopyButton from '@/components/ui/CopyButton';
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
+<<<<<<< HEAD
+=======
 import { useUserPreferences } from '@/contexts/UserPreferencesContext';
+>>>>>>> emwulrd/main
 import {
   BRIDGE_LIMIT_WARNING_PERCENT,
   CONTRACT_ID,
@@ -52,6 +55,10 @@ interface StellarFiatModalProps {
 type TxStatus = 'idle' | 'pending' | 'loading' | 'success' | 'error';
 
 const PENDING_TX_KEY = 'stellar_pending_tx';
+<<<<<<< HEAD
+const LARGE_AMOUNT_RISK_THRESHOLD = 500;
+=======
+>>>>>>> emwulrd/main
 const SUBMIT_COOLDOWN_MS = 2000;
 
 interface PendingTxRecord {
@@ -80,7 +87,10 @@ export default function StellarFiatModal({
   const { connection, signTx } = useStellarWallet();
   const { addNotification } = useNotifications();
   const { addEntry } = useTxHistory();
+<<<<<<< HEAD
+=======
   const { highValueThreshold, twoFactorEnabled } = useUserPreferences();
+>>>>>>> emwulrd/main
 
   const { execute: executeTransaction, isProcessing: isTxProcessing } =
     useIdempotentAction({
@@ -106,8 +116,11 @@ export default function StellarFiatModal({
   const [lastActionTimestamp, setLastActionTimestamp] = useState(0);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+<<<<<<< HEAD
+=======
   const [showTwoFactorModal, setShowTwoFactorModal] = useState(false);
   const [twoFactorConfirmation, setTwoFactorConfirmation] = useState('');
+>>>>>>> emwulrd/main
 
   // Helpers avoid JSX branch narrowing (pending/loading render a separate view).
   const isStatusPending = (status as TxStatus) === 'pending';
@@ -377,9 +390,14 @@ export default function StellarFiatModal({
   const stroopsAmount = !isAmountInvalid ? xlmToStroops(amount) : null;
   const hasValidAmount = stroopsAmount !== null && stroopsAmount > BigInt(0);
   const isRiskyAmount =
+<<<<<<< HEAD
+    Number.isFinite(numericAmount) &&
+    numericAmount >= LARGE_AMOUNT_RISK_THRESHOLD;
+=======
     twoFactorEnabled &&
     Number.isFinite(numericAmount) &&
     numericAmount >= highValueThreshold;
+>>>>>>> emwulrd/main
   const isDepositFlow = !isAdminMode;
   const isLimitUnavailable =
     isDepositFlow &&
@@ -466,12 +484,15 @@ export default function StellarFiatModal({
   const handleAction = async () => {
     if (!connection.isConnected) return;
 
+<<<<<<< HEAD
+=======
     // Show two-factor confirmation modal for high-value transfers
     if (isRiskyAmount && twoFactorEnabled && !showTwoFactorModal) {
       setShowTwoFactorModal(true);
       return;
     }
 
+>>>>>>> emwulrd/main
     const zodMessage = validateStellarFiatModalForm({
       isAdminMode,
       amount,
@@ -479,7 +500,10 @@ export default function StellarFiatModal({
       note,
       riskConfirmation,
       isRiskyAmount,
+<<<<<<< HEAD
+=======
       twoFactorConfirmation: showTwoFactorModal ? twoFactorConfirmation : undefined,
+>>>>>>> emwulrd/main
     });
     if (zodMessage) {
       setErrorMsg(zodMessage);
@@ -757,8 +781,13 @@ export default function StellarFiatModal({
                     onClick={() => handlePreset(preset)}
                     disabled={isTransactionBusy}
                     className={`flex-1 py-1.5 rounded-md text-xs font-medium border transition-colors ${activePreset === preset
+<<<<<<< HEAD
+                        ? 'bg-blue-600 border-blue-500 text-white'
+                        : 'bg-gray-800 border-gray-600 text-gray-300 hover:border-blue-500 hover:text-white'
+=======
                       ? 'bg-blue-600 border-blue-500 text-white'
                       : 'bg-gray-800 border-gray-600 text-gray-300 hover:border-blue-500 hover:text-white'
+>>>>>>> emwulrd/main
                       } ${isTransactionBusy ? 'opacity-60 cursor-not-allowed' : ''}`}
                   >
                     {preset}
@@ -778,8 +807,13 @@ export default function StellarFiatModal({
                 disabled={isTransactionBusy}
                 aria-invalid={isAmountInvalid || isOverLimit ? true : undefined}
                 className={`w-full bg-gray-800 border rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed ${isAmountInvalid || isOverLimit
+<<<<<<< HEAD
+                    ? 'border-red-500 focus:border-red-400'
+                    : 'border-gray-600 focus:border-blue-500'
+=======
                   ? 'border-red-500 focus:border-red-400'
                   : 'border-gray-600 focus:border-blue-500'
+>>>>>>> emwulrd/main
                   }`}
               />
               {isAmountInvalid && amount && (
@@ -936,10 +970,17 @@ export default function StellarFiatModal({
                   </h3>
                   <div
                     className={`w-2 h-2 rounded-full ${isOverLimit
+<<<<<<< HEAD
+                        ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'
+                        : isHighLimitUsage
+                          ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]'
+                          : 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]'
+=======
                       ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'
                       : isHighLimitUsage
                         ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]'
                         : 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]'
+>>>>>>> emwulrd/main
                       }`}
                   />
                 </div>
@@ -973,10 +1014,17 @@ export default function StellarFiatModal({
                     <div className="h-1.5 w-full rounded-full bg-[var(--color-surface-elevated)] overflow-hidden mb-2">
                       <div
                         className={`h-full rounded-full transition-all duration-500 ${isOverLimit
+<<<<<<< HEAD
+                            ? 'bg-red-500'
+                            : isHighLimitUsage
+                              ? 'bg-amber-400'
+                              : 'bg-blue-500'
+=======
                           ? 'bg-red-500'
                           : isHighLimitUsage
                             ? 'bg-amber-400'
                             : 'bg-blue-500'
+>>>>>>> emwulrd/main
                           }`}
                         style={{ width: `${Math.min(usagePercent, 100)}%` }}
                       />
@@ -1013,7 +1061,11 @@ export default function StellarFiatModal({
                   Large amount confirmation required
                 </p>
                 <p className="text-xs mb-3">
+<<<<<<< HEAD
+                  Amounts above {LARGE_AMOUNT_RISK_THRESHOLD} XLM require an
+=======
                   Amounts above {highValueThreshold} XLM require an
+>>>>>>> emwulrd/main
                   additional confirmation phrase before submission.
                 </p>
                 <input
@@ -1114,6 +1166,8 @@ export default function StellarFiatModal({
           </>
         )}
       </div>
+<<<<<<< HEAD
+=======
 
       {/* Two-Factor Confirmation Modal */}
       {showTwoFactorModal && (
@@ -1156,6 +1210,7 @@ export default function StellarFiatModal({
           </div>
         </div>
       )}
+>>>>>>> emwulrd/main
     </div>
   );
 }
