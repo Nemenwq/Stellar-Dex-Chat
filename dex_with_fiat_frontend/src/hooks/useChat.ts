@@ -4,10 +4,10 @@ import { useStellarWallet } from '@/contexts/StellarWalletContext';
 import { AIAssistant } from '@/lib/aiAssistant';
 import { perf } from '@/lib/perf';
 import {
-  AIAnalysisResult,
-  ChatMessage,
-  GuardrailCategory,
-  TransactionData,
+    AIAnalysisResult,
+    ChatMessage,
+    GuardrailCategory,
+    TransactionData,
 } from '@/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -49,11 +49,10 @@ const useChat = () => {
     currentSessionId,
     currentSession,
   } = useChatHistory();
+  const [hasHydrated, setHasHydrated] = useState(false);
 
   // State machine for chat lifecycle
-  const machineRef = useRef<ReturnType<typeof createChatStateMachine>>(
-    createChatStateMachine(),
-  );
+  const machineRef = useRef<ReturnType<typeof createChatStateMachine>>(createChatStateMachine());
   const [stateUpdateTrigger, setStateUpdateTrigger] = useState(0);
 
   // Additional state for admin and transaction callback
@@ -121,17 +120,34 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
   const [isLoading, setIsLoading] = useState(false);
   const aiAssistant = useMemo(() => new AIAssistant(), []);
   const activeRequestControllerRef = useRef<AbortController | null>(null);
+  const transactionReadyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const queuedSendsRef = useRef<QueuedSend[]>([]);
   const replayingQueueRef = useRef(false);
+
+  useEffect(() => {
+    setHasHydrated(true);
+    return () => {
+      // Cancel any in-flight transaction-ready timer on unmount to prevent
+      // calling callbacks on a dismounted component (memory leak #663).
+      if (transactionReadyTimerRef.current !== null) {
+        clearTimeout(transactionReadyTimerRef.current);
+        transactionReadyTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
   const appendCancelledMessage = useCallback((content: string) => {
+    const uid =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const cancelledMessage: ChatMessage = {
-      id: (Date.now() + 1).toString(),
+      id: uid,
       role: 'assistant',
       content,
       timestamp: new Date(),
@@ -143,7 +159,8 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
   }, []);
 
   const cancelPendingRequest = useCallback(() => {
-    if (!activeRequestControllerRef.current || !isLoading) {
+    // Read the ref directly to avoid stale-closure on isLoading state.
+    if (!activeRequestControllerRef.current) {
       return;
     }
     activeRequestControllerRef.current.abort();
@@ -152,7 +169,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
     appendCancelledMessage(
       'Request cancelled. No worries - you can send a new prompt when ready.',
     );
-  }, [appendCancelledMessage, isLoading]);
+  }, [appendCancelledMessage]);
 
   // Subscribe to state machine changes
   useEffect(() => {
@@ -164,6 +181,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
 
   // Initialize chat session
   useEffect(() => {
+    if (!hasHydrated) return;
     const machine = machineRef.current;
     const machineState = machine.getState();
 
@@ -177,15 +195,11 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         machine.transition(ChatEvent.INITIALIZE_SESSION);
       }
     }
-  }, [currentSession, currentSessionId, createNewSession]);
+  }, [currentSession, currentSessionId, createNewSession, hasHydrated]);
 
   // Persist messages to session
   useEffect(() => {
-    if (
-      machineRef.current.getState().state !== ChatState.UNINITIALIZED &&
-      currentSessionId &&
-      messages.length > 0
-    ) {
+    if (machineRef.current.getState().state !== ChatState.UNINITIALIZED && currentSessionId && messages.length > 0) {
       updateCurrentSession(messages);
     }
   }, [messages, currentSessionId, updateCurrentSession]);
@@ -284,12 +298,11 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
       }
 
       // Check if we have minimal transaction data
-      const hasMinimalTransactionData = !!(
-        pendingTransactionData &&
-        (pendingTransactionData.tokenIn ||
-          pendingTransactionData.amountIn ||
-          pendingTransactionData.fiatAmount)
-      );
+      const hasMinimalTransactionData =
+        !!(pendingTransactionData &&
+          (pendingTransactionData.tokenIn ||
+            pendingTransactionData.amountIn ||
+            pendingTransactionData.fiatAmount));
 
       // Determine if clarification is needed
       const needsClarification =
@@ -429,9 +442,14 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         ),
       );
 
-      // Trigger transaction callback if needed
+      // Trigger transaction callback if needed. Track the timer so it can be
+      // cleared on unmount and avoid post-dismount state updates (leak #663).
       if (shouldAutoTrigger && pendingTransactionData && onTransactionReady) {
-        setTimeout(() => {
+        if (transactionReadyTimerRef.current !== null) {
+          clearTimeout(transactionReadyTimerRef.current);
+        }
+        transactionReadyTimerRef.current = setTimeout(() => {
+          transactionReadyTimerRef.current = null;
           onTransactionReady(pendingTransactionData);
         }, 1000);
       }
@@ -512,28 +530,35 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
 
       // Only proceed if in valid state
       if (!machine.canTransition(ChatEvent.SEND_MESSAGE)) {
-        console.warn(
-          'Cannot send message in current state:',
-          machineState.state,
-        );
+        console.warn('Cannot send message in current state:', machineState.state);
         return;
       }
 
-      // Detect cancellation
-      if (isLoading && activeRequestControllerRef.current) {
+      // Abort any in-flight request — read the ref directly to avoid a stale
+      // closure on the isLoading state value (issue #530).
+      if (activeRequestControllerRef.current) {
         activeRequestControllerRef.current.abort();
         activeRequestControllerRef.current = null;
       }
 
+      // Use crypto.randomUUID (or a monotonic fallback) to guarantee unique IDs
+      // even when two messages are created within the same millisecond — the
+      // original Date.now() / Date.now()+1 pattern was the root cause of the
+      // race condition reported in issue #530.
+      const uid = () =>
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
       // Add user message
       const userMessage: ChatMessage = {
-        id: Date.now().toString(),
+        id: uid(),
         role: 'user',
         content,
         timestamp: new Date(),
       };
 
-      const pendingAssistantId = (Date.now() + 1).toString();
+      const pendingAssistantId = uid();
       const pendingAssistantMessage: ChatMessage = {
         id: pendingAssistantId,
         role: 'assistant',
@@ -611,7 +636,11 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         }
       }
     },
-    [analyzeAndRespond, isLikelyNetworkError, isLoading, markMessageFailed],
+    [
+      analyzeAndRespond,
+      isLikelyNetworkError,
+      markMessageFailed,
+    ],
   );
 
   const clearChat = useCallback(() => {
@@ -650,6 +679,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
 
   // Update suggested actions when wallet connection changes
   useEffect(() => {
+    if (!hasHydrated) return;
     const machine = machineRef.current;
     if (machine.getState().state !== ChatState.UNINITIALIZED) {
       setMessages((prevMessages: ChatMessage[]) => {
@@ -667,7 +697,7 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
         return prevMessages;
       });
     }
-  }, [connection.isConnected, getInitialSuggestedActions]);
+  }, [connection.isConnected, getInitialSuggestedActions, hasHydrated]);
 
   // Derive conversationState from machine for backward compatibility
   const conversationState = useMemo((): ConversationState => {
@@ -676,11 +706,9 @@ What would you like to do today? I'm here to make your XLM-to-fiat journey smoot
       messageCount: machineState.context.messageCount,
       hasUserCancelled: machineState.context.hasUserCancelled,
       pendingTransactionData: machineState.context.pendingTransactionData,
-      shouldTriggerTransaction:
-        machineState.state === ChatState.TRANSACTION_TRIGGERED,
+      shouldTriggerTransaction: machineState.state === ChatState.TRANSACTION_TRIGGERED,
       isAdmin,
-      awaitingClarification:
-        machineState.state === ChatState.AWAITING_CLARIFICATION,
+      awaitingClarification: machineState.state === ChatState.AWAITING_CLARIFICATION,
       clarificationQuestion: machineState.context.clarificationQuestion,
     };
     // stateUpdateTrigger is intentionally included to force re-computation when machine state changes

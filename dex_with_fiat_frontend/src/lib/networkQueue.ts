@@ -48,42 +48,41 @@ async function processQueue(): Promise<void> {
   }
   processing = true;
 
-  try {
-    while (queue.length > 0) {
-      const request = queue.shift();
-      if (!request) break;
-      notifyListeners();
+  while (queue.length > 0) {
+    const request = queue.shift();
+    if (!request) break;
+    notifyListeners();
 
-      try {
-        const result = await request.task();
-        request.resolve(result as never);
-        // Notify user of successful retry
-        toastStore.addToast('Message sent!', 'success');
-      } catch (error) {
-        if (request.attempts < MAX_RETRY && isNetworkError(error)) {
-          request.attempts += 1;
-          queue.push(request);
-          notifyListeners();
-          break;
-        } else {
-          // Notify user of final failure
-          toastStore.addToast('Could not send. Please try again.', 'error');
-          request.reject(error);
-        }
+    try {
+      const result = await request.task();
+      request.resolve(result as never);
+      // Notify user of successful retry
+      toastStore.addToast('Message sent!', 'success');
+    } catch (error) {
+      if (request.attempts < MAX_RETRY && isNetworkError(error)) {
+        request.attempts += 1;
+        queue.push(request);
+        notifyListeners();
+        break;
+      } else {
+        // Notify user of final failure
+        toastStore.addToast('Could not send. Please try again.', 'error');
+        request.reject(error);
       }
     }
-  } catch (error) {
-    console.error('Error processing network queue:', error);
-  } finally {
-    processing = false;
   }
+
+  processing = false;
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => {
-    console.log('Network is back online; flushing read queue.');
-    void processQueue().catch(() => {});
-  });
+  if (!(window as any).__networkQueueListenerAdded) {
+    window.addEventListener('online', () => {
+      console.log('Network is back online; flushing read queue.');
+      void processQueue();
+    });
+    (window as any).__networkQueueListenerAdded = true;
+  }
 }
 
 export function subscribeToQueue(fn: (count: number) => void) {
@@ -140,7 +139,7 @@ export function withNetworkReadQueue<T>(
         reject(error);
       }
     } finally {
-      void processQueue().catch(() => {});
+      void processQueue();
     }
   });
 }

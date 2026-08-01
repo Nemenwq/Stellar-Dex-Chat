@@ -35,7 +35,7 @@ export class ToastStore {
   private toasts: AppToast[] = [];
   private listeners: Set<ToastListener> = new Set();
   private timers: Map<string, NodeJS.Timeout> = new Map();
-
+  
   private dedupeWindowMs: number;
   private defaultDurationMs: number;
   private now: () => number;
@@ -55,12 +55,9 @@ export class ToastStore {
   private mapSeverityToVariant(severity?: string): ToastVariant {
     if (!severity) return 'info';
     switch (severity.toLowerCase()) {
-      case 'error':
-        return 'error';
-      case 'success':
-        return 'success';
-      case 'warning':
-        return 'warning';
+      case 'error': return 'error';
+      case 'success': return 'success';
+      case 'warning': return 'warning';
       case 'info':
       default:
         return 'info';
@@ -72,7 +69,7 @@ export class ToastStore {
    */
   addToast(
     messageOrOptions: string | AddToastOptions,
-    variantParam: ToastVariant = 'info',
+    variantParam: ToastVariant = 'info'
   ): string | null {
     let message: string;
     let variant: ToastVariant;
@@ -83,22 +80,17 @@ export class ToastStore {
       variant = variantParam;
     } else {
       message = messageOrOptions.message;
-      variant =
-        messageOrOptions.variant ||
-        this.mapSeverityToVariant(messageOrOptions.severity);
-      duration =
-        messageOrOptions.duration ??
-        messageOrOptions.durationMs ??
-        this.defaultDurationMs;
+      variant = messageOrOptions.variant || this.mapSeverityToVariant(messageOrOptions.severity);
+      duration = messageOrOptions.duration ?? messageOrOptions.durationMs ?? this.defaultDurationMs;
     }
 
     // Deduplication logic
     const currentTime = this.now();
     const isDuplicate = this.toasts.some(
-      (t) =>
-        t.message === message &&
-        t.variant === variant &&
-        currentTime - t.timestamp < this.dedupeWindowMs,
+      (t) => 
+        t.message === message && 
+        t.variant === variant && 
+        currentTime - t.timestamp < this.dedupeWindowMs
     );
 
     if (isDuplicate) {
@@ -115,8 +107,8 @@ export class ToastStore {
       durationMs: duration,
     };
 
-    this.toasts.push(toast);
-
+    this.toasts = [...this.toasts, toast];
+    
     if (duration > 0) {
       const timer = setTimeout(() => {
         this.dismissToast(id);
@@ -134,14 +126,14 @@ export class ToastStore {
   removeToast(id: string): void {
     const index = this.toasts.findIndex((t) => t.id === id);
     if (index > -1) {
-      this.toasts.splice(index, 1);
-
+      this.toasts = [...this.toasts.slice(0, index), ...this.toasts.slice(index + 1)];
+      
       const timer = this.timers.get(id);
       if (timer) {
         clearTimeout(timer);
         this.timers.delete(id);
       }
-
+      
       this.notifyListeners();
     }
   }
@@ -162,18 +154,18 @@ export class ToastStore {
    * Get current toasts snapshot
    */
   getToasts(): AppToast[] {
-    return [...this.toasts];
+    return this.toasts;
   }
 
   getSnapshot(): AppToast[] {
-    return this.getToasts();
+    return this.toasts;
   }
 
   /**
    * Clear all toasts
    */
   clearToasts(): void {
-    this.toasts.length = 0;
+    this.toasts = [];
     this.timers.forEach((timer) => clearTimeout(timer));
     this.timers.clear();
     this.notifyListeners();
