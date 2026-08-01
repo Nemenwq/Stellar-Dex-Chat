@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Send, Loader2, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/contexts/TranslationContext';
@@ -43,30 +43,19 @@ export default function ChatInput({
   const [showPalette, setShowPalette] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [paletteIndex, setPaletteIndex] = useState(0);
+  
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  const { execute: executeSubmit, isProcessing: isSubmitting } =
-    useIdempotentAction({
-      cooldownMs: 1000,
-      logSuppressed: true,
-    });
+  const { execute: executeSubmit, isProcessing: isSubmitting } = useIdempotentAction({
+    cooldownMs: 1000,
+    logSuppressed: true,
+  });
 
   const commands = [
-    {
-      cmd: '/deposit',
-      desc: t('common.deposit_desc') || 'Add funds to your Stellar account',
-    },
-    {
-      cmd: '/rates',
-      desc: t('common.rates_desc') || 'Check current market conversion rates',
-    },
-    {
-      cmd: '/portfolio',
-      desc: t('common.portfolio_desc') || 'View your asset balance and value',
-    },
-    {
-      cmd: '/help',
-      desc: t('common.help_desc') || 'Get assistance with platform features',
-    },
+    { cmd: '/deposit', desc: t('common.deposit_desc') || 'Add funds to your Stellar account' },
+    { cmd: '/rates', desc: t('common.rates_desc') || 'Check current market conversion rates' },
+    { cmd: '/portfolio', desc: t('common.portfolio_desc') || 'View your asset balance and value' },
+    { cmd: '/help', desc: t('common.help_desc') || 'Get assistance with platform features' },
   ];
 
   const handleInputChange = (val: string) => {
@@ -99,6 +88,7 @@ export default function ChatInput({
         setMessage('');
         if (sessionId) clearDraft(sessionId);
         setShowCommands(false);
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 'chat_message_submit');
     }
   };
@@ -194,10 +184,26 @@ export default function ChatInput({
         event.preventDefault();
         setShowPalette((prev: boolean) => !prev);
       }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n' && !event.shiftKey) {
+        event.preventDefault();
+        onNewChat?.();
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'h') {
+        event.preventDefault();
+        onOpenHistory?.();
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'b') {
+        event.preventDefault();
+        onOpenBridgeModal?.();
+      }
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'c') {
+        event.preventDefault();
+        onCancelRequest?.();
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [onNewChat, onOpenHistory, onOpenBridgeModal, onCancelRequest]);
 
   // Load draft when session changes
   useEffect(() => {
@@ -273,9 +279,7 @@ export default function ChatInput({
                 type="button"
                 onClick={() => executePaletteCommand(i)}
                 className={`w-full text-left px-3 py-2 text-sm ${
-                  i === paletteIndex
-                    ? 'bg-blue-600 text-white'
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                  i === paletteIndex ? 'bg-blue-600 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >
                 {cmd.label}
@@ -321,9 +325,7 @@ export default function ChatInput({
         <div className="flex-1 relative">
           <textarea
             value={message}
-            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-              handleInputChange(e.target.value)
-            }
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => handleInputChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={activePlaceholder}
             disabled={isLoading}
@@ -361,8 +363,7 @@ export default function ChatInput({
       </div>
 
       <p id="chat-submit-shortcut" className="sr-only" aria-live="polite">
-        Send message with {submitShortcutLabel}. The send button stays disabled
-        while a request is pending.
+        Send message with {submitShortcutLabel}. The send button stays disabled while a request is pending.
       </p>
 
       {walletWarning && (
@@ -373,6 +374,7 @@ export default function ChatInput({
       )}
 
       {/* Quick suggestions */}
+      <div ref={bottomRef} />
       <div className="flex flex-wrap gap-2 mt-3 sm:mt-4 overflow-x-auto pb-1 no-scrollbar">
         {[
           t('chat.suggestions.convert'),
