@@ -4,6 +4,7 @@ header = """
 
 All notable changes to this project will be documented in this file.
 """
+<<<<<<< HEAD
 body = """
 {% for release in releases %}
 ## [{% if release.version %}{{ release.version }}{% else %}Unreleased{% endif %}]{% if release.timestamp %} - {{ release.timestamp | date(format=\"%Y-%m-%d\") }}{% endif %}
@@ -50,6 +51,24 @@ body = """
 {% endif %}
 {% endfor %}
 {% endfor %}
+=======
+# NOTE: `body` is rendered once *per release*, so the release fields
+# (`version`, `timestamp`, `commits`) are at the root of the context.
+# There is no `releases` variable here — only `footer` gets that.
+body = """
+
+## [{% if version %}{{ version }}{% else %}Unreleased{% endif %}]{% if timestamp %} - {{ timestamp | date(format=\"%Y-%m-%d\") }}{% endif %}
+{% for section in ["Added", "Fixed", "Changed", "Deprecated", "Removed", "Security"] %}
+{%- set section_commits = commits | filter(attribute="group", value=section) %}
+{%- if section_commits | length > 0 %}
+
+### {{ section }}
+{% for commit in section_commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+>>>>>>> emwulrd/main
 """
 trim = true
 
