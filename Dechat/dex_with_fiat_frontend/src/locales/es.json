@@ -1,0 +1,103 @@
+{
+  "common": {
+    "loading": "Cargando...",
+    "retry": "Reintentar",
+    "cancel": "Cancelar",
+    "send": "Enviar",
+    "copy": "Copiar",
+    "copied": "¡Copiado!",
+    "offline": "Sin conexión detectado. Acciones en cola.",
+    "online": "De vuelta en línea. Reproduciendo acciones...",
+    "offline_detected": "Sin conexión detectado. Las operaciones de solo lectura están en cola y se reintentarán cuando haya conexión.",
+    "queued": "en cola",
+    "retry_now": "Reintentar ahora",
+    "network": "Red",
+    "unknown": "Desconocido",
+    "expected": "esperado",
+    "withdraw_xlm": "Retirar XLM",
+    "deposit_xlm": "Depositar XLM",
+    "network_mismatch_warning": "Los depósitos y retiros están deshabilitados. Cambie a {expectedNetwork} en Freighter: Configuración → Red → {expectedNetwork}.",
+    "loading_stats": "Cargando estadísticas…",
+    "bridge_balance": "Saldo Bridge",
+    "deposit_limit": "Límite de depósito",
+    "deposit_desc": "Agregar fondos a su cuenta Stellar",
+    "rates_desc": "Consultar las tasas de conversión actuales",
+    "portfolio_desc": "Ver el saldo y el valor de sus activos",
+    "help_desc": "Obtener ayuda con las funciones de la plataforma"
+  },
+  "chat": {
+    "placeholder": "Pregunte sobre las tasas de XLM, depósito, o cualquier cosa de Stellar...",
+    "new_chat": "Nueva conversación",
+    "commands": "Comandos",
+    "suggestions": {
+      "rates": "Consultar tasas de conversión",
+      "portfolio": "Ver historial de transacciones",
+      "convert": "Convertir 100 USDC a USD"
+    },
+    "error_message": "Error al enviar el mensaje. Verifique su conexión.",
+<<<<<<< HEAD
+    "cancelled_message": "Solicitud cancelada por el usuario."
+=======
+    "cancelled_message": "Solicitud cancelada por el usuario.",
+    "resending": "Reenviando…",
+    "retry_countdown": "Reintentando automáticamente en {seconds}s (intento {attempt} de {max})",
+    "retry_exhausted": "Reintentos automáticos agotados tras {max} intentos.",
+    "retry_message": "Reenviar mensaje: {content}"
+>>>>>>> emwulrd/main
+  },
+  "header": {
+    "title": "DexFiat · Stellar",
+    "subtitle": "XLM-to-Fiat con IA",
+    "connect": "Conectar Freighter",
+    "disconnect": "Desconectar",
+    "settings": "Configuración",
+    "receipts": "Recibos"
+  },
+  "receipt": {
+    "title": "Recibos de transacciones",
+    "no_receipts": "No se encontraron transacciones recientes.",
+    "hash": "Hash Tx",
+    "amount": "Monto",
+    "status": "Estado",
+    "date": "Fecha"
+<<<<<<< HEAD
+=======
+  },
+  "errors": {
+    "101": "El contrato no ha sido inicializado.",
+    "102": "El contrato ya ha sido inicializado.",
+    "103": "Se ha violado un invariante interno.",
+    "201": "El llamante no está autorizado para realizar esta acción.",
+    "202": "La acción no está permitida (por ejemplo, no en la lista blanca).",
+    "203": "No hay administrador pendiente para aceptar.",
+    "204": "La dirección del destinatario no es válida para esta operación.",
+    "205": "El llamante no está registrado como operador.",
+    "301": "El monto proporcionado debe ser mayor que cero.",
+    "302": "El monto excede el límite de token configurado.",
+    "303": "El acumulador de depósito diario por token del usuario ha excedido el límite configurado.",
+    "304": "El límite de volumen diario equivalente en fiat del usuario ha sido excedido.",
+    "305": "La cadena de referencia de depósito excede la longitud máxima.",
+    "306": "Un período de espera de seguridad está actualmente activo para este usuario.",
+    "307": "El retraso anti-sandwich está activo.",
+    "308": "El token especificado no es compatible con el puente.",
+    "309": "La dirección está en la lista negra y no puede realizar esta acción.",
+    "310": "El rescate de este token está prohibido (token de protocolo o en lista blanca).",
+    "401": "El contrato o usuario tiene saldo insuficiente.",
+    "402": "No hay tarifas acumuladas disponibles para retirar.",
+    "501": "El ID de solicitud de retiro especificado no existe.",
+    "502": "La solicitud de retiro aún está dentro de su período de bloqueo.",
+    "601": "El ID de acción de administrador especificado no existe.",
+    "602": "La acción de administrador aún está dentro de su período de tiempo de espera, o queue_admin_action fue llamado con delay < MIN_TIMELOCK_DELAY (34,560 registros ≈ 48 h).",
+    "603": "El período de inactividad requerido para la recuperación de emergencia no ha pasado.",
+    "604": "No se ha configurado ninguna dirección de recuperación de emergencia.",
+    "701": "No se ha configurado ningún oráculo de precios.",
+    "702": "El oráculo devolvió un precio inválido o cero.",
+    "703": "El deslizamiento de precio excede el umbral máximo permitido.",
+    "801": "La cuota de retiro diario del usuario ha sido excedida.",
+    "802": "La migración de escrow ya ha sido completada.",
+    "803": "Una o más operaciones del lote fallaron.",
+    "901": "El nonce proporcionado es inválido (nonce demasiado alto/futuro).",
+    "902": "El nonce proporcionado ya ha sido usado (intento de repetición)."
+>>>>>>> emwulrd/main
+  }
+}

@@ -5,7 +5,7 @@ on:
     branches:
       - 'release/**'
     paths:
-      - 'stellar-contracts/**'
+      - 'Dechat/stellar-contracts/**'
       - '.github/workflows/deploy-futurenet.yml'
 
 permissions:
@@ -20,14 +20,21 @@ jobs:
     
     defaults:
       run:
-        working-directory: stellar-contracts
+        working-directory: Dechat/stellar-contracts
 
     steps:
       - name: Checkout repository
+<<<<<<< HEAD
         uses: actions/checkout@v4
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+=======
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
+>>>>>>> emwulrd/main
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
@@ -38,13 +45,17 @@ jobs:
           soroban --version
 
       - name: Cache Cargo registry
+<<<<<<< HEAD
         uses: actions/cache@v4
+=======
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+>>>>>>> emwulrd/main
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            stellar-contracts/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('stellar-contracts/Cargo.lock') }}
+            Dechat/stellar-contracts/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Dechat/stellar-contracts/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
@@ -59,8 +70,8 @@ jobs:
           FUTURENET_NETWORK_PASSPHRASE: 'Test SDF Future Network ; April 2020'
           OUTPUT_FILE: ./contract_id_futurenet.txt
         run: |
-          chmod +x ../scripts/deploy_fiat_bridge_futurenet.sh
-          ../scripts/deploy_fiat_bridge_futurenet.sh
+          chmod +x ./scripts/deploy_fiat_bridge_futurenet.sh
+          ./scripts/deploy_fiat_bridge_futurenet.sh
           
           # Pass outputs to GitHub Actions context
           CONTRACT_ID=$(cat "$OUTPUT_FILE")
@@ -68,15 +79,23 @@ jobs:
 
       - name: Upload contract ID artifact
         if: success()
+<<<<<<< HEAD
         uses: actions/upload-artifact@v4
+=======
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+>>>>>>> emwulrd/main
         with:
           name: contract-deployment-${{ github.sha }}
-          path: stellar-contracts/contract_id_futurenet.txt
+          path: Dechat/stellar-contracts/contract_id_futurenet.txt
           retention-days: 90
 
       - name: Create deployment status
         if: always()
+<<<<<<< HEAD
         uses: actions/github-script@v7
+=======
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+>>>>>>> emwulrd/main
         with:
           script: |
             const status = '${{ job.status }}' === 'success' ? 'success' : 'failure';
