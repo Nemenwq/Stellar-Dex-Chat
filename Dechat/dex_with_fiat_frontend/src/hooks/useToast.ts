@@ -1,10 +1,4 @@
 import { useSyncExternalStore, useCallback } from 'react';
-<<<<<<< HEAD
-import { AppToast, toastStore } from '@/lib/toastStore';
-
-const EMPTY_ARRAY: AppToast[] = [];
-
-=======
 import { AppToast, AddToastOptions, ToastVariant, toastStore } from '@/lib/toastStore';
 
 const EMPTY_ARRAY: AppToast[] = [];
@@ -17,7 +11,6 @@ function dispatchToastTelemetry(event: string, detail?: Record<string, unknown>)
   }
 }
 
->>>>>>> emwulrd/main
 export function useToast() {
   const getSnapshot = useCallback(() => toastStore.getSnapshot(), []);
   const toasts = useSyncExternalStore(
@@ -26,13 +19,6 @@ export function useToast() {
     () => EMPTY_ARRAY,
   );
 
-<<<<<<< HEAD
-  return {
-    toasts,
-    addToast: toastStore.addToast.bind(toastStore),
-    dismissToast: toastStore.dismissToast.bind(toastStore),
-    clearToasts: toastStore.clearToasts.bind(toastStore),
-=======
   const addToast = useCallback(
     (messageOrOptions: string | AddToastOptions, variantParam?: ToastVariant): string | null => {
       const id = toastStore.addToast(messageOrOptions, variantParam);
@@ -68,6 +54,5 @@ export function useToast() {
     addToast,
     dismissToast,
     clearToasts,
->>>>>>> emwulrd/main
   };
 }

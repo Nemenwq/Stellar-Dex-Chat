@@ -179,13 +179,8 @@ describe('TransactionAmountDisplay - Framer Motion Animations', () => {
   afterEach(cleanup);
 
   it('renders with motion.div wrapper for container animation', () => {
-<<<<<<< HEAD
-    const { container } = render(<TransactionAmountDisplay amount={100} asset="XLM" />);
-    const wrapper = container.querySelector('.flex.flex-col');
-=======
     render(<TransactionAmountDisplay amount={100} asset="XLM" />);
     const wrapper = document.querySelector('.flex.flex-col');
->>>>>>> emwulrd/main
     expect(wrapper).toBeInTheDocument();
   });
 
@@ -385,9 +380,6 @@ describe('TransactionAmountDisplay - optimistic UI (#839)', () => {
       'false',
     );
   });
-<<<<<<< HEAD
-});
-=======
 
   // ── Skeleton Loading State ────────────────────────────────
 
@@ -409,4 +401,3 @@ describe('TransactionAmountDisplay - optimistic UI (#839)', () => {
     // Skeleton should be displayed (no amount text visible)
     expect(screen.queryByText(/100 XLM/i)).toBeNull();
   });});
->>>>>>> emwulrd/main

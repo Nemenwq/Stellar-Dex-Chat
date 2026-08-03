@@ -20,8 +20,6 @@ describe('useChatPagination', () => {
     vi.useRealTimers();
   });
 
-<<<<<<< HEAD
-=======
   it('uses DEFAULT_PAGE_SIZE when pageSize is omitted', () => {
     const messages = createMessages(60);
     const { result } = renderHook(() => useChatPagination(messages));
@@ -30,7 +28,6 @@ describe('useChatPagination', () => {
     expect(result.current.hasMore).toBe(true);
   });
 
->>>>>>> emwulrd/main
   it('initial load returns first page', () => {
     const messages = createMessages(50);
     const { result } = renderHook(() => useChatPagination(messages, 20));
@@ -68,8 +65,6 @@ describe('useChatPagination', () => {
     expect(result.current.visibleMessages).toHaveLength(10);
     expect(result.current.hasMore).toBe(false);
   });
-<<<<<<< HEAD
-=======
 
   it('ignores loadMore calls when hasMore is false', () => {
     const messages = createMessages(10);
@@ -182,5 +177,4 @@ describe('useChatPagination', () => {
 
     expect(result.current.isLoadingMore).toBe(false);
   });
->>>>>>> emwulrd/main
 });

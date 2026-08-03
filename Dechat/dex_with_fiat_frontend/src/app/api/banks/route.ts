@@ -1,13 +1,3 @@
-<<<<<<< HEAD
-import { NextResponse } from 'next/server';
-import axios from 'axios';
-import { telemetry } from '@/lib/telemetry';
-import { env } from '@/lib/env';
-
-const PAYSTACK_SECRET_KEY = env.PAYSTACK_SECRET_KEY;
-
-export async function GET(request: Request) {
-=======
 import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
 import { telemetry } from '@/lib/telemetry';
@@ -22,7 +12,6 @@ export async function GET(request: NextRequest) {
   const limited = applyRateLimit(getClientIp(request), '/api/banks', RATE_LIMIT);
   if (limited) return limited;
 
->>>>>>> emwulrd/main
   const traceContext = telemetry.extractTraceFromHeaders(
     request.headers as Headers,
   );
@@ -37,8 +26,6 @@ export async function GET(request: NextRequest) {
       endpoint: '/api/banks',
     });
 
-<<<<<<< HEAD
-=======
     const query = Object.fromEntries(request.nextUrl.searchParams.entries());
     const validationResult = banksQuerySchema.safeParse(query);
     if (!validationResult.success) {
@@ -63,7 +50,6 @@ export async function GET(request: NextRequest) {
 
     const { country } = validationResult.data;
 
->>>>>>> emwulrd/main
     if (!PAYSTACK_SECRET_KEY) {
       telemetry.addLog(
         span.spanId,
@@ -148,19 +134,11 @@ export async function GET(request: NextRequest) {
     // Call real Paystack API to get Nigerian banks
     telemetry.addLog(span.spanId, 'info', 'Calling Paystack API', {
       endpoint: 'https://api.paystack.co/bank',
-<<<<<<< HEAD
-      country: 'nigeria',
-    });
-
-    const response = await axios.get(
-      'https://api.paystack.co/bank?country=nigeria',
-=======
       country,
     });
 
     const response = await axios.get(
       `https://api.paystack.co/bank?country=${country}`,
->>>>>>> emwulrd/main
       {
         headers: {
           Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,

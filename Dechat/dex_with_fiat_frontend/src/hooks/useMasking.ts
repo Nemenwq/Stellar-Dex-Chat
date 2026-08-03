@@ -4,11 +4,7 @@
 
 import { SensitiveTermsManager } from '@/lib/sensitiveTerms';
 import { MaskingStyle, maskText } from '@/lib/textMasking';
-<<<<<<< HEAD
-import { useMemo } from 'react';
-=======
 import { useEffect, useMemo, useState } from 'react';
->>>>>>> emwulrd/main
 
 export interface UseMaskingOptions {
   enabled: boolean;
@@ -17,9 +13,6 @@ export interface UseMaskingOptions {
 }
 
 /**
-<<<<<<< HEAD
- * Hook to mask sensitive terms in text based on user preferences
-=======
  * Storage key another part of the app (e.g. a compliance/settings screen
  * that lets a user edit their sensitive-terms list) writes to when the
  * masking configuration changes, so every open tab/component can refresh.
@@ -44,14 +37,11 @@ export const SENSITIVE_TERMS_UPDATED_KEY = 'stellar_sensitive_terms_updated';
  * function that calls `removeEventListener` on unmount/re-subscribe, the
  * same pattern used elsewhere in this codebase (see `addToastRef` cleanup
  * in `usePaystackWebhookStatus`).
->>>>>>> emwulrd/main
  */
 export const useMasking = (
   text: string,
   { enabled, style = 'asterisk', customTerms }: UseMaskingOptions,
 ) => {
-<<<<<<< HEAD
-=======
   // Bumped whenever we're told (via a `storage` event) that the
   // sensitive-terms configuration changed elsewhere, forcing the memoized
   // manager below to rebuild.
@@ -78,31 +68,23 @@ export const useMasking = (
     };
   }, []);
 
->>>>>>> emwulrd/main
   // Create or use provided manager
   const manager = useMemo(() => {
     if (customTerms instanceof SensitiveTermsManager) {
       return customTerms;
     }
     return new SensitiveTermsManager();
-<<<<<<< HEAD
-  }, [customTerms]);
-=======
     // `refreshToken` intentionally triggers a rebuild when the sensitive
     // terms configuration changes elsewhere; it does not affect the value
     // itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customTerms, refreshToken]);
->>>>>>> emwulrd/main
 
   // Apply masking only if enabled
   const maskedText = useMemo(() => {
     if (!enabled) {
       return text;
     }
-<<<<<<< HEAD
-    return maskText(text, manager, style);
-=======
     try {
       return maskText(text, manager, style);
     } catch (error) {
@@ -112,7 +94,6 @@ export const useMasking = (
       console.error('useMasking: failed to mask sensitive text', error);
       return text;
     }
->>>>>>> emwulrd/main
   }, [text, enabled, style, manager]);
 
   return maskedText;

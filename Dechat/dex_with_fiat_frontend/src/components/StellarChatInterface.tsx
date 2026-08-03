@@ -43,10 +43,7 @@ import ChatHistorySidebar from './ChatHistorySidebar';
 import ChatInput from './ChatInput';
 import ChatMessages from './ChatMessages';
 import ErrorBoundary from './ErrorBoundary';
-<<<<<<< HEAD
-=======
 import NetworkStatusModal from './NetworkStatusModal';
->>>>>>> emwulrd/main
 import NotificationsCenter from './NotificationsCenter';
 import StellarFiatModal from './StellarFiatModal';
 import UserSettings from './UserSettings';
@@ -56,11 +53,8 @@ import ReceiptDrawer from './ReceiptDrawerWrapper';
 import { useTxHistory } from '@/hooks/useTxHistory';
 import { useChatHistory } from '@/hooks/useChatHistory';
 import { useSplitView } from '@/hooks/useSplitView';
-<<<<<<< HEAD
-=======
 import { useWatchlist } from '@/hooks/useWatchlist';
 import { useWatchedWalletNotifications } from '@/hooks/useWatchedWalletNotifications';
->>>>>>> emwulrd/main
 import { subscribeToQueue, processQueue } from '@/lib/networkQueue';
 import CopyButton from '@/components/ui/CopyButton';
 import SplitViewComparison from './SplitViewComparison';
@@ -83,10 +77,7 @@ function StellarChatInterfaceContent() {
     sessionExpired,
     clearSessionExpired,
     isNetworkMismatch,
-<<<<<<< HEAD
-=======
     xlmBalance,
->>>>>>> emwulrd/main
     error: walletError,
   } = useStellarWallet();
   const { isDarkMode, toggleDarkMode } = useTheme();
@@ -121,15 +112,12 @@ function StellarChatInterfaceContent() {
   >(null);
   const [isReceiptDrawerOpen, setIsReceiptDrawerOpen] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
-<<<<<<< HEAD
-=======
   const [showNetworkStatusModal, setShowNetworkStatusModal] = useState(false);
 
   // Watched wallet notifications (issue #1032)
   const { watchlist } = useWatchlist();
   useWatchedWalletNotifications(watchlist);
 
->>>>>>> emwulrd/main
   // Show the chat skeleton until the client has hydrated so the first paint
   // isn't an empty conversation pane before messages are restored.
   const [isHydrated, setIsHydrated] = useState(false);
@@ -462,8 +450,6 @@ function StellarChatInterfaceContent() {
     [connect, isNetworkMismatch, sendMessage],
   );
 
-<<<<<<< HEAD
-=======
   /**
    * Resend a message that failed to send (issue #1043).
    *
@@ -476,7 +462,6 @@ function StellarChatInterfaceContent() {
     [sendMessage],
   );
 
->>>>>>> emwulrd/main
   // ── Health badge helper ─────────────────────────────────────────────────────
   const healthBadge = {
     checking: {
@@ -586,8 +571,6 @@ function StellarChatInterfaceContent() {
                 {healthBadge.label}
               </div>
               {/* ─────────────────────────────────────────────────────────────── */}
-<<<<<<< HEAD
-=======
 
               {/* ── Stellar connection status indicator (issue #1030) ─────────── */}
               {(() => {
@@ -619,7 +602,6 @@ function StellarChatInterfaceContent() {
                 );
               })()}
               {/* ─────────────────────────────────────────────────────────────── */}
->>>>>>> emwulrd/main
             </div>
 
             <div className="flex items-center gap-2">
@@ -706,14 +688,11 @@ function StellarChatInterfaceContent() {
                         {connection.address.slice(0, 6)}…
                         {connection.address.slice(-4)}
                       </span>
-<<<<<<< HEAD
-=======
                       {xlmBalance && (
                         <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                           — {xlmBalance} XLM
                         </span>
                       )}
->>>>>>> emwulrd/main
                       {accounts.length > 1 && (
                         <ChevronDown
                           className={`w-3 h-3 transition-transform ${showAccountDropdown ? 'rotate-180' : ''}`}
@@ -975,9 +954,6 @@ function StellarChatInterfaceContent() {
           {/* Messages */}
           <div className="flex-1 min-h-0 flex flex-col">
             {!isHydrated || (isLoading && messages.length === 0) ? (
-<<<<<<< HEAD
-              <SkeletonChat />
-=======
               <div
                 role="status"
                 aria-live="polite"
@@ -986,7 +962,6 @@ function StellarChatInterfaceContent() {
               >
                 <SkeletonChat />
               </div>
->>>>>>> emwulrd/main
             ) : (
               <ErrorBoundary
                 isDarkMode={isDarkMode}
@@ -998,10 +973,7 @@ function StellarChatInterfaceContent() {
                 <ChatMessages
                   messages={messages}
                   onActionClick={handleActionClick}
-<<<<<<< HEAD
-=======
                   onRetry={handleRetryMessage}
->>>>>>> emwulrd/main
                   isLoading={isLoading}
                 />
               </ErrorBoundary>
@@ -1110,15 +1082,12 @@ function StellarChatInterfaceContent() {
           onClose={() => setShowSettings(false)}
         />
 
-<<<<<<< HEAD
-=======
         {/* Network status modal (issue #1030) */}
         <NetworkStatusModal
           isOpen={showNetworkStatusModal}
           onClose={() => setShowNetworkStatusModal(false)}
         />
 
->>>>>>> emwulrd/main
         {/* Receipt Drawer */}
         <ReceiptDrawer
           isOpen={isReceiptDrawerOpen}

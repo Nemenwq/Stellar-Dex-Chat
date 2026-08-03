@@ -1,11 +1,5 @@
 'use client';
 
-<<<<<<< HEAD
-const DB_NAME = 'dechat-offline-queue';
-const DB_VERSION = 1;
-const STORE_NAME = 'queued-messages';
-
-=======
 /** Name of the IndexedDB database for offline message queue. */
 const DB_NAME = 'dechat-offline-queue';
 /** Version of the IndexedDB database schema. */
@@ -27,7 +21,6 @@ const STORE_NAME = 'queued-messages';
  * @property machineSnapshot - The state machine snapshot for optimistic UI state restoration.
  * @property queuedAt - Unix timestamp in milliseconds when the message was queued.
  */
->>>>>>> emwulrd/main
 export interface QueuedMessageRecord {
   id: string;
   content: string;
@@ -37,14 +30,6 @@ export interface QueuedMessageRecord {
   queuedAt: number;
 }
 
-<<<<<<< HEAD
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (typeof indexedDB === 'undefined') {
-      reject(new Error('IndexedDB is not available in this environment.'));
-      return;
-    }
-=======
 /**
  * Checks if IndexedDB is available in the current environment.
  *
@@ -91,7 +76,6 @@ function isIndexedDbAvailable(): boolean {
  */
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
->>>>>>> emwulrd/main
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -104,11 +88,6 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-<<<<<<< HEAD
-export async function addQueuedMessage(
-  record: QueuedMessageRecord,
-): Promise<void> {
-=======
 /**
  * Adds a message to the offline queue for later sending.
  *
@@ -148,7 +127,6 @@ export async function addQueuedMessage(
   if (!isIndexedDbAvailable()) {
     return;
   }
->>>>>>> emwulrd/main
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -158,9 +136,6 @@ export async function addQueuedMessage(
   });
 }
 
-<<<<<<< HEAD
-export async function removeQueuedMessage(id: string): Promise<void> {
-=======
 /**
  * Removes a message from the offline queue.
  *
@@ -193,7 +168,6 @@ export async function removeQueuedMessage(id: string): Promise<void> {
   if (!isIndexedDbAvailable()) {
     return;
   }
->>>>>>> emwulrd/main
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -203,9 +177,6 @@ export async function removeQueuedMessage(id: string): Promise<void> {
   });
 }
 
-<<<<<<< HEAD
-export async function getAllQueuedMessages(): Promise<QueuedMessageRecord[]> {
-=======
 /**
  * Retrieves all messages currently in the offline queue.
  *
@@ -241,7 +212,6 @@ export async function getAllQueuedMessages(): Promise<QueuedMessageRecord[]> {
   if (!isIndexedDbAvailable()) {
     return [];
   }
->>>>>>> emwulrd/main
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
@@ -251,12 +221,6 @@ export async function getAllQueuedMessages(): Promise<QueuedMessageRecord[]> {
   });
 }
 
-<<<<<<< HEAD
-type CountListener = (count: number) => void;
-const countListeners: Set<CountListener> = new Set();
-let currentCount = 0;
-
-=======
 /** Type definition for a listener function that receives queued message count updates. */
 type CountListener = (count: number) => void;
 /** Set of all subscribed listeners for queued message count changes. */
@@ -296,7 +260,6 @@ let currentCount = 0;
  * @see {@link setQueuedMessageCount} - Update the count and notify listeners
  * @see {@link getQueuedMessageCount} - Get the current count
  */
->>>>>>> emwulrd/main
 export function subscribeToQueuedMessageCount(
   listener: CountListener,
 ): () => void {
@@ -305,8 +268,6 @@ export function subscribeToQueuedMessageCount(
   return () => countListeners.delete(listener);
 }
 
-<<<<<<< HEAD
-=======
 /**
  * Updates the queued message count and notifies all subscribers.
  *
@@ -332,14 +293,11 @@ export function subscribeToQueuedMessageCount(
  * @see {@link subscribeToQueuedMessageCount} - Subscribe to count changes
  * @see {@link getQueuedMessageCount} - Get the current count
  */
->>>>>>> emwulrd/main
 export function setQueuedMessageCount(count: number): void {
   currentCount = count;
   countListeners.forEach((listener) => listener(count));
 }
 
-<<<<<<< HEAD
-=======
 /**
  * Gets the current count of queued messages.
  *
@@ -367,7 +325,6 @@ export function setQueuedMessageCount(count: number): void {
  * @see {@link setQueuedMessageCount} - Update the count
  * @see {@link getAllQueuedMessages} - Get all queued messages
  */
->>>>>>> emwulrd/main
 export function getQueuedMessageCount(): number {
   return currentCount;
 }

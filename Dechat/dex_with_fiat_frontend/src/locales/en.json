@@ -35,24 +35,16 @@
       "convert": "Convert 100 USDC to USD"
     },
     "error_message": "Message failed to send. Please check your connection.",
-<<<<<<< HEAD
-    "cancelled_message": "Request cancelled by user."
-=======
     "cancelled_message": "Request cancelled by user.",
     "resending": "Resending…",
     "retry_countdown": "Retrying automatically in {seconds}s (attempt {attempt} of {max})",
     "retry_exhausted": "Automatic retries exhausted after {max} attempts.",
     "retry_message": "Resend message: {content}"
->>>>>>> emwulrd/main
   },
   "header": {
     "title": "DexFiat · Stellar",
     "subtitle": "AI-Powered XLM-to-Fiat",
     "connect": "Connect Freighter",
-<<<<<<< HEAD
-    "disconnect": "Disconnect",
-    "settings": "Settings",
-=======
     "connect_freighter": "Connect Freighter",
     "disconnect": "Disconnect",
     "disconnect_title": "Disconnect wallet",
@@ -62,7 +54,6 @@
     "settings_aria_label": "Open settings",
     "switch_account": "Switch account",
     "active_account": "Active",
->>>>>>> emwulrd/main
     "receipts": "Receipts"
   },
   "receipt": {
@@ -72,8 +63,6 @@
     "amount": "Amount",
     "status": "Status",
     "date": "Date"
-<<<<<<< HEAD
-=======
   },
   "errors": {
     "101": "The contract has not been initialized.",
@@ -110,6 +99,5 @@
     "803": "One or more operations in the batch failed.",
     "901": "The provided nonce is invalid (too high/future nonce).",
     "902": "The provided nonce has already been used (replay attempt)."
->>>>>>> emwulrd/main
   }
 }

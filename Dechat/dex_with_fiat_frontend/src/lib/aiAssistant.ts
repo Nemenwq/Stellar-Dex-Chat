@@ -8,8 +8,6 @@ import {
 import { telemetry } from '@/lib/telemetry';
 import { toastStore } from '@/lib/toastStore';
 
-<<<<<<< HEAD
-=======
 /**
  * Retry configuration for AI API requests
  */
@@ -95,7 +93,6 @@ async function withRetry<T>(
   throw lastError;
 }
 
->>>>>>> emwulrd/main
 function isLikelyNetworkError(error: unknown): boolean {
   if (error instanceof DOMException && error.name === 'AbortError') {
     return false;
@@ -111,12 +108,8 @@ function isLikelyNetworkError(error: unknown): boolean {
     return (
       m.includes('failed to fetch') ||
       m.includes('network') ||
-<<<<<<< HEAD
-      m.includes('load failed')
-=======
       m.includes('load failed') ||
       m.includes('timeout')
->>>>>>> emwulrd/main
     );
   }
   return false;
@@ -435,18 +428,6 @@ export class AIAssistant {
         };
       }
 
-<<<<<<< HEAD
-      const response = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, context: trimmedContext }),
-        signal: controllerSignal,
-      });
-
-      if (!response.ok) {
-        throw new Error(`AI chat API returned ${response.status}`);
-      }
-=======
       const response = await withRetry(async () => {
         const res = await fetch('/api/ai/chat', {
           method: 'POST',
@@ -461,7 +442,6 @@ export class AIAssistant {
 
         return res;
       });
->>>>>>> emwulrd/main
 
       const result: AIAnalysisResult = await response.json() as AIAnalysisResult;
 
@@ -885,21 +865,6 @@ Choose one of the next actions below and I'll keep it moving.`;
         return fallbackQuestion;
       }
 
-<<<<<<< HEAD
-      const response = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: `Generate a single, natural follow-up question for a Stellar DeFi assistant. Intent: ${intent}. Missing data: ${missingData.join(', ')}. Return only the question text.`,
-        }),
-        signal: controllerSignal,
-      });
-
-      if (!response.ok) {
-        console.warn(`AIAssistant: Follow-up question API returned ${response.status}`);
-        return fallbackQuestion;
-      }
-=======
       const response = await withRetry(async () => {
         const res = await fetch('/api/ai/chat', {
           method: 'POST',
@@ -916,7 +881,6 @@ Choose one of the next actions below and I'll keep it moving.`;
 
         return res;
       });
->>>>>>> emwulrd/main
 
       const result = await response.json() as AIAnalysisResult;
       const question = result.suggestedResponse || fallbackQuestion;

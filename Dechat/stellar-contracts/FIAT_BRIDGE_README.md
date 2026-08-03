@@ -41,8 +41,6 @@ flowchart TD
 
 ---
 
-<<<<<<< HEAD
-=======
 ## Circuit Breaker
 
 The FiatBridge uses a **global rolling withdrawal circuit breaker** as a last-resort safety stop for withdrawal flows.
@@ -84,7 +82,6 @@ While the breaker is active, the contract refuses high-sensitivity operations th
 - Use the breaker as a **system-wide safety rail**, not as a user-specific rate limiter.
 - Keep the threshold high enough to tolerate normal batched withdrawals but low enough to catch runaway operator or automation behavior.
 - If the breaker trips unexpectedly, inspect recent withdrawal and heartbeat activity before manually resetting it.
->>>>>>> emwulrd/main
 ## Admin Authentication Architecture
 
 Admin privileges in the FiatBridge are strictly tied to the on-chain state. The architecture ensures that no front-end spoofing or bypassed routing can escalate privileges.

@@ -29,8 +29,6 @@ vi.mock('@/lib/stellarContract', () => ({
   BRIDGE_LIMIT_WARNING_PERCENT: 0.9,
 }));
 
-<<<<<<< HEAD
-=======
 vi.mock('@/contexts/UserPreferencesContext', () => ({
   useUserPreferences: () => ({
     fiatCurrency: 'usd',
@@ -51,7 +49,6 @@ vi.mock('@/contexts/UserPreferencesContext', () => ({
   }),
 }));
 
->>>>>>> emwulrd/main
 const onClose = vi.fn();
 const onDepositSuccess = vi.fn();
 
@@ -228,8 +225,6 @@ describe('StellarFiatModal fiat estimate cancellation pattern (Issue #709)', () 
     expect(states).toEqual(['fast-result']);
   });
 });
-<<<<<<< HEAD
-=======
 // ── Skeleton Loading State Tests ────────────────────────────────
 
 describe('StellarFiatModal skeleton loading state', () => {
@@ -266,4 +261,3 @@ describe('StellarFiatModal skeleton loading state', () => {
     expect(modal?.className).toMatch(/theme-/);
   });
 });
->>>>>>> emwulrd/main

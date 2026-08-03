@@ -240,12 +240,7 @@ describe('AIAssistant abort signal support', () => {
 
     expect(toastAddMock).toHaveBeenCalled();
     consoleErrorSpy.mockRestore();
-<<<<<<< HEAD
-
-
-=======
   });
->>>>>>> emwulrd/main
 });
 
 /**
@@ -458,8 +453,6 @@ describe('aiAssistant framer-motion animation', () => {
 
   });
 });
-<<<<<<< HEAD
-=======
 
 // ---------- Issue #1199: Request Retry with Exponential Backoff ----------
 
@@ -676,5 +669,4 @@ describe('aiAssistant request retry with exponential backoff', () => {
     await promise;
     expect(callCount.value).toBe(3);
   });
->>>>>>> emwulrd/main
 });

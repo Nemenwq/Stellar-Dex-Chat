@@ -7,8 +7,6 @@ use soroban_sdk::{contractclient, Address, Env};
 pub trait PriceOracle {
     fn get_price(env: Env, token: Address) -> Option<i128>;
 }
-<<<<<<< HEAD
-=======
 
 /// A price value tagged with the ledger sequence at which it was recorded.
 /// Used by oracle staleness tests.
@@ -27,4 +25,3 @@ impl TimestampedPrice {
         age <= max_age_ledgers
     }
 }
->>>>>>> emwulrd/main

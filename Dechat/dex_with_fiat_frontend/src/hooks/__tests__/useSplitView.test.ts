@@ -1,15 +1,8 @@
-<<<<<<< HEAD
-import { describe, expect, it } from 'vitest';
-import { ChatSession } from '@/types';
-import { useSplitView } from '@/hooks/useSplitView';
-import { renderHook, act } from '@testing-library/react';
-=======
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { ChatSession } from '@/types';
 import { useSplitView } from '@/hooks/useSplitView';
 import { renderHook, act } from '@testing-library/react';
 import { setTelemetryConsent, type ChatEvent, type SplitViewTelemetryPayload } from '@/lib/chatTelemetry';
->>>>>>> emwulrd/main
 
 function makeSession(id: string, title = 'Session'): ChatSession {
   const now = new Date();
@@ -128,8 +121,6 @@ describe('useSplitView – state management', () => {
     expect(result.current.state.selectedMessageId).toBeNull();
   });
 });
-<<<<<<< HEAD
-=======
 
 describe('useSplitView – structured telemetry (#1208)', () => {
   function captureEvents(): { events: ChatEvent<SplitViewTelemetryPayload>[] } {
@@ -222,4 +213,3 @@ describe('useSplitView – structured telemetry (#1208)', () => {
     expect(box.events).toHaveLength(0);
   });
 });
->>>>>>> emwulrd/main

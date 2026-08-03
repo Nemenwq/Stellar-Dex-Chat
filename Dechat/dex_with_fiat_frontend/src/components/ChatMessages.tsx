@@ -1,10 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-<<<<<<< HEAD
-=======
 import { useReducedMotion } from 'framer-motion';
->>>>>>> emwulrd/main
 import { ChatMessage } from '@/types';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
@@ -26,14 +23,11 @@ interface ChatMessagesProps {
     actionType: string,
     data?: Record<string, unknown>,
   ) => void;
-<<<<<<< HEAD
-=======
   /**
    * Resend a message that failed to send. Receives the failed message's id and
    * its original content, ready to be submitted again as-is.
    */
   onRetry?: (messageId: string, content: string) => void | Promise<void>;
->>>>>>> emwulrd/main
   isLoading?: boolean;
   searchQuery?: string;
 }
@@ -119,10 +113,7 @@ function HelpCard({
 export default function ChatMessages({
   messages: allMessages,
   onActionClick,
-<<<<<<< HEAD
-=======
   onRetry,
->>>>>>> emwulrd/main
   isLoading = false,
   searchQuery = '',
 }: ChatMessagesProps) {
@@ -130,11 +121,8 @@ export default function ChatMessages({
   const containerRef = useRef<HTMLDivElement>(null);
   const loaderRef = useRef<HTMLDivElement>(null);
   const { isDarkMode } = useTheme();
-<<<<<<< HEAD
-=======
   const shouldReduceMotion = useReducedMotion();
   const scrollBehavior: ScrollBehavior = shouldReduceMotion ? 'auto' : 'smooth';
->>>>>>> emwulrd/main
 
   const { visibleMessages, hasMore, isLoadingMore, loadMore } =
     useChatPagination(allMessages);
@@ -188,26 +176,16 @@ export default function ChatMessages({
     if (containerRef.current) {
       containerRef.current.scrollTo({
         top: containerRef.current.scrollHeight,
-<<<<<<< HEAD
-        behavior: 'smooth',
-      });
-    }
-  }, []);
-=======
         behavior: scrollBehavior,
       });
     }
   }, [scrollBehavior]);
->>>>>>> emwulrd/main
 
   useEffect(() => {
     if (isLoading || allMessages.length > 0) {
       // Only auto-scroll to bottom if we are NOT loading more previous messages
       if (!isLoadingMore && !shouldPreserveScroll) {
         const timer = setTimeout(() => {
-<<<<<<< HEAD
-          scrollToBottom();
-=======
           // Check if user is within 100px of bottom before auto-scrolling
           if (containerRef.current) {
             const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
@@ -218,7 +196,6 @@ export default function ChatMessages({
               scrollToBottom();
             }
           }
->>>>>>> emwulrd/main
         }, 100);
         return () => clearTimeout(timer);
       }
@@ -303,12 +280,6 @@ export default function ChatMessages({
     (card) => !dismissedCards.includes(card.id),
   );
 
-<<<<<<< HEAD
-  return (
-    <div
-      ref={containerRef}
-      className={`flex-1 overflow-y-auto p-6 transition-colors duration-300 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'
-=======
   const handleKeyboardNavigation = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (!containerRef.current) return;
@@ -355,7 +326,6 @@ export default function ChatMessages({
       aria-describedby="chat-messages-shortcuts"
       onKeyDown={handleKeyboardNavigation}
       className={`flex-1 overflow-y-auto p-6 transition-colors duration-300 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'
->>>>>>> emwulrd/main
         }`}
       style={{
         height: '100%',
@@ -363,9 +333,6 @@ export default function ChatMessages({
         maxHeight: '100%',
       }}
     >
-<<<<<<< HEAD
-      {visibleMessages.length === 0 ? (
-=======
       <span id="chat-messages-shortcuts" className="sr-only">
         Keyboard shortcuts: Home to jump to top, End to jump to bottom, PageUp
         and PageDown to quickly scroll.
@@ -380,7 +347,6 @@ export default function ChatMessages({
           ))}
         </div>
       ) : visibleMessages.length === 0 ? (
->>>>>>> emwulrd/main
         <div className="max-w-4xl mx-auto h-full flex flex-col items-center justify-center py-12">
           {searchQuery.trim() ? (
             /* ── Search returned nothing ── */
@@ -500,10 +466,7 @@ export default function ChatMessages({
               key={message.id}
               message={message}
               onActionClick={onActionClick}
-<<<<<<< HEAD
-=======
               onRetry={onRetry}
->>>>>>> emwulrd/main
               shouldAnimate={isReadyToAnimate && !isLoadingMore && !seenMessageIds.current.has(message.id)}
             />
           ))}
