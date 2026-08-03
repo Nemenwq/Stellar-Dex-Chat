@@ -81,7 +81,7 @@ describe('useMediaQuery', () => {
       removeEventListener: vi.fn(),
     }));
 
-    const { result, rerender } = renderHook(() => useMediaQuery('(min-width: 768px)'));
+    const { result } = renderHook(() => useMediaQuery('(min-width: 768px)'));
     expect(result.current).toBe(false);
 
     // Simulate viewport resize that triggers the media query
