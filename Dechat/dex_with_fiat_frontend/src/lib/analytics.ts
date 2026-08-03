@@ -6,8 +6,6 @@ export interface DailyMetric {
   count: number;
 }
 
-<<<<<<< HEAD
-=======
 export interface RetryOptions {
   /** Maximum number of retry attempts (default: 3) */
   maxRetries?: number;
@@ -120,7 +118,6 @@ function isDefaultRetryable(error: unknown, retryableStatuses: number[]): boolea
   return false;
 }
 
->>>>>>> emwulrd/main
 export function aggregateDailyVolume(
   records: ReconciliationRecord[],
   days: number = 30,

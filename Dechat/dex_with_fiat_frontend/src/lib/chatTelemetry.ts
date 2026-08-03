@@ -13,14 +13,10 @@ export type ChatEventName =
   | 'bridge_open'
   | 'tx_confirm'
   | 'fiat_payout_step'
-<<<<<<< HEAD
-  | 'avatar_color_check';
-=======
   | 'avatar_color_check'
   | 'payment_status'
   | 'network_status'
   | 'split_view';
->>>>>>> emwulrd/main
 
 export interface ChatEvent<P extends object = Record<string, unknown>> {
   /** Normalized event name. */
@@ -87,8 +83,6 @@ export interface AvatarColorTelemetryPayload {
   avatarTextColor?: string;
 }
 
-<<<<<<< HEAD
-=======
 export interface PaymentStatusTelemetryPayload {
   status: 'success' | 'failed' | 'reversed' | 'pending' | 'cancelled';
   reference: string;
@@ -107,7 +101,6 @@ export interface SplitViewTelemetryPayload {
   rightSessionId?: string | null;
 }
 
->>>>>>> emwulrd/main
 export interface AccessibleAvatarColorTelemetryPayload
   extends AvatarColorTelemetryPayload {
   avatarTextColor: string;
@@ -418,11 +411,8 @@ function emit<P extends object>(
   payload: P,
 ): void {
   try {
-<<<<<<< HEAD
-=======
     // Early-exit on the synchronous path to avoid building the event object
     // when consent is clearly absent at call time.
->>>>>>> emwulrd/main
     if (!getTelemetryConsent()) return;
 
     const normalizedPayload =
@@ -437,12 +427,6 @@ function emit<P extends object>(
       payload: normalizedPayload as Record<string, unknown>,
     };
 
-<<<<<<< HEAD
-    // Fix rendering overflow: defer event dispatch to prevent blocking renders
-    if (typeof window !== 'undefined') {
-      requestAnimationFrame(() => {
-        try {
-=======
     // Fix rendering overflow: defer event dispatch to prevent blocking renders.
     // #1226: Re-check consent inside the rAF callback to close the stale-closure
     // window — consent may have been revoked between emit() and the next frame.
@@ -450,7 +434,6 @@ function emit<P extends object>(
       requestAnimationFrame(() => {
         try {
           if (!getTelemetryConsent()) return;
->>>>>>> emwulrd/main
           window.dispatchEvent(
             new CustomEvent('chat:telemetry', { detail: event }),
           );
@@ -493,8 +476,6 @@ export const chatTelemetry = {
     emit('fiat_payout_step', payload);
   },
 
-<<<<<<< HEAD
-=======
   paymentStatus(payload: PaymentStatusTelemetryPayload): void {
     emit('payment_status', payload);
   },
@@ -503,7 +484,6 @@ export const chatTelemetry = {
     emit('network_status', payload);
   },
 
->>>>>>> emwulrd/main
   /**
    * Emit an `avatar_color_check` event that records whether the avatar
    * foreground/background colour pair meets WCAG AA contrast (4.5:1).
@@ -518,11 +498,8 @@ export const chatTelemetry = {
   avatarColorCheck(payload: AvatarColorTelemetryPayload): void {
     emit('avatar_color_check', payload);
   },
-<<<<<<< HEAD
-=======
 
   splitView(payload: SplitViewTelemetryPayload): void {
     emit('split_view', payload);
   },
->>>>>>> emwulrd/main
 };

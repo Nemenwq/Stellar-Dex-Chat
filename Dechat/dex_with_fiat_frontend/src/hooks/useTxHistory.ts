@@ -87,20 +87,13 @@ class TxHistoryStore {
 
 const txHistoryStore = new TxHistoryStore();
 
-<<<<<<< HEAD
-=======
 const EMPTY_TX_HISTORY: TransactionHistoryEntry[] = [];
 
->>>>>>> emwulrd/main
 export function useTxHistory() {
   const entries = useSyncExternalStore(
     (listener) => txHistoryStore.subscribe(listener),
     () => txHistoryStore.getSnapshot(),
-<<<<<<< HEAD
-    () => [],
-=======
     () => EMPTY_TX_HISTORY,
->>>>>>> emwulrd/main
   );
 
   return {

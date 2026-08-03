@@ -27,8 +27,6 @@ export interface AuditLogFilter {
 const AUDIT_LOG_STORAGE_KEY = 'audit_log_entries';
 const MAX_LOG_ENTRIES = 10000; // Prevent unbounded growth
 
-<<<<<<< HEAD
-=======
 export interface RetryOptions {
   retries?: number;
   minDelayMs?: number;
@@ -77,7 +75,6 @@ export async function retryWithBackoff<T>(
   throw lastError;
 }
 
->>>>>>> emwulrd/main
 class AuditLogService {
   /**
    * Record an admin action in the append-only log
@@ -212,9 +209,6 @@ class AuditLogService {
     }
 
     entries.push(entry);
-<<<<<<< HEAD
-    window.localStorage.setItem(AUDIT_LOG_STORAGE_KEY, JSON.stringify(entries));
-=======
     retryWithBackoff(
       async () => {
         window.localStorage.setItem(AUDIT_LOG_STORAGE_KEY, JSON.stringify(entries));
@@ -223,7 +217,6 @@ class AuditLogService {
     ).catch(() => {
       console.warn('Failed to persist audit log after retrying');
     });
->>>>>>> emwulrd/main
   }
 
   private static getAllEntries(): AuditEntry[] {

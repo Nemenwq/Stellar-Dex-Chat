@@ -4,10 +4,7 @@ import React from 'react';
 import { CheckCircle, Clock, XCircle, RefreshCw, Loader2 } from 'lucide-react';
 import CopyButton from '@/components/ui/CopyButton';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-<<<<<<< HEAD
-=======
 import SkeletonTimeline from '@/components/ui/skeleton/SkeletonTimeline';
->>>>>>> emwulrd/main
 
 export type TransferStatus =
   | 'initiated'
@@ -29,11 +26,8 @@ interface TransferTimelineProps {
   events: StatusEvent[];
   /** Whether a poll is currently in-flight */
   isPolling?: boolean;
-<<<<<<< HEAD
-=======
   /** Whether the timeline data is currently loading */
   isLoading?: boolean;
->>>>>>> emwulrd/main
 }
 
 /**
@@ -127,11 +121,6 @@ function formatEventTime(date: Date): string {
 export default function TransferTimeline({
   events,
   isPolling = false,
-<<<<<<< HEAD
-}: TransferTimelineProps) {
-  const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
-
-=======
   isLoading = false,
 }: TransferTimelineProps) {
   const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
@@ -141,7 +130,6 @@ export default function TransferTimeline({
     return <SkeletonTimeline />;
   }
 
->>>>>>> emwulrd/main
   if (events.length === 0) {
     return (
       <p className="theme-text-muted text-xs text-center py-4">

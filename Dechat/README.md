@@ -237,10 +237,6 @@ npm run precommit:eslint
 
 - **[TypeScript SDK Examples](docs/typescript-sdk-examples.md)** - Complete guide for calling new contract functions (`heartbeat`, `deny_address`, `migrate_escrow`, `execute_batch_admin`) from the TypeScript SDK with error handling patterns and code examples.
 
-<<<<<<< HEAD
-## Contributing!!
-Contributions and feature reviews are welcome. Please open up an issue to raise bugs or feature requests!
-=======
 ### Invariant tests (contracts)
 
 Alongside the per-issue regression tests, the `FiatBridge` suite has dedicated
@@ -294,4 +290,3 @@ keep review predictable:
   drive-by change; it is easier to review as its own fix.
 - **Scope** — one logical change per PR. Unrelated cleanups found along the way
   are better filed as issues.
->>>>>>> emwulrd/main

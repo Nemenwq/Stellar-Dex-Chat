@@ -1,11 +1,6 @@
-<<<<<<< HEAD
-import { describe, expect, it } from 'vitest';
-import {
-=======
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   debounce,
->>>>>>> emwulrd/main
   findHighlights,
   splitByHighlights,
   searchChatHistory,
@@ -293,8 +288,6 @@ describe('searchChatHistory – date range', () => {
     expect(result.matches[0].highlights).toHaveLength(0);
   });
 });
-<<<<<<< HEAD
-=======
 
 // ---------------------------------------------------------------------------
 // debounce — stale-closure regression tests (#1225)
@@ -369,4 +362,3 @@ describe('debounce', () => {
     expect(fn).toHaveBeenCalledWith('b');
   });
 });
->>>>>>> emwulrd/main

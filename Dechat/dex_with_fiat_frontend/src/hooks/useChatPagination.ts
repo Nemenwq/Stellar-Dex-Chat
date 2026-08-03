@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-import { useState, useCallback, useMemo, useEffect } from 'react';
-=======
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
->>>>>>> emwulrd/main
 import { ChatMessage } from '@/types';
 import {
   DEFAULT_PAGE_SIZE,
@@ -22,8 +18,6 @@ export const useChatPagination = (
 ) => {
   const [visibleCount, setVisibleCount] = useState(pageSize);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-<<<<<<< HEAD
-=======
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Root cause (#1224): `loadMore` (below) closes over `allMessages` and
@@ -50,7 +44,6 @@ export const useChatPagination = (
   useEffect(() => {
     pageSizeRef.current = pageSize;
   }, [pageSize]);
->>>>>>> emwulrd/main
 
   // Reset visible count when session changes (if we had a way to detect it)
   // Actually, useChat will manage messages per session, so we just react to allMessages length decreasing
@@ -61,8 +54,6 @@ export const useChatPagination = (
     }
   }, [allMessages.length, pageSize]);
 
-<<<<<<< HEAD
-=======
   // Clear pending load-more timer on unmount to prevent state updates on an unmounted component.
   useEffect(() => {
     return () => {
@@ -73,7 +64,6 @@ export const useChatPagination = (
     };
   }, []);
 
->>>>>>> emwulrd/main
   const visibleMessages = useMemo(() => {
     return getVisibleMessages(allMessages, visibleCount);
   }, [allMessages, visibleCount]);
@@ -86,15 +76,6 @@ export const useChatPagination = (
     if (!hasMore || isLoadingMore) return;
 
     setIsLoadingMore(true);
-<<<<<<< HEAD
-    
-    // Simulate a small delay for better UX (optional, but requested "loading guards")
-    setTimeout(() => {
-      setVisibleCount((prev: number) => getNextMessageCount(allMessages, prev, pageSize));
-      setIsLoadingMore(false);
-    }, 400);
-  }, [hasMore, isLoadingMore, allMessages, pageSize]);
-=======
 
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
@@ -104,7 +85,6 @@ export const useChatPagination = (
       setIsLoadingMore(false);
     }, 400);
   }, [hasMore, isLoadingMore]);
->>>>>>> emwulrd/main
 
   return {
     visibleMessages,

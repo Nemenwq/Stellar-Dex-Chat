@@ -15,24 +15,6 @@ export interface ChatPerformanceMetrics {
 
 export const useChatPerformance = (messages: ChatMessage[]) => {
   const renderTimeRef = useRef<number>(0);
-<<<<<<< HEAD
-  const startTimeRef = useRef<number>(0);
-
-  useEffect(() => {
-    startTimeRef.current = performance.now();
-  }, []);
-
-  useEffect(() => {
-    const endTime = performance.now();
-    renderTimeRef.current = endTime - startTimeRef.current;
-
-    if (messages.length > 0 && messages.length % 10 === 0) {
-      // Log performance metrics every 10 messages
-      const metrics = PerformanceBench.measureWebVitals();
-      const chatMetrics: ChatPerformanceMetrics = {
-        messageCount: messages.length,
-        renderTime: renderTimeRef.current,
-=======
   // Race-condition fix (#1215): the original code set startTimeRef only in a
   // mount-only effect (empty deps array), meaning every subsequent measurement
   // computed time elapsed *since mount*, not since the previous message batch.
@@ -69,7 +51,6 @@ export const useChatPerformance = (messages: ChatMessage[]) => {
       const chatMetrics: ChatPerformanceMetrics = {
         messageCount: messages.length,
         renderTime: elapsed,
->>>>>>> emwulrd/main
         memoryUsage: metrics.memoryUsage,
         listType: 'virtualized',
       };

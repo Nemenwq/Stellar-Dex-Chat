@@ -158,12 +158,9 @@ describe('ChatHistorySidebar', () => {
     // Undo toast should be visible
     expect(screen.getByText('Conversation deleted')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
-<<<<<<< HEAD
-=======
     expect(screen.getByTestId('chat-history-live-region')).toHaveTextContent(
       'Conversation deleted. Undo available for 5 seconds.',
     );
->>>>>>> emwulrd/main
   });
 
   it('calls deleteSession after the undo timeout expires', async () => {
@@ -199,10 +196,7 @@ describe('ChatHistorySidebar', () => {
 
     expect(mockDeleteSession).not.toHaveBeenCalled();
     expect(screen.queryByText('Conversation deleted')).toBeNull();
-<<<<<<< HEAD
-=======
     expect(screen.getByTestId('chat-history-live-region')).toHaveTextContent('Conversation restored.');
->>>>>>> emwulrd/main
   });
 
   it('calls togglePin immediately on pin button click', async () => {
@@ -215,10 +209,7 @@ describe('ChatHistorySidebar', () => {
     fireEvent.click(screen.getByTitle('Pin conversation'));
 
     expect(mockTogglePin).toHaveBeenCalledWith('s4');
-<<<<<<< HEAD
-=======
     expect(screen.getByTestId('chat-history-live-region')).toHaveTextContent('Conversation pinned.');
->>>>>>> emwulrd/main
   });
 
   it('applies animate-bounce-once class to pin icon and removes it after 600ms', async () => {
@@ -252,19 +243,14 @@ describe('ChatHistorySidebar', () => {
     expect(mockClearAllHistory).toHaveBeenCalledTimes(1);
     expect(screen.getByText('History cleared')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
-<<<<<<< HEAD
-=======
     expect(screen.getByTestId('chat-history-live-region')).toHaveTextContent(
       'History cleared. Undo available for 5 seconds.',
     );
->>>>>>> emwulrd/main
 
     // Toast disappears after timeout
     await act(async () => { vi.advanceTimersByTime(5100); });
     expect(screen.queryByText('History cleared')).toBeNull();
   });
-<<<<<<< HEAD
-=======
 
   it('announces filtered search result counts', async () => {
     const sessions = [makeSession('search-a'), makeSession('search-b')];
@@ -279,7 +265,6 @@ describe('ChatHistorySidebar', () => {
 
     expect(screen.getByTestId('chat-history-live-region')).toHaveTextContent('0 conversations found');
   });
->>>>>>> emwulrd/main
 });
 
 // ── Issue #633 regression: error boundary wraps ChatHistorySidebar ─────────────
@@ -303,14 +288,10 @@ describe('ChatHistorySidebar error boundary (#633)', () => {
     vi.useRealTimers();
   });
 
-<<<<<<< HEAD
-  it('renders the fallback UI when a child throws and not the crash stack', async () => {
-=======
   // #635: PriceTicker now has its own inner error boundary, so a crash
   // there is contained to the ticker widget and no longer takes down the
   // rest of the sidebar (search, sessions, "New Conversation", etc.).
   it('contains a PriceTicker crash to the ticker widget instead of taking down the whole sidebar', async () => {
->>>>>>> emwulrd/main
     vi.doMock('@/components/PriceTicker', () => ({
       default: () => {
         throw new Error('PriceTicker exploded');
@@ -327,38 +308,10 @@ describe('ChatHistorySidebar error boundary (#633)', () => {
       await vi.advanceTimersByTimeAsync(900);
     });
 
-<<<<<<< HEAD
-    expect(screen.getByText('Sidebar unavailable')).toBeTruthy();
-    expect(screen.queryByText('PriceTicker exploded')).toBeNull();
-
-    vi.doUnmock('@/components/PriceTicker');
-    vi.resetModules();
-  });
-
-  it('displays the custom retry label from the error boundary props', async () => {
-    vi.doMock('@/components/PriceTicker', () => ({
-      default: () => {
-        throw new Error('forced');
-      },
-    }));
-    vi.resetModules();
-
-    const { default: ChatHistorySidebarFresh } = await import('@/components/ChatHistorySidebar');
-
-    await act(async () => {
-      render(
-        <ChatHistorySidebarFresh onLoadSession={vi.fn()} isCollapsed={false} />,
-      );
-      await vi.advanceTimersByTimeAsync(900);
-    });
-
-    expect(screen.getByRole('button', { name: /reload sidebar/i })).toBeTruthy();
-=======
     expect(screen.getByText('Prices unavailable')).toBeTruthy();
     expect(screen.queryByText('PriceTicker exploded')).toBeNull();
     expect(screen.queryByText('Sidebar unavailable')).toBeNull();
     expect(screen.getByPlaceholderText('Search conversations...')).toBeTruthy();
->>>>>>> emwulrd/main
 
     vi.doUnmock('@/components/PriceTicker');
     vi.resetModules();

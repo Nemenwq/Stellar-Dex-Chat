@@ -2,10 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { ChatSession } from '@/types';
-<<<<<<< HEAD
-=======
 import { chatTelemetry } from '@/lib/chatTelemetry';
->>>>>>> emwulrd/main
 
 export interface SplitViewState {
   isOpen: boolean;
@@ -51,18 +48,6 @@ export function useSplitView(sessions: ChatSession[]): UseSplitViewReturn {
   );
 
   const open = useCallback((leftId: string, rightId?: string) => {
-<<<<<<< HEAD
-    setState((prev) => ({
-      ...prev,
-      isOpen: true,
-      leftSessionId: leftId,
-      rightSessionId: rightId ?? prev.rightSessionId,
-      selectedMessageId: null,
-    }));
-  }, []);
-
-  const close = useCallback(() => {
-=======
     setState((prev) => {
       const nextRightSessionId = rightId ?? prev.rightSessionId;
       // Structured telemetry (#1208): record split-view opens, including
@@ -88,7 +73,6 @@ export function useSplitView(sessions: ChatSession[]): UseSplitViewReturn {
 
   const close = useCallback(() => {
     chatTelemetry.splitView({ action: 'close' });
->>>>>>> emwulrd/main
     setState({
       isOpen: false,
       leftSessionId: null,
@@ -98,33 +82,16 @@ export function useSplitView(sessions: ChatSession[]): UseSplitViewReturn {
   }, []);
 
   const setLeftSession = useCallback((id: string) => {
-<<<<<<< HEAD
-=======
     chatTelemetry.splitView({ action: 'set_left_session', leftSessionId: id });
->>>>>>> emwulrd/main
     setState((prev) => ({ ...prev, leftSessionId: id, selectedMessageId: null }));
   }, []);
 
   const setRightSession = useCallback((id: string) => {
-<<<<<<< HEAD
-=======
     chatTelemetry.splitView({ action: 'set_right_session', rightSessionId: id });
->>>>>>> emwulrd/main
     setState((prev) => ({ ...prev, rightSessionId: id, selectedMessageId: null }));
   }, []);
 
   const swapSessions = useCallback(() => {
-<<<<<<< HEAD
-    setState((prev) => ({
-      ...prev,
-      leftSessionId: prev.rightSessionId,
-      rightSessionId: prev.leftSessionId,
-      selectedMessageId: null,
-    }));
-  }, []);
-
-  const selectMessage = useCallback((messageId: string | null) => {
-=======
     setState((prev) => {
       chatTelemetry.splitView({
         action: 'swap_sessions',
@@ -144,7 +111,6 @@ export function useSplitView(sessions: ChatSession[]): UseSplitViewReturn {
     if (messageId !== null) {
       chatTelemetry.splitView({ action: 'select_message' });
     }
->>>>>>> emwulrd/main
     setState((prev) => ({ ...prev, selectedMessageId: messageId }));
   }, []);
 

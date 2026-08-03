@@ -29,8 +29,6 @@ export const verifyAccountSchema = z.object({
 });
 
 export type VerifyAccountInput = z.infer<typeof verifyAccountSchema>;
-<<<<<<< HEAD
-=======
 
 // Schema for the banks endpoint query string. The endpoint currently serves
 // Nigerian NUBAN banks only, so rejecting unsupported query parameters keeps
@@ -240,4 +238,3 @@ export async function fetchWithRetry(
     return response;
   }, config);
 }
->>>>>>> emwulrd/main

@@ -16,10 +16,7 @@ import {
 import { useAccessibleModal } from '@/hooks/useAccessibleModal';
 import { useChatTelemetry } from '@/hooks/useChatTelemetry';
 import { useBeneficiaries, Beneficiary } from '@/hooks/useBeneficiaries';
-<<<<<<< HEAD
-=======
 import { useWatchlist } from '@/hooks/useWatchlist';
->>>>>>> emwulrd/main
 
 interface UserSettingsProps {
   isOpen: boolean;
@@ -37,13 +34,6 @@ export default function UserSettings({ isOpen, onClose }: UserSettingsProps) {
     setRemindersEnabled,
     reminderFrequency,
     setReminderFrequency,
-<<<<<<< HEAD
-  } = useUserPreferences();
-  const { consented: telemetryConsented, setConsent: setTelemetryConsent } = useChatTelemetry();
-  const { beneficiaries, isLoaded, addBeneficiary, deleteBeneficiary, renameBeneficiary } = useBeneficiaries();
-  const panelRef = useRef<HTMLDivElement>(null);
-  
-=======
     highValueThreshold,
     setHighValueThreshold,
     twoFactorEnabled,
@@ -59,7 +49,6 @@ export default function UserSettings({ isOpen, onClose }: UserSettingsProps) {
   const [watchAddress, setWatchAddress] = useState('');
   const [watchLabel, setWatchLabel] = useState('');
 
->>>>>>> emwulrd/main
   // Beneficiary management states
   const [showAddBeneficiary, setShowAddBeneficiary] = useState(false);
   const [editingBeneficiary, setEditingBeneficiary] = useState<Beneficiary | null>(null);
@@ -329,8 +318,6 @@ export default function UserSettings({ isOpen, onClose }: UserSettingsProps) {
             )}
           </section>
 
-<<<<<<< HEAD
-=======
           {/* Watchlist section (issue #1032) */}
           <section>
             <div className="flex items-center justify-between mb-3">
@@ -474,7 +461,6 @@ export default function UserSettings({ isOpen, onClose }: UserSettingsProps) {
             )}
           </section>
 
->>>>>>> emwulrd/main
           {/* Currency section */}
           <section>
             <h3
@@ -605,8 +591,6 @@ export default function UserSettings({ isOpen, onClose }: UserSettingsProps) {
             </ul>
           </section>
 
-<<<<<<< HEAD
-=======
           {/* High-Value Transfer Security section */}
           <section
             className={`pt-6 border-t ${featureFlagSectionDividerBorderClass(isDarkMode)}`}
@@ -686,7 +670,6 @@ export default function UserSettings({ isOpen, onClose }: UserSettingsProps) {
             </div>
           </section>
 
->>>>>>> emwulrd/main
           {/* Telemetry section */}
           <section
             className={`pt-6 border-t ${featureFlagSectionDividerBorderClass(isDarkMode)}`}

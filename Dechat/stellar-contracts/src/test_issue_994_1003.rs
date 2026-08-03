@@ -11,11 +11,7 @@ use soroban_sdk::{
 
 use crate::{Error, FiatBridge, FiatBridgeClient, MIN_UPGRADE_DELAY};
 
-<<<<<<< HEAD
-fn setup(env: &Env) -> (FiatBridgeClient, Address, Address) {
-=======
 fn setup(env: &Env) -> (FiatBridgeClient<'_>, Address, Address) {
->>>>>>> emwulrd/main
     let contract_id = env.register(FiatBridge, ());
     let client = FiatBridgeClient::new(env, &contract_id);
 
@@ -40,11 +36,7 @@ fn deposit_rate_limit_blocks_excess_in_same_block() {
     env.mock_all_auths();
     env.ledger().with_mut(|l| l.sequence_number = 100);
 
-<<<<<<< HEAD
-    let (client, admin, token_addr) = setup(&env);
-=======
     let (client, _admin, token_addr) = setup(&env);
->>>>>>> emwulrd/main
 
     // Set limit to 1 deposit per ledger per user
     client.set_max_deposits_per_block(&1u32);

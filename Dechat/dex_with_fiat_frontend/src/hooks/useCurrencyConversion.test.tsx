@@ -105,8 +105,6 @@ describe('useCurrencyConversion', () => {
     expect(fetchCryptoPricesMock).toHaveBeenCalledTimes(2);
     hook.cleanup();
   });
-<<<<<<< HEAD
-=======
 
   // Memory-leak regression test (#1217)
   // Verifies that an in-flight fetch that resolves after unmount does NOT
@@ -140,5 +138,4 @@ describe('useCurrencyConversion', () => {
     );
     consoleSpy.mockRestore();
   });
->>>>>>> emwulrd/main
 });
