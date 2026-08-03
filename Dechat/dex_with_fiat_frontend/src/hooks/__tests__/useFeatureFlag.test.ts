@@ -1,9 +1,5 @@
-<<<<<<< HEAD
-import { renderHook } from '@testing-library/react';
-=======
 import { renderHook, act } from '@testing-library/react';
 import { vi, describe, it, expect, afterEach } from 'vitest';
->>>>>>> emwulrd/main
 import { useFeatureFlag } from '../useFeatureFlag';
 import * as featureFlags from '@/lib/featureFlags';
 
@@ -47,8 +43,6 @@ describe('useFeatureFlag', () => {
 
     expect(result.current).toBe(true);
   });
-<<<<<<< HEAD
-=======
 
   // ── memory-leak regression (#1220) ─────────────────────────────────────────
 
@@ -90,5 +84,4 @@ describe('useFeatureFlag', () => {
 
     expect(result.current).toBe(true);
   });
->>>>>>> emwulrd/main
 });

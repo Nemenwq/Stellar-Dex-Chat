@@ -1,12 +1,6 @@
 import React from 'react';
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
-import {
-  render,
-  screen,
-  fireEvent,
-  cleanup,
-  waitFor,
-} from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import PriceTicker from '@/components/PriceTicker';
 
 const fetchTickerDataMock = vi.fn();
@@ -16,10 +10,7 @@ vi.mock('@/lib/cryptoPriceService', () => ({
 }));
 
 function mockPrices(symbols: string[]) {
-  const out: Record<
-    string,
-    { symbol: string; price: number; change24h: number; currency: string }
-  > = {};
+  const out: Record<string, { symbol: string; price: number; change24h: number; currency: string }> = {};
   for (const s of symbols) {
     out[s] = { symbol: s, price: 1, change24h: 0.5, currency: 'usd' };
   }
@@ -33,9 +24,7 @@ describe('PriceTicker – keyboard shortcuts', () => {
   });
 
   beforeEach(() => {
-    fetchTickerDataMock.mockImplementation(async (symbols: string[]) =>
-      mockPrices(symbols),
-    );
+    fetchTickerDataMock.mockImplementation(async (symbols: string[]) => mockPrices(symbols));
   });
 
   it('moves to the next page with ArrowRight when focused', async () => {

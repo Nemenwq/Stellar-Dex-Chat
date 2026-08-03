@@ -1,11 +1,6 @@
-<<<<<<< HEAD
-import { describe, expect, it } from 'vitest';
-import {
-=======
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   debounce,
->>>>>>> emwulrd/main
   findHighlights,
   splitByHighlights,
   searchChatHistory,
@@ -109,10 +104,7 @@ describe('splitByHighlights', () => {
 
   it('handles multiple highlights', () => {
     const text = 'abc def abc';
-    const highlights: Array<[number, number]> = [
-      [0, 3],
-      [8, 11],
-    ];
+    const highlights: Array<[number, number]> = [[0, 3], [8, 11]];
     const result = splitByHighlights(text, highlights);
     expect(result).toEqual([
       { text: 'abc', highlight: true },
@@ -296,8 +288,6 @@ describe('searchChatHistory – date range', () => {
     expect(result.matches[0].highlights).toHaveLength(0);
   });
 });
-<<<<<<< HEAD
-=======
 
 // ---------------------------------------------------------------------------
 // debounce — stale-closure regression tests (#1225)
@@ -372,4 +362,3 @@ describe('debounce', () => {
     expect(fn).toHaveBeenCalledWith('b');
   });
 });
->>>>>>> emwulrd/main

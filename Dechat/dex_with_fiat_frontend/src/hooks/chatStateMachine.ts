@@ -89,9 +89,7 @@ class ChatGuards {
   /**
    * Has reached sufficient message count for auto-triggering
    */
-  static hasReachedMessageThreshold = (
-    context: ChatMachineContext,
-  ): boolean => {
+  static hasReachedMessageThreshold = (context: ChatMachineContext): boolean => {
     return context.messageCount >= 3;
   };
 
@@ -139,11 +137,7 @@ function getInitialContext(): ChatMachineContext {
 /**
  * Create and configure the chat state machine
  */
-export function createChatStateMachine(): StateMachine<
-  ChatState,
-  ChatEvent,
-  ChatMachineContext
-> {
+export function createChatStateMachine(): StateMachine<ChatState, ChatEvent, ChatMachineContext> {
   const config: StateMachineConfig<ChatState, ChatEvent, ChatMachineContext> = {
     initial: ChatState.UNINITIALIZED,
     context: getInitialContext(),

@@ -13,15 +13,8 @@ import crypto from 'crypto';
 // ---------------------------------------------------------------------------
 // We mock the env module so we can swap PAYSTACK_SECRET_KEY per test.
 // ---------------------------------------------------------------------------
-const mockEnv = {
-  PAYSTACK_SECRET_KEY: 'test-secret',
-  PAYOUT_PROVIDER: 'paystack',
-} as Record<string, string | undefined>;
-vi.mock('@/lib/env', () => ({
-  get env() {
-    return mockEnv;
-  },
-}));
+const mockEnv = { PAYSTACK_SECRET_KEY: 'test-secret', PAYOUT_PROVIDER: 'paystack' } as Record<string, string | undefined>;
+vi.mock('@/lib/env', () => ({ get env() { return mockEnv; } }));
 vi.mock('@/lib/telemetry', () => ({
   telemetry: {
     extractTraceFromHeaders: () => ({ traceId: 'trace1', spanId: 'span1' }),
@@ -69,10 +62,7 @@ function hmac(payload: string, secret: string): string {
 }
 
 describe('POST /api/webhook', () => {
-  const payload = JSON.stringify({
-    event: 'transfer.success',
-    data: { reference: 'ref123', id: 'id-1', amount: 5000 },
-  });
+  const payload = JSON.stringify({ event: 'transfer.success', data: { reference: 'ref123', id: 'id-1', amount: 5000 } });
 
   beforeEach(() => {
     mockEnv['PAYSTACK_SECRET_KEY'] = 'test-secret';
@@ -88,7 +78,7 @@ describe('POST /api/webhook', () => {
     // @ts-expect-error NextRequest vs Request difference
     const res = await POST(req);
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { message: string };
+    const body = await res.json() as { message: string };
     expect(body.message).toMatch(/not configured/i);
   });
 
@@ -112,7 +102,7 @@ describe('POST /api/webhook', () => {
     // @ts-expect-error NextRequest vs Request difference
     const res = await POST(req);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { received: boolean };
+    const body = await res.json() as { received: boolean };
     expect(body.received).toBe(true);
   });
 });

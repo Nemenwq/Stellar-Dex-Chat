@@ -13,11 +13,8 @@
  * Blocked:
  *   - javascript: / vbscript: / data: URLs in href or src
  *   - Raw HTML passthrough (react-markdown default: disabled)
-<<<<<<< HEAD
-=======
  *
  * @module
->>>>>>> emwulrd/main
  */
 
 /** URL schemes that are safe to render in links and images. */
@@ -26,8 +23,6 @@ const SAFE_URL_SCHEMES = ['https:', 'http:', 'mailto:'];
 /**
  * Returns `true` when the given URL uses a safe scheme, `false` otherwise.
  * Relative URLs (no scheme) are allowed.
-<<<<<<< HEAD
-=======
  *
  * The check is two-layered:
  * 1. Percent-encoded characters are decoded to catch obfuscated schemes
@@ -49,7 +44,6 @@ const SAFE_URL_SCHEMES = ['https:', 'http:', 'mailto:'];
  *
  * @see {@link sanitizeUrl} for a convenience wrapper that maps the result
  *      to either the original URL or `"#blocked"`.
->>>>>>> emwulrd/main
  */
 export function isSafeUrl(url: string | undefined | null): boolean {
   if (!url) return false;
@@ -57,11 +51,7 @@ export function isSafeUrl(url: string | undefined | null): boolean {
   const trimmed = url.trim();
 
   // Relative URLs are fine
-  if (
-    trimmed.startsWith('/') ||
-    trimmed.startsWith('#') ||
-    trimmed.startsWith('.')
-  ) {
+  if (trimmed.startsWith('/') || trimmed.startsWith('#') || trimmed.startsWith('.')) {
     return true;
   }
 
@@ -96,9 +86,6 @@ export function isSafeUrl(url: string | undefined | null): boolean {
 }
 
 /**
-<<<<<<< HEAD
- * Returns the URL unchanged if safe, otherwise returns '#blocked'.
-=======
  * Returns the URL unchanged if safe, otherwise returns `'#blocked'`.
  *
  * A safe drop-in for `href`/`src` attribute values in markdown renderers.
@@ -114,7 +101,6 @@ export function isSafeUrl(url: string | undefined | null): boolean {
  * ```
  *
  * @see {@link isSafeUrl} for the underlying validation logic.
->>>>>>> emwulrd/main
  */
 export function sanitizeUrl(url: string | undefined | null): string {
   return isSafeUrl(url) ? (url as string) : '#blocked';
@@ -122,10 +108,6 @@ export function sanitizeUrl(url: string | undefined | null): string {
 
 /**
  * Strips characters commonly used in XSS payloads from plain text content.
-<<<<<<< HEAD
- * react-markdown text nodes are already safe, but this can be used for
- * attribute values where extra caution is warranted.
-=======
  *
  * Escapes `<`, `>`, `"`, and `'` to their HTML entities.  Intended for
  * attribute values (e.g. `title`, `alt`) where react-markdown text nodes
@@ -142,7 +124,6 @@ export function sanitizeUrl(url: string | undefined | null): string {
  * sanitizeText("safe text") // → "safe text"
  * sanitizeText(null)        // → ""
  * ```
->>>>>>> emwulrd/main
  */
 export function sanitizeText(text: string | undefined | null): string {
   if (!text) return '';

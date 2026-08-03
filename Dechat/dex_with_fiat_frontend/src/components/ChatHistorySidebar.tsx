@@ -59,18 +59,10 @@ function SessionRow({
   return (
     <div
       data-active={isActive ? 'true' : 'false'}
-<<<<<<< HEAD
-      className={`group relative p-3 mb-2 rounded-lg cursor-pointer transition-all duration-200 border ${
-        isActive
-          ? 'bg-[var(--color-primary-soft)] border-[var(--color-primary)] shadow-md'
-          : 'border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-surface-muted)]'
-      }`}
-=======
       className={`group relative p-3 mb-2 rounded-lg cursor-pointer transition-all duration-200 border ${isActive
           ? 'bg-[var(--color-primary-soft)] border-[var(--color-primary)] shadow-md'
           : 'border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-surface-muted)]'
         }`}
->>>>>>> emwulrd/main
       onClick={() => onLoad(session.id)}
     >
       <div className="flex items-start justify-between">
@@ -110,21 +102,6 @@ function SessionRow({
           >
             {session.pinned ? (
               <PinOff
-<<<<<<< HEAD
-                className={`w-3 h-3${
-                  recentlyToggledPinId === session.id
-                    ? ' animate-bounce-once'
-                    : ''
-                }`}
-              />
-            ) : (
-              <Pin
-                className={`w-3 h-3${
-                  recentlyToggledPinId === session.id
-                    ? ' animate-bounce-once'
-                    : ''
-                }`}
-=======
                 className={`w-3 h-3${recentlyToggledPinId === session.id
                     ? ' animate-bounce-once'
                     : ''
@@ -136,7 +113,6 @@ function SessionRow({
                     ? ' animate-bounce-once'
                     : ''
                   }`}
->>>>>>> emwulrd/main
               />
             )}
           </button>
@@ -247,10 +223,7 @@ export default function ChatHistorySidebar({
   const [pendingClearAll, setPendingClearAll] = useState(false);
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stashedSessionsRef = useRef<ChatSession[]>([]);
-<<<<<<< HEAD
-=======
   const [liveAnnouncement, setLiveAnnouncement] = useState('');
->>>>>>> emwulrd/main
   // ────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -310,11 +283,7 @@ export default function ChatHistorySidebar({
     e.dataTransfer.effectAllowed = 'move';
     try {
       e.dataTransfer.setData('text/plain', id);
-<<<<<<< HEAD
-    } catch {}
-=======
     } catch { }
->>>>>>> emwulrd/main
   }, []);
 
   const onDragOver = useCallback((e: React.DragEvent, id: string) => {
@@ -411,8 +380,6 @@ export default function ChatHistorySidebar({
     }
   }, [unpinnedIsLoadingMore]);
 
-<<<<<<< HEAD
-=======
   useEffect(() => {
     if (isCollapsed || isLoading || !searchQuery) return;
 
@@ -421,16 +388,12 @@ export default function ChatHistorySidebar({
     setLiveAnnouncement(resultLabel);
   }, [filteredSessions.length, isCollapsed, isLoading, searchQuery]);
 
->>>>>>> emwulrd/main
   // ── Optimistic delete with undo ──────────────────────────────────────────
   const handleDeleteSession = useCallback(
     (sessionId: string) => {
       setShowDeleteConfirm(null);
       setPendingDeleteId(sessionId);
-<<<<<<< HEAD
-=======
       setLiveAnnouncement('Conversation deleted. Undo available for 5 seconds.');
->>>>>>> emwulrd/main
 
       // Clear any previous delete timer
       if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
@@ -446,19 +409,12 @@ export default function ChatHistorySidebar({
   const undoDelete = useCallback(() => {
     if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
     setPendingDeleteId(null);
-<<<<<<< HEAD
-=======
     setLiveAnnouncement('Conversation restored.');
->>>>>>> emwulrd/main
   }, []);
 
   // ── Optimistic pin toggle with animation ─────────────────────────────────
   const handleTogglePin = useCallback(
     (sessionId: string) => {
-<<<<<<< HEAD
-      togglePin(sessionId);
-      setRecentlyToggledPinId(sessionId);
-=======
       const session = allSessions.find((item) => item.id === sessionId);
       togglePin(sessionId);
       setRecentlyToggledPinId(sessionId);
@@ -467,18 +423,13 @@ export default function ChatHistorySidebar({
           ? 'Conversation unpinned.'
           : 'Conversation pinned.',
       );
->>>>>>> emwulrd/main
 
       if (pinAnimTimerRef.current) clearTimeout(pinAnimTimerRef.current);
       pinAnimTimerRef.current = setTimeout(() => {
         setRecentlyToggledPinId(null);
       }, 600);
     },
-<<<<<<< HEAD
-    [togglePin],
-=======
     [allSessions, togglePin],
->>>>>>> emwulrd/main
   );
 
   // ── Optimistic clear-all with undo ───────────────────────────────────────
@@ -487,10 +438,7 @@ export default function ChatHistorySidebar({
     stashedSessionsRef.current = [...allSessionsRaw];
     clearAllHistory();
     setPendingClearAll(true);
-<<<<<<< HEAD
-=======
     setLiveAnnouncement('History cleared. Undo available for 5 seconds.');
->>>>>>> emwulrd/main
 
     if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
     clearTimerRef.current = setTimeout(() => {
@@ -501,10 +449,7 @@ export default function ChatHistorySidebar({
 
   const undoClearAll = useCallback(() => {
     if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
-<<<<<<< HEAD
-=======
     setLiveAnnouncement('History restored.');
->>>>>>> emwulrd/main
     // Restore stashed sessions by re-saving to localStorage and reloading
     if (stashedSessionsRef.current.length > 0) {
       const restored = {
@@ -652,21 +597,6 @@ export default function ChatHistorySidebar({
       retryLabel="Reload sidebar"
     >
       <div
-<<<<<<< HEAD
-        className={`theme-surface theme-border h-full flex flex-col transition-all duration-300 border-r ${
-          isCollapsed ? 'w-20' : 'w-full'
-        } transition-colors duration-300`}
-      >
-        <div
-          className={`theme-border border-b transition-colors duration-300 ${
-            isCollapsed ? 'p-4 flex flex-col items-center' : 'p-4'
-          }`}
-        >
-          <div
-            className={`flex items-center justify-between mb-4 w-full ${
-              isCollapsed ? 'flex-col gap-4' : ''
-            }`}
-=======
         className={`theme-surface theme-border h-full flex flex-col transition-all duration-300 border-r ${isCollapsed ? 'w-20' : 'w-full'
           } transition-colors duration-300`}
       >
@@ -686,7 +616,6 @@ export default function ChatHistorySidebar({
           <div
             className={`flex items-center justify-between mb-4 w-full ${isCollapsed ? 'flex-col gap-4' : ''
               }`}
->>>>>>> emwulrd/main
           >
             {!isCollapsed && (
               <h2 className="theme-text-primary text-lg font-semibold">
@@ -694,14 +623,8 @@ export default function ChatHistorySidebar({
               </h2>
             )}
             <div
-<<<<<<< HEAD
-              className={`flex items-center gap-1 ${
-                isCollapsed ? 'flex-col' : ''
-              }`}
-=======
               className={`flex items-center gap-1 ${isCollapsed ? 'flex-col' : ''
                 }`}
->>>>>>> emwulrd/main
             >
               <button
                 onClick={handleClearAll}
@@ -848,11 +771,7 @@ export default function ChatHistorySidebar({
                             Pinned
                           </p>
                         )}
-<<<<<<< HEAD
-                        {filteredPinned.map((session, idx) => (
-=======
                         {filteredPinned.map((session) => (
->>>>>>> emwulrd/main
                           <div
                             key={session.id}
                             draggable
@@ -957,9 +876,6 @@ export default function ChatHistorySidebar({
         <div
           className={`theme-border border-t p-4 ${isCollapsed ? 'flex flex-col items-center' : ''}`}
         >
-<<<<<<< HEAD
-          <PriceTicker symbols={['XLM', 'ETH', 'BTC']} currency="usd" />
-=======
           <ErrorBoundary
             fallback={
               <div className="theme-surface-muted rounded-lg border theme-border p-3">
@@ -971,7 +887,6 @@ export default function ChatHistorySidebar({
           >
             <PriceTicker symbols={['XLM', 'ETH', 'BTC']} currency="usd" />
           </ErrorBoundary>
->>>>>>> emwulrd/main
 
           <div
             className={`theme-border border-t p-4 ${isCollapsed ? 'flex flex-col items-center' : ''}`}
@@ -1065,11 +980,7 @@ export default function ChatHistorySidebar({
                       entry.status !== 'cancelled' &&
                       entry.reference &&
                       Date.now() - new Date(entry.createdAt).getTime() <
-<<<<<<< HEAD
-                        2 * 60 * 1000 && (
-=======
                       2 * 60 * 1000 && (
->>>>>>> emwulrd/main
                         <button
                           type="button"
                           onClick={async () => {

@@ -12,8 +12,6 @@ export interface CCIPTransferStartResult {
   explorerUrl?: string;
 }
 
-<<<<<<< HEAD
-=======
 export interface RetryOptions {
   retries?: number;
   minDelayMs?: number;
@@ -70,7 +68,6 @@ export async function fetchWithRetry(
   return retryWithBackoff(() => fetch(input, init), options);
 }
 
->>>>>>> emwulrd/main
 export function buildCCIPExplorerTransactionUrl(
   transactionHash: string,
 ): string {

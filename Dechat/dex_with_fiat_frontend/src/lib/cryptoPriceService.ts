@@ -48,10 +48,7 @@ export const SUPPORTED_CURRENCIES = [
 
 // Cache for prices to avoid excessive API calls
 const priceCache: Map<string, TokenPriceData> = new Map();
-<<<<<<< HEAD
-=======
 const inflightRequests: Map<string, Promise<number>> = new Map();
->>>>>>> emwulrd/main
 const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
 
 /**
@@ -189,14 +186,10 @@ function getFallbackPrices(
 }
 
 /**
-<<<<<<< HEAD
- * Get cached price or fetch from API
-=======
  * Get cached price or fetch from API.
  * Deduplicates concurrent requests for the same token+currency so only one
  * API call is in flight at a time — fixes stale-closure where N concurrent
  * callers each saw a stale cache and fired their own fetch.
->>>>>>> emwulrd/main
  */
 export async function getTokenPrice(
   tokenSymbol: string,
@@ -210,10 +203,6 @@ export async function getTokenPrice(
     return cached.prices[vsCurrency.toLowerCase()] || 0;
   }
 
-<<<<<<< HEAD
-  try {
-    // Fetch fresh data
-=======
   // If there's already an in-flight request for this key, wait for it
   const existing = inflightRequests.get(cacheKey);
   if (existing) {
@@ -237,15 +226,10 @@ async function doFetchAndCache(
   cached: TokenPriceData | undefined,
 ): Promise<number> {
   try {
->>>>>>> emwulrd/main
     const priceData = await fetchCryptoPrices([tokenSymbol], [vsCurrency]);
     const price =
       priceData[tokenSymbol.toUpperCase()]?.[vsCurrency.toLowerCase()] || 0;
 
-<<<<<<< HEAD
-    // Update cache
-=======
->>>>>>> emwulrd/main
     priceCache.set(cacheKey, {
       tokenSymbol: tokenSymbol.toUpperCase(),
       prices: { [vsCurrency.toLowerCase()]: price },
@@ -255,11 +239,6 @@ async function doFetchAndCache(
     return price;
   } catch (error) {
     console.error(`Error getting price for ${tokenSymbol}:`, error);
-<<<<<<< HEAD
-
-    // Return cached data even if stale, or 0 as last resort
-=======
->>>>>>> emwulrd/main
     return cached?.prices[vsCurrency.toLowerCase()] || 0;
   }
 }
@@ -384,16 +363,11 @@ export async function fetchTickerData(
 
     return tickerData;
   } catch (error) {
-<<<<<<< HEAD
-    console.error('Error fetching ticker data:', error);
-    return {}; // Return empty object to trigger fallback UI
-=======
     const message =
       error instanceof Error ? error.message : 'Unknown error fetching prices';
     console.error('Error fetching ticker data:', message);
     // Return empty object — callers should treat {} as "no data, show fallback"
     return {};
->>>>>>> emwulrd/main
   }
 }
 

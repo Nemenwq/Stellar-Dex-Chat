@@ -33,8 +33,6 @@ vi.mock('../components/ui/skeleton/SkeletonReceipt', () => ({
   default: () => <div data-testid="skeleton" />,
 }));
 
-<<<<<<< HEAD
-=======
 vi.mock('../ReceiptQrCode', () => ({
   default: ({ value }: { value: string }) => (
     <img data-testid="receipt-qr-code" alt="QR" src={`qr:${value}`} />
@@ -52,7 +50,6 @@ const sampleTransaction = {
   createdAt: new Date('2025-06-01T12:00:00Z'),
 };
 
->>>>>>> emwulrd/main
 const defaultProps = {
   isOpen: true,
   onClose: vi.fn(),
@@ -117,8 +114,6 @@ describe('ReceiptDrawer keyboard shortcuts (#528)', () => {
     expect(dialog.getAttribute('aria-modal')).toBe('true');
   });
 });
-<<<<<<< HEAD
-=======
 
 describe('ReceiptDrawer print styles', () => {
   beforeEach(() => {
@@ -170,4 +165,3 @@ describe('ReceiptDrawer print styles', () => {
     vi.useRealTimers();
   });
 });
->>>>>>> emwulrd/main

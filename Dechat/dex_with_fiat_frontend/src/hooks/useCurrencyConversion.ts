@@ -1,10 +1,6 @@
 'use client';
 
-<<<<<<< HEAD
-import { useEffect, useState, useCallback } from 'react';
-=======
 import { useEffect, useState, useCallback, useRef } from 'react';
->>>>>>> emwulrd/main
 import { fetchCryptoPrices } from '@/lib/cryptoPriceService';
 import { useUserPreferences } from '@/contexts/UserPreferencesContext';
 
@@ -41,8 +37,6 @@ export function useCurrencyConversion(
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
 
-<<<<<<< HEAD
-=======
   // Memory-leak fix (#1217): fetchCryptoPrices is async. Without a mounted
   // guard, every setState call inside convertAmount would fire even after the
   // component unmounts (e.g. navigating away mid-fetch), triggering the
@@ -56,7 +50,6 @@ export function useCurrencyConversion(
     };
   }, []);
 
->>>>>>> emwulrd/main
   const getCurrencySymbolForCode = useCallback((code: string): string => {
     const symbolMap: Record<string, string> = {
       usd: '$',
@@ -89,13 +82,10 @@ export function useCurrencyConversion(
         price = cachedRate.price;
       } else {
         const prices = await fetchCryptoPrices([tokenSymbol], [fiatCurrency]);
-<<<<<<< HEAD
-=======
 
         // Guard: component may have unmounted while the fetch was in-flight.
         if (!isMountedRef.current) return;
 
->>>>>>> emwulrd/main
         price = prices?.[tokenSymbol.toUpperCase()]?.[fiatCurrency.toLowerCase()];
 
         if (typeof price === 'number') {
@@ -106,11 +96,8 @@ export function useCurrencyConversion(
         }
       }
 
-<<<<<<< HEAD
-=======
       if (!isMountedRef.current) return;
 
->>>>>>> emwulrd/main
       if (typeof price === 'number') {
         const converted = amount * price;
         setFiatAmount(converted);
@@ -121,12 +108,6 @@ export function useCurrencyConversion(
       }
     } catch (error) {
       console.error('Currency conversion error:', error);
-<<<<<<< HEAD
-      setFiatAmount(null);
-      setHasError(true);
-    } finally {
-      setIsLoading(false);
-=======
       if (!isMountedRef.current) return;
       setFiatAmount(null);
       setHasError(true);
@@ -134,7 +115,6 @@ export function useCurrencyConversion(
       if (isMountedRef.current) {
         setIsLoading(false);
       }
->>>>>>> emwulrd/main
     }
   }, [amount, tokenSymbol, fiatCurrency]);
 
@@ -164,15 +144,7 @@ export function useCurrencyConversion(
     });
 
     return `${amount} ${tokenSymbol} ≈ ${symbol}${formattedFiat} ${fiatCurrency.toUpperCase()}`;
-  }, [
-    amount,
-    tokenSymbol,
-    fiatCurrency,
-    fiatAmount,
-    isLoading,
-    hasError,
-    getCurrencySymbolForCode,
-  ]);
+  }, [amount, tokenSymbol, fiatCurrency, fiatAmount, isLoading, hasError, getCurrencySymbolForCode]);
 
   return {
     originalAmount: amount || 0,

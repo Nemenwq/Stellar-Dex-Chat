@@ -1,10 +1,6 @@
 'use client';
 
-<<<<<<< HEAD
-import { useState, useCallback, useEffect } from 'react';
-=======
 import { useState, useCallback, useEffect, useRef } from 'react';
->>>>>>> emwulrd/main
 import { ChatSession, ChatHistoryState, ChatMessage } from '@/types';
 import { ChatHistoryManager } from '@/lib/chatHistory';
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
@@ -19,8 +15,6 @@ export const useChatHistory = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ChatSession[]>([]);
 
-<<<<<<< HEAD
-=======
   // Keep a ref to the latest sessions so callbacks that need to read (not write)
   // sessions never capture a stale closure snapshot.
   const sessionsRef = useRef<ChatSession[]>(historyState.sessions);
@@ -28,7 +22,6 @@ export const useChatHistory = () => {
     sessionsRef.current = historyState.sessions;
   }, [historyState.sessions]);
 
->>>>>>> emwulrd/main
   // Load history from localStorage on mount
   useEffect(() => {
     const loaded = ChatHistoryManager.loadFromLocalStorage();
@@ -46,11 +39,7 @@ export const useChatHistory = () => {
     }
   }, [historyState]);
 
-<<<<<<< HEAD
-  // Debounced search — avoids triggering a lookup on every keystroke
-=======
   // Debounced search - avoids triggering a lookup on every keystroke
->>>>>>> emwulrd/main
   useEffect(() => {
     if (!searchQuery.trim()) {
       setSearchResults([]);
@@ -94,11 +83,6 @@ export const useChatHistory = () => {
 
   const updateCurrentSession = useCallback(
     (messages: ChatMessage[]) => {
-<<<<<<< HEAD
-      if (!historyState.currentSessionId) return;
-
-      setHistoryState((prev) => {
-=======
       // Race-condition fix (#1213): the previous implementation read
       // `historyState.currentSessionId` from the closure, which could be stale
       // if multiple state updates were in-flight. The early-return guard has
@@ -110,7 +94,6 @@ export const useChatHistory = () => {
         // not the stale closure value of historyState.currentSessionId (#1223).
         if (!prev.currentSessionId) return prev;
 
->>>>>>> emwulrd/main
         const sessionIndex = prev.sessions.findIndex(
           (s) => s.id === prev.currentSessionId,
         );
@@ -122,10 +105,6 @@ export const useChatHistory = () => {
           lastUpdated: new Date(),
         };
 
-<<<<<<< HEAD
-        // Update title if this is the first user message
-=======
->>>>>>> emwulrd/main
         const updatedSessionWithTitle =
           ChatHistoryManager.updateSessionTitle(updatedSession);
 
@@ -138,25 +117,17 @@ export const useChatHistory = () => {
         };
       });
     },
-<<<<<<< HEAD
-    [historyState.currentSessionId],
-=======
     [],
->>>>>>> emwulrd/main
   );
 
   const loadSession = useCallback(
     (sessionId: string): ChatMessage[] | null => {
-<<<<<<< HEAD
-      const session = historyState.sessions.find((s) => s.id === sessionId);
-=======
       // Race-condition fix (#1213): reading `historyState.sessions` from the
       // closure captured at useCallback creation could be a stale snapshot when
       // rapid session switches occur. We now read from sessionsRef which is
       // synchronously updated via a layout-effect-ordered ref, ensuring the
       // lookup always reflects the latest committed sessions list.
       const session = sessionsRef.current.find((s) => s.id === sessionId);
->>>>>>> emwulrd/main
       if (!session) return null;
 
       setHistoryState((prev) => ({
@@ -166,11 +137,7 @@ export const useChatHistory = () => {
 
       return session.messages;
     },
-<<<<<<< HEAD
-    [historyState.sessions],
-=======
     [],
->>>>>>> emwulrd/main
   );
 
   const deleteSession = useCallback((sessionId: string) => {
@@ -196,99 +163,50 @@ export const useChatHistory = () => {
 
   const exportSession = useCallback(
     (sessionId: string): string | null => {
-<<<<<<< HEAD
-      const session = historyState.sessions.find((s) => s.id === sessionId);
-      if (!session) return null;
-
-      return ChatHistoryManager.exportSession(session);
-    },
-    [historyState.sessions],
-=======
       const session = sessionsRef.current.find((s) => s.id === sessionId);
       if (!session) return null;
       return ChatHistoryManager.exportSession(session);
     },
     [],
->>>>>>> emwulrd/main
   );
 
   const exportSessionAsJSON = useCallback(
     (sessionId: string): { data: string; filename: string } | null => {
-<<<<<<< HEAD
-      const session = historyState.sessions.find((s) => s.id === sessionId);
-      if (!session) return null;
-
-=======
       const session = sessionsRef.current.find((s) => s.id === sessionId);
       if (!session) return null;
->>>>>>> emwulrd/main
       const data = ChatHistoryManager.exportSessionAsJSON(session);
-      const filename = ChatHistoryManager.generateExportFilename(
-        sessionId,
-        'json',
-      );
+      const filename = ChatHistoryManager.generateExportFilename(sessionId, 'json');
       return { data, filename };
     },
-<<<<<<< HEAD
-    [historyState.sessions],
-=======
     [],
->>>>>>> emwulrd/main
   );
 
   const exportSessionAsTXT = useCallback(
     (sessionId: string): { data: string; filename: string } | null => {
-<<<<<<< HEAD
-      const session = historyState.sessions.find((s) => s.id === sessionId);
-      if (!session) return null;
-
-=======
       const session = sessionsRef.current.find((s) => s.id === sessionId);
       if (!session) return null;
->>>>>>> emwulrd/main
       const data = ChatHistoryManager.exportSessionAsTXT(session);
-      const filename = ChatHistoryManager.generateExportFilename(
-        sessionId,
-        'txt',
-      );
+      const filename = ChatHistoryManager.generateExportFilename(sessionId, 'txt');
       return { data, filename };
     },
-<<<<<<< HEAD
-    [historyState.sessions],
-=======
     [],
->>>>>>> emwulrd/main
   );
 
   const searchSessions = useCallback(
     (query: string): ChatSession[] => {
-<<<<<<< HEAD
-      return ChatHistoryManager.searchSessions(historyState.sessions, query);
-    },
-    [historyState.sessions],
-=======
       return ChatHistoryManager.searchSessions(sessionsRef.current, query);
     },
     [],
->>>>>>> emwulrd/main
   );
 
   const getCurrentSession = useCallback((): ChatSession | null => {
     if (!historyState.currentSessionId) return null;
     return (
-<<<<<<< HEAD
-      historyState.sessions.find(
-        (s) => s.id === historyState.currentSessionId,
-      ) || null
-    );
-  }, [historyState.currentSessionId, historyState.sessions]);
-=======
       sessionsRef.current.find(
         (s) => s.id === historyState.currentSessionId,
       ) || null
     );
   }, [historyState.currentSessionId]);
->>>>>>> emwulrd/main
 
   const togglePin = useCallback((sessionId: string) => {
     setHistoryState((prev) => {

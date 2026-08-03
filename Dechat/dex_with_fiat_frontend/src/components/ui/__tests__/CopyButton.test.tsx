@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import CopyButton from '../CopyButton';
 
 describe('CopyButton', () => {

@@ -1,7 +1,7 @@
 /**
  * Admin Audit Log API Endpoint
  * Read-only endpoint for retrieving audit log entries with filtering
- *
+ * 
  * GET /api/admin-audit
  * Query Parameters:
  *   - actionType: Filter by action type (deposit|payout|reconciliation|user_update|settings_change)
@@ -47,50 +47,25 @@ export async function GET(request: NextRequest) {
 
     const startDate = searchParams.get('startDate');
     if (startDate) {
-<<<<<<< HEAD
-      try {
-        filter.startDate = new Date(startDate);
-      } catch {
-=======
       const parsed = new Date(startDate);
       if (Number.isNaN(parsed.getTime())) {
->>>>>>> emwulrd/main
         return NextResponse.json(
           { error: 'Invalid startDate format. Use ISO 8601 format.' },
-          { status: 400 },
+          { status: 400 }
         );
       }
-<<<<<<< HEAD
-=======
       filter.startDate = parsed;
->>>>>>> emwulrd/main
     }
 
     const endDate = searchParams.get('endDate');
     if (endDate) {
-<<<<<<< HEAD
-      try {
-        filter.endDate = new Date(endDate);
-      } catch {
-=======
       const parsed = new Date(endDate);
       if (Number.isNaN(parsed.getTime())) {
->>>>>>> emwulrd/main
         return NextResponse.json(
           { error: 'Invalid endDate format. Use ISO 8601 format.' },
-          { status: 400 },
+          { status: 400 }
         );
       }
-<<<<<<< HEAD
-    }
-
-    // Pagination parameters
-    const limit = Math.min(
-      parseInt(searchParams.get('limit') || '100', 10),
-      1000, // Max limit
-    );
-    const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10), 0);
-=======
       filter.endDate = parsed;
     }
 
@@ -101,7 +76,6 @@ export async function GET(request: NextRequest) {
       : 100;
     const rawOffset = parseInt(searchParams.get('offset') || '0', 10);
     const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
->>>>>>> emwulrd/main
 
     // Retrieve filtered entries
     const allEntries = AuditLogService.getAuditEntries(filter);
@@ -112,7 +86,7 @@ export async function GET(request: NextRequest) {
     // Sort by timestamp descending (most recent first)
     paginatedEntries.sort(
       (a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
 
     return NextResponse.json(
@@ -128,7 +102,7 @@ export async function GET(request: NextRequest) {
           'Cache-Control': 'no-store, no-cache, must-revalidate',
           'Content-Type': 'application/json',
         },
-      },
+      }
     );
   } catch (error) {
     console.error('Error retrieving audit entries:', error);
@@ -137,7 +111,7 @@ export async function GET(request: NextRequest) {
         error: 'Failed to retrieve audit entries',
         message: error instanceof Error ? error.message : 'Unknown error',
       },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
@@ -146,20 +120,20 @@ export async function GET(request: NextRequest) {
 export async function POST() {
   return NextResponse.json(
     { error: 'Method not allowed. This endpoint is read-only.' },
-    { status: 405 },
+    { status: 405 }
   );
 }
 
 export async function PUT() {
   return NextResponse.json(
     { error: 'Method not allowed. This endpoint is read-only.' },
-    { status: 405 },
+    { status: 405 }
   );
 }
 
 export async function DELETE() {
   return NextResponse.json(
     { error: 'Method not allowed. This endpoint is read-only.' },
-    { status: 405 },
+    { status: 405 }
   );
 }

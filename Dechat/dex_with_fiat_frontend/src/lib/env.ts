@@ -1,12 +1,5 @@
 import { z } from 'zod';
 
-<<<<<<< HEAD
-const serverSchema = z.object({
-  PAYSTACK_SECRET_KEY: z.string().optional(),
-  PAYOUT_PROVIDER: z.string().default('paystack'),
-  ADMIN_API_TOKEN: z.string().optional(),
-  ADMIN_IP_ALLOWLIST: z.string().optional(),
-=======
 /**
  * Zod schema for server-side environment variables.
  *
@@ -36,31 +29,11 @@ const serverSchema = z.object({
   /** Comma-separated list of allowed IP addresses for admin access. */
   ADMIN_IP_ALLOWLIST: z.string().optional(),
   /** Whether to bypass IP allowlist checks for localhost. Defaults to false. */
->>>>>>> emwulrd/main
   ADMIN_IP_ALLOWLIST_BYPASS_LOCAL: z.preprocess((value: unknown) => {
     if (typeof value !== 'string') return false;
     const normalized = value.trim().toLowerCase();
     return normalized === 'true' || normalized === '1';
   }, z.boolean().default(false)),
-<<<<<<< HEAD
-  ADMIN_SECRET: z.string().optional(),
-  GEMINI_API_KEY: z.string().optional(),
-});
-
-const clientSchema = z.object({
-  NEXT_PUBLIC_FIAT_BRIDGE_CONTRACT: z
-    .string()
-    .default('CAWYXBN4PSVXD7NIYEWVFFIIIEUCC6PUN3IMG3J2WHKDB4NVIISMXBPR'),
-  NEXT_PUBLIC_XLM_SAC_CONTRACT: z
-    .string()
-    .default('CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC'),
-  NEXT_PUBLIC_STELLAR_RPC_URL: z
-    .string()
-    .default('https://soroban-testnet.stellar.org'),
-  NEXT_PUBLIC_GEMINI_API_KEY: z.string().optional(),
-});
-
-=======
   /** Secret key for admin authentication. Used for sensitive admin operations. */
   ADMIN_SECRET: z.string().optional(),
   /** API key for Gemini AI integration. Used for AI-powered features. */
@@ -119,7 +92,6 @@ const clientSchema = z.object({
  * // ADMIN_API_TOKEN: Invalid string
  * ```
  */
->>>>>>> emwulrd/main
 const formatErrors = (
   errors: z.ZodFormattedError<Map<string, string>, string>,
 ) =>
@@ -133,8 +105,6 @@ const formatErrors = (
     .filter(Boolean)
     .join('\n');
 
-<<<<<<< HEAD
-=======
 /**
  * Processes and validates environment variables for the application.
  *
@@ -164,7 +134,6 @@ const formatErrors = (
  * // TypeScript will provide autocomplete and type checking
  * ```
  */
->>>>>>> emwulrd/main
 const processEnvVars = () => {
   const isServer = typeof window === 'undefined';
 
@@ -214,8 +183,6 @@ const processEnvVars = () => {
     z.infer<typeof serverSchema>;
 };
 
-<<<<<<< HEAD
-=======
 /**
  * Validated environment variables object.
  *
@@ -245,5 +212,4 @@ const processEnvVars = () => {
  * @see {@link clientSchema} for client-side variable definitions
  * @see {@link processEnvVars} for the validation logic
  */
->>>>>>> emwulrd/main
 export const env = processEnvVars();

@@ -1,12 +1,8 @@
 'use client';
 
-<<<<<<< HEAD
-import { useState, useEffect, useCallback } from 'react';
-=======
 import { useState, useEffect, useCallback, useRef } from 'react';
->>>>>>> emwulrd/main
 
-export const KEYBOARD_SHORTCUTS = {
+const KEYBOARD_SHORTCUTS = {
   ADD_BENEFICIARY: 'Ctrl+B',
   FOCUS_BENEFICIARIES: 'Ctrl+Shift+B',
   NAVIGATE_UP: 'ArrowUp',
@@ -28,8 +24,6 @@ export interface Beneficiary {
 
 const STORAGE_KEY = 'stellar_beneficiaries';
 
-<<<<<<< HEAD
-=======
 /**
  * Request deduplication system to prevent duplicate API calls.
  * Concurrent fetches for the same key share one in-flight promise,
@@ -69,25 +63,10 @@ class RequestDeduplicator {
 
 const deduplicator = new RequestDeduplicator();
 
->>>>>>> emwulrd/main
 function generateId(): string {
   return `ben_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
-<<<<<<< HEAD
-export function useBeneficiaries() {
-  const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>([]);
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isMounted || typeof window === 'undefined') return;
-=======
 /**
  * Fetch beneficiaries from the API with request deduplication.
  * All concurrent requests for the same key will share the same in-flight promise.
@@ -154,7 +133,6 @@ export function useBeneficiaries(options?: { fetchFromApi?: boolean; userId?: st
   // Load from localStorage if not fetching from API
   useEffect(() => {
     if (fetchFromApi || typeof window === 'undefined') return;
->>>>>>> emwulrd/main
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -165,11 +143,7 @@ export function useBeneficiaries(options?: { fetchFromApi?: boolean; userId?: st
       setBeneficiaries([]);
     }
     setIsLoaded(true);
-<<<<<<< HEAD
-  }, [isMounted]);
-=======
   }, [fetchFromApi]);
->>>>>>> emwulrd/main
 
   useEffect(() => {
     if (!isLoaded || typeof window === 'undefined') return;
@@ -223,57 +197,54 @@ export function useBeneficiaries(options?: { fetchFromApi?: boolean; userId?: st
   );
 
   // Keyboard shortcuts handling
-  const handleKeyboardShortcut = useCallback(
-    (event: KeyboardEvent) => {
-      const { ctrlKey, shiftKey, key } = event;
+  const handleKeyboardShortcut = useCallback((event: KeyboardEvent) => {
+    const { ctrlKey, shiftKey, key } = event;
 
-      // Add beneficiary: Ctrl+B
-      if (ctrlKey && !shiftKey && key === 'b') {
-        event.preventDefault();
-        // This would typically trigger a UI action to add beneficiary
-        // For now, we'll just log or provide a callback
-        return 'add';
+    // Add beneficiary: Ctrl+B
+    if (ctrlKey && !shiftKey && key === 'b') {
+      event.preventDefault();
+      // This would typically trigger a UI action to add beneficiary
+      // For now, we'll just log or provide a callback
+      return 'add';
+    }
+
+    // Focus beneficiaries: Ctrl+Shift+B
+    if (ctrlKey && shiftKey && key === 'B') {
+      event.preventDefault();
+      return 'focus';
+    }
+
+    // Navigation: ArrowUp/ArrowDown when beneficiaries are focused
+    if (key === 'ArrowUp' && selectedIndex > 0) {
+      event.preventDefault();
+      setSelectedIndex(selectedIndex - 1);
+      return 'navigate-up';
+    }
+
+    if (key === 'ArrowDown' && selectedIndex < beneficiaries.length - 1) {
+      event.preventDefault();
+      setSelectedIndex(selectedIndex + 1);
+      return 'navigate-down';
+    }
+
+    // Select: Enter
+    if (key === 'Enter' && selectedIndex >= 0) {
+      event.preventDefault();
+      return 'select';
+    }
+
+    // Delete: Delete key
+    if (key === 'Delete' && selectedIndex >= 0) {
+      event.preventDefault();
+      const beneficiaryToDelete = beneficiaries[selectedIndex];
+      if (beneficiaryToDelete) {
+        deleteBeneficiary(beneficiaryToDelete.id);
       }
+      return 'delete';
+    }
 
-      // Focus beneficiaries: Ctrl+Shift+B
-      if (ctrlKey && shiftKey && key === 'B') {
-        event.preventDefault();
-        return 'focus';
-      }
-
-      // Navigation: ArrowUp/ArrowDown when beneficiaries are focused
-      if (key === 'ArrowUp' && selectedIndex > 0) {
-        event.preventDefault();
-        setSelectedIndex(selectedIndex - 1);
-        return 'navigate-up';
-      }
-
-      if (key === 'ArrowDown' && selectedIndex < beneficiaries.length - 1) {
-        event.preventDefault();
-        setSelectedIndex(selectedIndex + 1);
-        return 'navigate-down';
-      }
-
-      // Select: Enter
-      if (key === 'Enter' && selectedIndex >= 0) {
-        event.preventDefault();
-        return 'select';
-      }
-
-      // Delete: Delete key
-      if (key === 'Delete' && selectedIndex >= 0) {
-        event.preventDefault();
-        const beneficiaryToDelete = beneficiaries[selectedIndex];
-        if (beneficiaryToDelete) {
-          deleteBeneficiary(beneficiaryToDelete.id);
-        }
-        return 'delete';
-      }
-
-      return null;
-    },
-    [selectedIndex, beneficiaries, deleteBeneficiary],
-  );
+    return null;
+  }, [selectedIndex, beneficiaries, deleteBeneficiary]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
