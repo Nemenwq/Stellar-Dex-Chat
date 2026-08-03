@@ -28,7 +28,7 @@ describe('AdminGuard', () => {
     render(
       <AdminGuard>
         <div data-testid="protected-content">Secret content</div>
-      </AdminGuard>,
+      </AdminGuard>
     );
 
     await waitFor(() => {
@@ -39,15 +39,13 @@ describe('AdminGuard', () => {
 
   it('shows error if connected address has invalid format (Zod validation)', async () => {
     vi.mocked(useStellarWallet).mockReturnValue({
-      connection: {
-        address: 'invalid-address-not-starting-with-g-or-correct-length',
-      },
-    } as unknown as ReturnType<typeof useStellarWallet>);
+      connection: { address: 'invalid-address-not-starting-with-g-or-correct-length' },
+    } as any);
 
     render(
       <AdminGuard>
         <div data-testid="protected-content">Secret content</div>
-      </AdminGuard>,
+      </AdminGuard>
     );
 
     await waitFor(() => {
@@ -60,14 +58,14 @@ describe('AdminGuard', () => {
   it('shows error if contract admin address has invalid format (Zod validation)', async () => {
     // Valid user address but invalid admin address from contract
     vi.mocked(useStellarWallet).mockReturnValue({
-      connection: { address: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
+      connection: { address: 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDE' }, // 56 chars
     } as unknown as ReturnType<typeof useStellarWallet>);
     vi.mocked(getAdmin).mockResolvedValue('invalid-admin-address'); // Invalid format
 
     render(
       <AdminGuard>
         <div data-testid="protected-content">Secret content</div>
-      </AdminGuard>,
+      </AdminGuard>
     );
 
     await waitFor(() => {
@@ -78,16 +76,16 @@ describe('AdminGuard', () => {
   });
 
   it('renders children when connected address matches admin address exactly', async () => {
-    const validAddr = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const validAddr = 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDE';
     vi.mocked(useStellarWallet).mockReturnValue({
       connection: { address: validAddr },
-    } as unknown as ReturnType<typeof useStellarWallet>);
+    } as any);
     vi.mocked(getAdmin).mockResolvedValue(validAddr);
 
     render(
       <AdminGuard>
         <div data-testid="protected-content">Secret content</div>
-      </AdminGuard>,
+      </AdminGuard>
     );
 
     await waitFor(() => {
@@ -96,17 +94,17 @@ describe('AdminGuard', () => {
   });
 
   it('renders landing page when valid connected address does not match valid admin address', async () => {
-    const userAddr = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-    const adminAddr = 'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
+    const userAddr = 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDE';
+    const adminAddr = 'G1234567890123456789012345678901234567890123456789012345';
     vi.mocked(useStellarWallet).mockReturnValue({
       connection: { address: userAddr },
-    } as unknown as ReturnType<typeof useStellarWallet>);
+    } as any);
     vi.mocked(getAdmin).mockResolvedValue(adminAddr);
 
     render(
       <AdminGuard>
         <div data-testid="protected-content">Secret content</div>
-      </AdminGuard>,
+      </AdminGuard>
     );
 
     await waitFor(() => {
