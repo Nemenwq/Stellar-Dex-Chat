@@ -1911,7 +1911,9 @@ impl FiatBridge {
             .ok_or(Error::NoPendingAdmin)?;
         pending.require_auth();
         let current = env.ledger().sequence() as u64;
-        if current < proposed_at + MIN_TIMELOCK_DELAY as u64 {
+        let unlock_at = proposed_at.checked_add(MIN_TIMELOCK_DELAY as u64)
+            .ok_or(Error::Overflow)?;
+        if current < unlock_at {
             return Err(Error::ActionNotReady);
         }
         env.storage().instance().set(&DataKey::Admin, &pending);
@@ -2509,7 +2511,9 @@ impl FiatBridge {
         // giving up control.
         Self::require_not_paused(&env)?;
 
-        let target_ledger: u32 = env.ledger().sequence() + MIN_TIMELOCK_DELAY;
+        let current_ledger = env.ledger().sequence();
+        let target_ledger = current_ledger.checked_add(MIN_TIMELOCK_DELAY)
+            .ok_or(Error::Overflow)?;
         env.storage()
             .instance()
             .set(&DataKey::PendingRenounceLedger, &target_ledger);
@@ -3289,7 +3293,6 @@ impl FiatBridge {
     /// - The version is set to [`ESCROW_STORAGE_VERSION`] only when
     ///   [`FiatBridge::migrate_escrow`] completes the full migration of all
     ///   receipts to escrow records.
-
     /// Returns the current storage schema version used by the escrow records.
     ///
     /// This is the version tag that [`FiatBridge::migrate_escrow`] compares
