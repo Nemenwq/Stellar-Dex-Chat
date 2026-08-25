@@ -422,6 +422,24 @@ fn test_transfer_admin_to_self_fails() {
 }
 
 #[test]
+fn test_transfer_admin_fence_post_self_referential() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, _, _, _) = setup_bridge(&env, 100);
+
+    // Self-referential transfer should be rejected at the boundary
+    let result = bridge.try_transfer_admin(&admin);
+    assert_eq!(result, Err(Ok(Error::SameAdmin)));
+
+    // Verify no pending admin was set
+    assert_eq!(bridge.get_pending_admin(), None);
+
+    // Verify admin remains unchanged
+    assert_eq!(bridge.get_admin(), admin);
+}
+
+#[test]
 fn test_set_limit() {
     let env = Env::default();
     env.mock_all_auths();
