@@ -4628,6 +4628,54 @@ fn test_execute_renounce_fence_post_boundary() {
     assert!(admin_res.is_err());
 }
 
+// ── cancel_renounce_admin boundary validation tests ───────────────────────
+
+#[test]
+fn test_cancel_renounce_admin_no_pending_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Attempting to cancel when no pending renounce exists must fail
+    let result = bridge.try_cancel_renounce_admin();
+    assert_eq!(result, Err(Ok(Error::ActionNotQueued)));
+}
+
+#[test]
+fn test_cancel_renounce_admin_removes_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Queue a renounce
+    bridge.queue_renounce_admin();
+    assert!(bridge.get_pending_renounce_ledger().is_some());
+
+    // Cancel it
+    bridge.cancel_renounce_admin();
+    assert!(bridge.get_pending_renounce_ledger().is_none());
+}
+
+#[test]
+fn test_cancel_renounce_admin_twice_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Queue a renounce
+    bridge.queue_renounce_admin();
+
+    // First cancel succeeds
+    bridge.cancel_renounce_admin();
+    assert!(bridge.get_pending_renounce_ledger().is_none());
+
+    // Second cancel must return ActionNotQueued (idempotency guard)
+    let result = bridge.try_cancel_renounce_admin();
+    assert_eq!(result, Err(Ok(Error::ActionNotQueued)));
+}
 
 // ── upgrade mechanism tests ───────────────────────────────────────────────
 

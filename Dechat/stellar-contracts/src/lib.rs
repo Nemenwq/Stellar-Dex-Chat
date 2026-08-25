@@ -2638,6 +2638,16 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        
+        // Validate that a pending renounce exists before canceling
+        if !env
+            .storage()
+            .instance()
+            .has(&DataKey::PendingRenounceLedger)
+        {
+            return Err(Error::ActionNotQueued);
+        }
+        
         env.storage()
             .instance()
             .remove(&DataKey::PendingRenounceLedger);
