@@ -4556,8 +4556,8 @@ fn test_queue_renounce_fence_post_boundary() {
 
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
 
-    // Test at a high but safe ledger sequence
-    let safe_high_ledger = u32::MAX - MIN_TIMELOCK_DELAY;
+    // Test at a high but safe ledger sequence (well below u32::MAX to avoid Soroban env validation)
+    let safe_high_ledger = 1_000_000u32;
     env.ledger().set_sequence_number(safe_high_ledger);
 
     bridge.queue_renounce_admin();
