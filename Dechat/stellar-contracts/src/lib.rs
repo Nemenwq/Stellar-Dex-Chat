@@ -1911,7 +1911,9 @@ impl FiatBridge {
             .ok_or(Error::NoPendingAdmin)?;
         pending.require_auth();
         let current = env.ledger().sequence() as u64;
-        if current < proposed_at + MIN_TIMELOCK_DELAY as u64 {
+        let unlock_at = proposed_at.checked_add(MIN_TIMELOCK_DELAY as u64)
+            .ok_or(Error::Overflow)?;
+        if current < unlock_at {
             return Err(Error::ActionNotReady);
         }
         env.storage().instance().set(&DataKey::Admin, &pending);
