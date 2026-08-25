@@ -4550,6 +4550,45 @@ fn test_queue_renounce_succeeds_when_not_paused() {
 }
 
 #[test]
+fn test_queue_renounce_fence_post_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Test at a high but safe ledger sequence
+    let safe_high_ledger = u32::MAX - MIN_TIMELOCK_DELAY;
+    env.ledger().set_sequence_number(safe_high_ledger);
+
+    bridge.queue_renounce_admin();
+    let target_ledger = bridge.get_pending_renounce_ledger().unwrap();
+
+    // Verify target_ledger is exactly current + MIN_TIMELOCK_DELAY
+    assert_eq!(target_ledger, safe_high_ledger + MIN_TIMELOCK_DELAY);
+}
+
+#[test]
+fn test_queue_renounce_duplicate_overwrites() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // First queue
+    bridge.queue_renounce_admin();
+    let first_target = bridge.get_pending_renounce_ledger().unwrap();
+
+    // Advance ledger and queue again
+    env.ledger().set_sequence_number(env.ledger().sequence() + 1000);
+    bridge.queue_renounce_admin();
+    let second_target = bridge.get_pending_renounce_ledger().unwrap();
+
+    // Second queue should overwrite the first
+    assert_ne!(first_target, second_target);
+    assert_eq!(second_target, env.ledger().sequence() + MIN_TIMELOCK_DELAY);
+}
+
+#[test]
 fn test_execute_renounce_fence_post_boundary() {
     let env = Env::default();
     env.mock_all_auths();
