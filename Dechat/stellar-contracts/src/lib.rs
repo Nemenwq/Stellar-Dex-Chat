@@ -3291,7 +3291,6 @@ impl FiatBridge {
     /// - The version is set to [`ESCROW_STORAGE_VERSION`] only when
     ///   [`FiatBridge::migrate_escrow`] completes the full migration of all
     ///   receipts to escrow records.
-
     /// Returns the current storage schema version used by the escrow records.
     ///
     /// This is the version tag that [`FiatBridge::migrate_escrow`] compares

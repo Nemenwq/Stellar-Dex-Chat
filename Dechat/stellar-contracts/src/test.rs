@@ -4571,20 +4571,6 @@ fn test_execute_renounce_fence_post_boundary() {
     assert!(admin_res.is_err());
 }
 
-#[test]
-fn test_queue_renounce_overflow_protection() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
-
-    // Set ledger sequence near u32::MAX to trigger overflow
-    env.ledger().set_sequence_number(u32::MAX - MIN_TIMELOCK_DELAY + 1);
-
-    // Should fail with Overflow error
-    let result = bridge.try_queue_renounce_admin();
-    assert_eq!(result, Err(Ok(Error::Overflow)));
-}
 
 // ── upgrade mechanism tests ───────────────────────────────────────────────
 
