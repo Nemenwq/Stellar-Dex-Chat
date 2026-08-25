@@ -2509,7 +2509,9 @@ impl FiatBridge {
         // giving up control.
         Self::require_not_paused(&env)?;
 
-        let target_ledger: u32 = env.ledger().sequence() + MIN_TIMELOCK_DELAY;
+        let current_ledger = env.ledger().sequence();
+        let target_ledger = current_ledger.checked_add(MIN_TIMELOCK_DELAY)
+            .ok_or(Error::Overflow)?;
         env.storage()
             .instance()
             .set(&DataKey::PendingRenounceLedger, &target_ledger);
