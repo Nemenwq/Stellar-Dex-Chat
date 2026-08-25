@@ -2159,6 +2159,8 @@ impl FiatBridge {
         if delay < MIN_TIMELOCK_DELAY {
             return Err(Error::ActionNotReady);
         }
+        let current_ledger = env.ledger().sequence();
+        let target_ledger = current_ledger.checked_add(delay).ok_or(Error::Overflow)?;
         let id: u64 = env
             .storage()
             .instance()
@@ -2167,15 +2169,16 @@ impl FiatBridge {
         let action = QueuedAdminAction {
             action_type: action_type.clone(),
             payload,
-            queued_ledger: env.ledger().sequence(),
-            target_ledger: env.ledger().sequence() + delay,
+            queued_ledger: current_ledger,
+            target_ledger,
         };
         env.storage()
             .persistent()
             .set(&DataKey::QueuedAdminAction(id), &action);
+        let next_id = id.checked_add(1).ok_or(Error::Overflow)?;
         env.storage()
             .instance()
-            .set(&DataKey::NextActionID, &(id + 1));
+            .set(&DataKey::NextActionID, &next_id);
         AdminActionQueuedEvent {
             version: EVENT_VERSION,
             action_type: action_type.clone(),
@@ -2988,6 +2991,18 @@ impl FiatBridge {
         env.storage()
             .instance()
             .get(&DataKey::PendingRenounceLedger)
+    }
+
+    pub fn get_queued_admin_action(env: Env, id: u64) -> QueuedAdminAction {
+        env.storage()
+            .persistent()
+            .get(&DataKey::QueuedAdminAction(id))
+            .unwrap_or(QueuedAdminAction {
+                action_type: Symbol::new(&env, ""),
+                payload: Bytes::new(&env),
+                queued_ledger: 0,
+                target_ledger: 0,
+            })
     }
 
     pub fn get_anti_sandwich_delay(env: Env) -> u32 {

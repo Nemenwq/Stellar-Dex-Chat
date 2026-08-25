@@ -4728,6 +4728,80 @@ fn test_upgrade_delay_cannot_be_below_minimum() {
     assert_eq!(bridge.get_upgrade_delay(), 1000);
 }
 
+// ── queue_admin_action boundary validation tests ───────────────────────────
+
+#[test]
+fn test_queue_admin_action_rejects_delay_below_minimum() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Delay below MIN_TIMELOCK_DELAY should be rejected
+    let result = bridge.try_queue_admin_action(&Symbol::new(&env, "test"), &Bytes::from_slice(&env, &[1u8]), &(MIN_TIMELOCK_DELAY - 1));
+    assert_eq!(result, Err(Ok(Error::ActionNotReady)));
+}
+
+#[test]
+fn test_queue_admin_action_accepts_exact_minimum_delay() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Exact MIN_TIMELOCK_DELAY should be accepted (fence-post test)
+    let _id = bridge.queue_admin_action(&Symbol::new(&env, "test"), &Bytes::from_slice(&env, &[1u8]), &MIN_TIMELOCK_DELAY);
+}
+
+#[test]
+fn test_queue_admin_action_fence_post_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Test at a high but safe ledger sequence
+    let safe_high_ledger = 1_000_000u32;
+    env.ledger().set_sequence_number(safe_high_ledger);
+
+    let id = bridge.queue_admin_action(&Symbol::new(&env, "test"), &Bytes::from_slice(&env, &[1u8]), &MIN_TIMELOCK_DELAY);
+    
+    // Verify the action was stored with correct target_ledger
+    let action = bridge.get_queued_admin_action(id);
+    assert_eq!(action.target_ledger, safe_high_ledger + MIN_TIMELOCK_DELAY);
+    assert_eq!(action.queued_ledger, safe_high_ledger);
+}
+
+#[test]
+fn test_queue_admin_action_overflow_protection_target_ledger() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Set ledger near u32::MAX to test overflow protection
+    env.ledger().set_sequence_number(u32::MAX - 100);
+
+    // Large delay that would overflow should be rejected
+    let result = bridge.try_queue_admin_action(&Symbol::new(&env, "test"), &Bytes::from_slice(&env, &[1u8]), &200);
+    assert_eq!(result, Err(Ok(Error::Overflow)));
+}
+
+#[test]
+fn test_queue_admin_action_overflow_protection_action_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Manually set NextActionID to u64::MAX to test overflow protection
+    env.storage().instance().set(&crate::DataKey::NextActionID, &u64::MAX);
+
+    // Queueing an action when ID is at MAX should fail with Overflow
+    let result = bridge.try_queue_admin_action(&Symbol::new(&env, "test"), &Bytes::from_slice(&env, &[1u8]), &MIN_TIMELOCK_DELAY);
+    assert_eq!(result, Err(Ok(Error::Overflow)));
+}
+
 #[test]
 fn test_execute_upgrade_after_delay_succeeds() {
     let env = Env::default();
