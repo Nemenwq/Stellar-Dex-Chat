@@ -114,3 +114,212 @@ fn test_init_rejects_zero_threshold() {
 
     assert_eq!(result, Err(Ok(Error::InvalidThreshold)));
 }
+
+// ── Issue #1145: edge case validation regression tests ─────────────────
+
+#[test]
+fn test_init_rejects_zero_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(FiatBridge, ());
+    let bridge = FiatBridgeClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+    let signers = vec![&env, admin.clone()];
+
+    let result = bridge.try_init(&admin, &token, &0, &1, &signers, &1);
+
+    assert_eq!(result, Err(Ok(Error::ZeroAmount)));
+}
+
+#[test]
+fn test_init_rejects_negative_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(FiatBridge, ());
+    let bridge = FiatBridgeClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+    let signers = vec![&env, admin.clone()];
+
+    let result = bridge.try_init(&admin, &token, &-1, &1, &signers, &1);
+
+    assert_eq!(result, Err(Ok(Error::ZeroAmount)));
+}
+
+#[test]
+fn test_init_rejects_i128_max_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(FiatBridge, ());
+    let bridge = FiatBridgeClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+    let signers = vec![&env, admin.clone()];
+
+    let result = bridge.try_init(&admin, &token, &i128::MAX, &1, &signers, &1);
+
+    assert_eq!(result, Err(Ok(Error::InvalidAmount)));
+}
+
+#[test]
+fn test_init_rejects_i128_max_min_deposit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(FiatBridge, ());
+    let bridge = FiatBridgeClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+    let signers = vec![&env, admin.clone()];
+
+    let result = bridge.try_init(&admin, &token, &1_000_000, &i128::MAX, &signers, &1);
+
+    assert_eq!(result, Err(Ok(Error::InvalidAmount)));
+}
+
+#[test]
+fn test_init_rejects_self_referential_admin_token() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(FiatBridge, ());
+    let bridge = FiatBridgeClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let signers = vec![&env, admin.clone()];
+
+    // Admin and token are the same address
+    let result = bridge.try_init(&admin, &admin, &1_000_000, &1, &signers, &1);
+
+    assert_eq!(result, Err(Ok(Error::SelfReferentialAddress)));
+}
+
+// ── fence-post tests for threshold boundary ────────────────────────────
+
+#[test]
+fn test_init_accepts_threshold_equals_signers_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(FiatBridge, ());
+    let bridge = FiatBridgeClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    let signers = vec![&env, signer1, signer2];
+
+    // threshold 2 equals signers count 2 - should succeed
+    let result = bridge.try_init(&admin, &token, &1_000_000, &1, &signers, &2);
+
+    assert_eq!(result, Ok(Ok(())));
+}
+
+#[test]
+fn test_init_rejects_threshold_one_above_signers_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(FiatBridge, ());
+    let bridge = FiatBridgeClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    let signers = vec![&env, signer1, signer2];
+
+    // threshold 3 is one above signers count 2 - fence-post rejection
+    let result = bridge.try_init(&admin, &token, &1_000_000, &1, &signers, &3);
+
+    assert_eq!(result, Err(Ok(Error::InvalidThreshold)));
+}
+
+#[test]
+fn test_init_accepts_threshold_one_below_signers_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(FiatBridge, ());
+    let bridge = FiatBridgeClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    let signer3 = Address::generate(&env);
+    let signers = vec![&env, signer1, signer2, signer3];
+
+    // threshold 2 is less than signers count 3 - should succeed
+    let result = bridge.try_init(&admin, &token, &1_000_000, &1, &signers, &2);
+
+    assert_eq!(result, Ok(Ok(())));
+}
+
+#[test]
+fn test_init_accepts_threshold_one() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(FiatBridge, ());
+    let bridge = FiatBridgeClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+    let signers = vec![&env, admin.clone()];
+
+    // threshold 1 with 1 signer - should succeed
+    let result = bridge.try_init(&admin, &token, &1_000_000, &1, &signers, &1);
+
+    assert_eq!(result, Ok(Ok(())));
+}
+
+#[test]
+fn test_init_accepts_max_signers() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(FiatBridge, ());
+    let bridge = FiatBridgeClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    // Create exactly 20 signers (MAX_SIGNERS)
+    let mut signers = vec![&env];
+    for _ in 0..20 {
+        signers.push_back(Address::generate(&env));
+    }
+
+    // threshold 20 equals signers count - should succeed
+    let result = bridge.try_init(&admin, &token, &1_000_000, &1, &signers, &20);
+
+    assert_eq!(result, Ok(Ok(())));
+}
+
+#[test]
+fn test_init_accepts_one_below_i128_max_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(FiatBridge, ());
+    let bridge = FiatBridgeClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+    let signers = vec![&env, admin.clone()];
+
+    // i128::MAX - 1 should be accepted
+    let result = bridge.try_init(&admin, &token, &(i128::MAX - 1), &1, &signers, &1);
+
+    assert_eq!(result, Ok(Ok(())));
+}

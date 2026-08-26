@@ -3904,8 +3904,8 @@ fn test_deposit_overflow_guard() {
     let env = Env::default();
     env.mock_all_auths();
 
-    // Use a large limit to avoid ExceedsLimit
-    let limit = i128::MAX;
+    // Use a large limit to avoid ExceedsLimit (i128::MAX is rejected by init)
+    let limit = i128::MAX - 1;
     let (contract_id, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, limit);
     let user = Address::generate(&env);
 
