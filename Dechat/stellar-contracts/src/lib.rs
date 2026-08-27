@@ -12,6 +12,7 @@ pub mod oracle;
 pub const MIN_TTL: u32 = 518_400; // ~30 days
 pub const MAX_TTL: u32 = 535_680; // ~31 days
 const MAX_REFERENCE_LEN: u32 = 64;
+const MAX_SIGNERS: u32 = 20;
 const WINDOW_LEDGERS: u32 = 17_280; // ~24 hours
 const CIRCUIT_BREAKER_RESET_LEDGERS: u32 = 34_560; // ~48 hours (2 × WINDOW_LEDGERS)
 const WITHDRAWAL_EXPIRY_WINDOW_LEDGERS: u32 = 17_280; // ~24 hours — reserved for future withdrawal expiry feature
@@ -60,6 +61,8 @@ pub enum Error {
     FeeWithdrawalExceedsBalance = 314,
     CircuitBreakerTripped = 315,
     MaxDeniedReached = 316,
+    InvalidAmount = 317,
+    SelfReferentialAddress = 318,
 
     // --- 400 series: Funds & Balances ---
     InsufficientFunds = 401,
@@ -105,6 +108,7 @@ pub enum Error {
     AlreadyApproved = 1105,
     ProposalAlreadyExecuted = 1106,
     ThresholdNotMet = 1107,
+    MaxSignersReached = 1108,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -709,17 +713,36 @@ impl FiatBridge {
         // ── Issue #1041: emit telemetry event
         Self::emit_telemetry(&env, Symbol::new(&env, "init"));
         
-        if env.storage().instance().has(&DataKey::Admin) {
+        // Prevent reinitialization: check both Admin and SchemaVersion
+        // (Admin may be removed by execute_renounce_admin, but SchemaVersion persists)
+        if env.storage().instance().has(&DataKey::Admin)
+            || env.storage().instance().has(&DataKey::SchemaVersion)
+        {
             return Err(Error::AlreadyInitialized);
         }
         if limit <= 0 {
             return Err(Error::ZeroAmount);
         }
+        if limit == i128::MAX {
+            return Err(Error::InvalidAmount);
+        }
+        if min_deposit == i128::MAX {
+            return Err(Error::InvalidAmount);
+        }
         if min_deposit < 1 || min_deposit >= limit {
             return Err(Error::BelowMinimum);
         }
+        if admin == token {
+            return Err(Error::SelfReferentialAddress);
+        }
+        if admin == env.current_contract_address() {
+            return Err(Error::Unauthorized);
+        }
 
         // Validate multisig config
+        if signers.len() > MAX_SIGNERS {
+            return Err(Error::MaxSignersReached);
+        }
         if threshold == 0 || threshold > signers.len() {
             return Err(Error::InvalidThreshold);
         }
@@ -4704,3 +4727,6 @@ mod test;
 
 #[cfg(test)]
 mod test_oracle_staleness;
+
+#[cfg(test)]
+mod test_init_validation;
