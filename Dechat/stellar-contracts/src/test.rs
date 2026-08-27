@@ -422,6 +422,24 @@ fn test_transfer_admin_to_self_fails() {
 }
 
 #[test]
+fn test_transfer_admin_fence_post_self_referential() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, _, _, _) = setup_bridge(&env, 100);
+
+    // Self-referential transfer should be rejected at the boundary
+    let result = bridge.try_transfer_admin(&admin);
+    assert_eq!(result, Err(Ok(Error::SameAdmin)));
+
+    // Verify no pending admin was set
+    assert_eq!(bridge.get_pending_admin(), None);
+
+    // Verify admin remains unchanged
+    assert_eq!(bridge.get_admin(), admin);
+}
+
+#[test]
 fn test_set_limit() {
     let env = Env::default();
     env.mock_all_auths();
@@ -3886,8 +3904,8 @@ fn test_deposit_overflow_guard() {
     let env = Env::default();
     env.mock_all_auths();
 
-    // Use a large limit to avoid ExceedsLimit
-    let limit = i128::MAX;
+    // Use a large limit to avoid ExceedsLimit (i128::MAX is rejected by init)
+    let limit = i128::MAX - 1;
     let (contract_id, bridge, _, token_addr, _, token_sac) = setup_bridge(&env, limit);
     let user = Address::generate(&env);
 
@@ -4549,6 +4567,116 @@ fn test_queue_renounce_succeeds_when_not_paused() {
     assert!(bridge.get_pending_renounce_ledger().is_some());
 }
 
+#[test]
+fn test_queue_renounce_fence_post_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Test at a high but safe ledger sequence (well below u32::MAX to avoid Soroban env validation)
+    let safe_high_ledger = 1_000_000u32;
+    env.ledger().set_sequence_number(safe_high_ledger);
+
+    bridge.queue_renounce_admin();
+    let target_ledger = bridge.get_pending_renounce_ledger().unwrap();
+
+    // Verify target_ledger is exactly current + MIN_TIMELOCK_DELAY
+    assert_eq!(target_ledger, safe_high_ledger + MIN_TIMELOCK_DELAY);
+}
+
+#[test]
+fn test_queue_renounce_duplicate_overwrites() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // First queue
+    bridge.queue_renounce_admin();
+    let first_target = bridge.get_pending_renounce_ledger().unwrap();
+
+    // Advance ledger and queue again
+    env.ledger().set_sequence_number(env.ledger().sequence() + 1000);
+    bridge.queue_renounce_admin();
+    let second_target = bridge.get_pending_renounce_ledger().unwrap();
+
+    // Second queue should overwrite the first
+    assert_ne!(first_target, second_target);
+    assert_eq!(second_target, env.ledger().sequence() + MIN_TIMELOCK_DELAY);
+}
+
+#[test]
+fn test_execute_renounce_fence_post_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    bridge.queue_renounce_admin();
+    let target_ledger = bridge.get_pending_renounce_ledger().unwrap();
+
+    // At exactly target_ledger, should fail (ActionNotReady)
+    env.ledger().set_sequence_number(target_ledger);
+    let result = bridge.try_execute_renounce_admin();
+    assert_eq!(result, Err(Ok(Error::ActionNotReady)));
+
+    // At target_ledger + 1, should succeed
+    env.ledger().set_sequence_number(target_ledger + 1);
+    bridge.execute_renounce_admin();
+    let admin_res = bridge.try_get_admin();
+    assert!(admin_res.is_err());
+}
+
+// ── cancel_renounce_admin boundary validation tests ───────────────────────
+
+#[test]
+fn test_cancel_renounce_admin_no_pending_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Attempting to cancel when no pending renounce exists must fail
+    let result = bridge.try_cancel_renounce_admin();
+    assert_eq!(result, Err(Ok(Error::ActionNotQueued)));
+}
+
+#[test]
+fn test_cancel_renounce_admin_removes_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Queue a renounce
+    bridge.queue_renounce_admin();
+    assert!(bridge.get_pending_renounce_ledger().is_some());
+
+    // Cancel it
+    bridge.cancel_renounce_admin();
+    assert!(bridge.get_pending_renounce_ledger().is_none());
+}
+
+#[test]
+fn test_cancel_renounce_admin_twice_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Queue a renounce
+    bridge.queue_renounce_admin();
+
+    // First cancel succeeds
+    bridge.cancel_renounce_admin();
+    assert!(bridge.get_pending_renounce_ledger().is_none());
+
+    // Second cancel must return ActionNotQueued (idempotency guard)
+    let result = bridge.try_cancel_renounce_admin();
+    assert_eq!(result, Err(Ok(Error::ActionNotQueued)));
+}
+
 // ── upgrade mechanism tests ───────────────────────────────────────────────
 
 #[test]
@@ -4599,6 +4727,51 @@ fn test_upgrade_delay_cannot_be_below_minimum() {
     bridge.set_upgrade_delay(&1000);
     assert_eq!(bridge.get_upgrade_delay(), 1000);
 }
+
+// ── queue_admin_action boundary validation tests ───────────────────────────
+
+#[test]
+fn test_queue_admin_action_rejects_delay_below_minimum() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Delay below MIN_TIMELOCK_DELAY should be rejected
+    let result = bridge.try_queue_admin_action(&Symbol::new(&env, "test"), &Bytes::from_slice(&env, &[1u8]), &(MIN_TIMELOCK_DELAY - 1));
+    assert_eq!(result, Err(Ok(Error::ActionNotReady)));
+}
+
+#[test]
+fn test_queue_admin_action_accepts_exact_minimum_delay() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Exact MIN_TIMELOCK_DELAY should be accepted (fence-post test)
+    let _id = bridge.queue_admin_action(&Symbol::new(&env, "test"), &Bytes::from_slice(&env, &[1u8]), &MIN_TIMELOCK_DELAY);
+}
+
+#[test]
+fn test_queue_admin_action_fence_post_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
+
+    // Test at a high but safe ledger sequence
+    let safe_high_ledger = 1_000_000u32;
+    env.ledger().set_sequence_number(safe_high_ledger);
+
+    let id = bridge.queue_admin_action(&Symbol::new(&env, "test"), &Bytes::from_slice(&env, &[1u8]), &MIN_TIMELOCK_DELAY);
+    
+    // Verify the action was stored with correct target_ledger
+    let action = bridge.get_queued_admin_action(&id);
+    assert_eq!(action.target_ledger, safe_high_ledger + MIN_TIMELOCK_DELAY);
+    assert_eq!(action.queued_ledger, safe_high_ledger);
+}
+
 
 #[test]
 fn test_execute_upgrade_after_delay_succeeds() {

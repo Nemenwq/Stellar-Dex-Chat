@@ -12,6 +12,7 @@ pub mod oracle;
 pub const MIN_TTL: u32 = 518_400; // ~30 days
 pub const MAX_TTL: u32 = 535_680; // ~31 days
 const MAX_REFERENCE_LEN: u32 = 64;
+const MAX_SIGNERS: u32 = 20;
 const WINDOW_LEDGERS: u32 = 17_280; // ~24 hours
 const CIRCUIT_BREAKER_RESET_LEDGERS: u32 = 34_560; // ~48 hours (2 × WINDOW_LEDGERS)
 const WITHDRAWAL_EXPIRY_WINDOW_LEDGERS: u32 = 17_280; // ~24 hours — reserved for future withdrawal expiry feature
@@ -60,6 +61,8 @@ pub enum Error {
     FeeWithdrawalExceedsBalance = 314,
     CircuitBreakerTripped = 315,
     MaxDeniedReached = 316,
+    InvalidAmount = 317,
+    SelfReferentialAddress = 318,
 
     // --- 400 series: Funds & Balances ---
     InsufficientFunds = 401,
@@ -105,6 +108,7 @@ pub enum Error {
     AlreadyApproved = 1105,
     ProposalAlreadyExecuted = 1106,
     ThresholdNotMet = 1107,
+    MaxSignersReached = 1108,
 }
 
 // ── Models ────────────────────────────────────────────────────────────────
@@ -709,17 +713,36 @@ impl FiatBridge {
         // ── Issue #1041: emit telemetry event
         Self::emit_telemetry(&env, Symbol::new(&env, "init"));
         
-        if env.storage().instance().has(&DataKey::Admin) {
+        // Prevent reinitialization: check both Admin and SchemaVersion
+        // (Admin may be removed by execute_renounce_admin, but SchemaVersion persists)
+        if env.storage().instance().has(&DataKey::Admin)
+            || env.storage().instance().has(&DataKey::SchemaVersion)
+        {
             return Err(Error::AlreadyInitialized);
         }
         if limit <= 0 {
             return Err(Error::ZeroAmount);
         }
+        if limit == i128::MAX {
+            return Err(Error::InvalidAmount);
+        }
+        if min_deposit == i128::MAX {
+            return Err(Error::InvalidAmount);
+        }
         if min_deposit < 1 || min_deposit >= limit {
             return Err(Error::BelowMinimum);
         }
+        if admin == token {
+            return Err(Error::SelfReferentialAddress);
+        }
+        if admin == env.current_contract_address() {
+            return Err(Error::Unauthorized);
+        }
 
         // Validate multisig config
+        if signers.len() > MAX_SIGNERS {
+            return Err(Error::MaxSignersReached);
+        }
         if threshold == 0 || threshold > signers.len() {
             return Err(Error::InvalidThreshold);
         }
@@ -1805,6 +1828,74 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Sets the anti-sandwich delay in ledgers for deposit operations.
+    ///
+    /// This function configures a minimum delay between consecutive deposits
+    /// from the same address to prevent sandwich attacks. When enabled, users
+    /// must wait the specified number of ledgers before making another deposit.
+    ///
+    /// The anti-sandwich mechanism is a protection measure that limits the rate
+    /// at which a single address can submit deposits, making it more difficult
+    /// for attackers to sandwich legitimate transactions with their own.
+    ///
+    /// Only the current admin can call this function. Setting the delay to `0`
+    /// disables the anti-sandwich protection entirely.
+    ///
+    /// # Parameters
+    ///
+    /// - `ledgers` — the minimum number of ledgers that must pass between
+    ///   consecutive deposits from the same address. A value of `0` disables
+    ///   the protection. Typical values range from a few dozen to a few hundred
+    ///   ledgers (each ledger is approximately 5 seconds on Stellar).
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` — the anti-sandwich delay was successfully updated.
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotInitialized`] — the contract has not been initialized.
+    /// - [`Error::Unauthorized`] — the caller is not the current admin.
+    ///
+    /// # Notes
+    ///
+    /// - The delay is stored in instance storage under [`DataKey::AntiSandwichDelay`].
+    /// - The last deposit ledger for each user is tracked in temporary storage.
+    /// - During deposit, the contract checks if the current ledger is less than
+    ///   `last_deposit_ledger + anti_sandwich_delay` and returns
+    ///   [`Error::AntiSandwichDelayActive`] if the delay has not elapsed.
+    /// - This protection is independent of the general cooldown mechanism
+    ///   configured by [`FiatBridge::set_cooldown`].
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Set anti-sandwich delay to 100 ledgers (~8 minutes).
+    /// bridge.set_anti_sandwich_delay(&100).expect("admin only");
+    ///
+    /// // Verify the delay was set.
+    /// assert_eq!(bridge.get_anti_sandwich_delay(), 100);
+    ///
+    /// // First deposit succeeds.
+    /// bridge.deposit(&user, &100, &token, &Bytes::new(&env), &0, &0, &None);
+    ///
+    /// // Second deposit immediately fails with AntiSandwichDelayActive.
+    /// let result = bridge.try_deposit(&user, &100, &token, &Bytes::new(&env), &0, &0, &None);
+    /// assert_eq!(result, Err(Error::AntiSandwichDelayActive));
+    ///
+    /// // Disable the protection.
+    /// bridge.set_anti_sandwich_delay(&0).expect("admin only");
+    /// assert_eq!(bridge.get_anti_sandwich_delay(), 0);
+    /// ```
+    ///
+    /// # Cross-references
+    ///
+    /// - [`FiatBridge::get_anti_sandwich_delay`] — retrieves the current delay value
+    /// - [`FiatBridge::set_cooldown`] — sets the general deposit cooldown
+    /// - [`FiatBridge::deposit`] — enforces this delay during deposit operations
+    /// - [`DataKey::AntiSandwichDelay`] — storage key for this value
+    /// - [`DataKey::LastDeposit`] — storage key tracking last deposit per user
+    /// - [`Error::AntiSandwichDelayActive`] — error when delay has not elapsed
     pub fn set_anti_sandwich_delay(env: Env, ledgers: u32) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -1843,7 +1934,9 @@ impl FiatBridge {
             .ok_or(Error::NoPendingAdmin)?;
         pending.require_auth();
         let current = env.ledger().sequence() as u64;
-        if current < proposed_at + MIN_TIMELOCK_DELAY as u64 {
+        let unlock_at = proposed_at.checked_add(MIN_TIMELOCK_DELAY as u64)
+            .ok_or(Error::Overflow)?;
+        if current < unlock_at {
             return Err(Error::ActionNotReady);
         }
         env.storage().instance().set(&DataKey::Admin, &pending);
@@ -1852,6 +1945,59 @@ impl FiatBridge {
     }
 
     // ── Fiat Limits & Oracle ──────────────────────────────────────────────
+    /// Sets the oracle contract address for fiat price validation.
+    ///
+    /// This function configures the oracle address used by the contract to
+    /// obtain token prices in USD cents for fiat limit enforcement. The oracle
+    /// is called during deposit operations to validate that the fiat value of
+    /// deposits does not exceed configured limits.
+    ///
+    /// Only the current admin can call this function. The oracle address can
+    /// be updated at any time by the admin, allowing for oracle migration or
+    /// replacement as needed.
+    ///
+    /// # Parameters
+    ///
+    /// - `oracle` — the address of the oracle contract that provides price feeds.
+    ///   This address must implement the expected oracle interface for price
+    ///   queries.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` — the oracle address was successfully updated.
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotInitialized`] — the contract has not been initialized.
+    /// - [`Error::Unauthorized`] — the caller is not the current admin.
+    ///
+    /// # Notes
+    ///
+    /// - The oracle address is stored in instance storage.
+    /// - Setting an invalid oracle address will cause subsequent deposits to
+    ///   fail with [`Error::OracleNotSet`] or [`Error::OraclePriceInvalid`].
+    /// - This function does not validate that the oracle address is a valid
+    ///   contract or that it implements the required interface.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Set the oracle address.
+    /// let oracle_addr = Address::from_string(&soroban_sdk::String::from_str(&env, "G..."));
+    /// bridge.set_oracle(&oracle_addr).expect("admin only");
+    ///
+    /// // Verify the oracle was set.
+    /// let stored_oracle = bridge.get_config_snapshot().unwrap().oracle;
+    /// assert_eq!(stored_oracle, Some(oracle_addr));
+    /// ```
+    ///
+    /// # Cross-references
+    ///
+    /// - [`FiatBridge::set_fiat_limit`] — sets the fiat limit enforced using oracle prices
+    /// - [`FiatBridge::validate_fiat_limit`] — internal function that uses the oracle
+    /// - [`DataKey::Oracle`] — storage key for this value
+    /// - [`Error::OracleNotSet`] — error when oracle is not configured
+    /// - [`Error::OraclePriceInvalid`] — error when oracle returns invalid price
     pub fn set_oracle(env: Env, oracle: Address) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -2036,6 +2182,8 @@ impl FiatBridge {
         if delay < MIN_TIMELOCK_DELAY {
             return Err(Error::ActionNotReady);
         }
+        let current_ledger = env.ledger().sequence();
+        let target_ledger = current_ledger.checked_add(delay).ok_or(Error::Overflow)?;
         let id: u64 = env
             .storage()
             .instance()
@@ -2044,15 +2192,16 @@ impl FiatBridge {
         let action = QueuedAdminAction {
             action_type: action_type.clone(),
             payload,
-            queued_ledger: env.ledger().sequence(),
-            target_ledger: env.ledger().sequence() + delay,
+            queued_ledger: current_ledger,
+            target_ledger,
         };
         env.storage()
             .persistent()
             .set(&DataKey::QueuedAdminAction(id), &action);
+        let next_id = id.checked_add(1).ok_or(Error::Overflow)?;
         env.storage()
             .instance()
-            .set(&DataKey::NextActionID, &(id + 1));
+            .set(&DataKey::NextActionID, &next_id);
         AdminActionQueuedEvent {
             version: EVENT_VERSION,
             action_type: action_type.clone(),
@@ -2388,7 +2537,9 @@ impl FiatBridge {
         // giving up control.
         Self::require_not_paused(&env)?;
 
-        let target_ledger: u32 = env.ledger().sequence() + MIN_TIMELOCK_DELAY;
+        let current_ledger = env.ledger().sequence();
+        let target_ledger = current_ledger.checked_add(MIN_TIMELOCK_DELAY)
+            .ok_or(Error::Overflow)?;
         env.storage()
             .instance()
             .set(&DataKey::PendingRenounceLedger, &target_ledger);
@@ -2513,6 +2664,16 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        
+        // Validate that a pending renounce exists before canceling
+        if !env
+            .storage()
+            .instance()
+            .has(&DataKey::PendingRenounceLedger)
+        {
+            return Err(Error::ActionNotQueued);
+        }
+        
         env.storage()
             .instance()
             .remove(&DataKey::PendingRenounceLedger);
@@ -2855,6 +3016,18 @@ impl FiatBridge {
             .get(&DataKey::PendingRenounceLedger)
     }
 
+    pub fn get_queued_admin_action(env: Env, id: u64) -> QueuedAdminAction {
+        env.storage()
+            .persistent()
+            .get(&DataKey::QueuedAdminAction(id))
+            .unwrap_or(QueuedAdminAction {
+                action_type: Symbol::new(&env, ""),
+                payload: Bytes::new(&env),
+                queued_ledger: 0,
+                target_ledger: 0,
+            })
+    }
+
     pub fn get_anti_sandwich_delay(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -3145,6 +3318,84 @@ impl FiatBridge {
     }
 
     // ── Escrow Migration ──────────────────────────────────────────────────
+    /// Returns the current escrow storage version.
+    ///
+    /// This function indicates whether the escrow migration from temporary
+    /// [`Receipt`] storage to persistent [`EscrowRecord`] storage has been
+    /// completed. A return value of `0` indicates that migration is either
+    /// incomplete or has not started, while a non-zero value (specifically
+    /// [`ESCROW_STORAGE_VERSION`]) indicates that migration has finished.
+    ///
+    /// # Returns
+    ///
+    /// - `u32` — The current escrow storage version. Returns `0` if no version
+    ///   has been set (migration not complete), or [`ESCROW_STORAGE_VERSION`]
+    ///   if migration has been successfully completed.
+    ///
+    /// # Notes
+    ///
+    /// - The version is stored in instance storage and persists across contract
+    ///   invocations.
+    /// - This function is safe to call from a simulation context since it requires
+    ///   no authentication and mutates no state.
+    /// - The version is set to [`ESCROW_STORAGE_VERSION`] only when
+    ///   [`FiatBridge::migrate_escrow`] completes the full migration of all
+    ///   receipts to escrow records.
+    /// Returns the current storage schema version used by the escrow records.
+    ///
+    /// This is the version tag that [`FiatBridge::migrate_escrow`] compares
+    /// against the compile-time [`ESCROW_STORAGE_VERSION`] constant to decide
+    /// whether migration is needed.  After a successful full migration the
+    /// stored version is bumped to match the constant, making this function
+    /// the canonical way to check migration status.
+    ///
+    /// # Returns
+    ///
+    /// - `0` — migration has never run or was not completed.
+    /// - `1` — fully migrated to the current schema (v1).
+    ///
+    /// Higher values correspond to future schema versions.
+    ///
+    /// # Errors
+    ///
+    /// None.  An uninitialised contract returns `0`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Before migration, version is 0.
+    /// assert_eq!(bridge.get_escrow_storage_version(), 0);
+    ///
+    /// // Deposit some receipts.
+    /// bridge.deposit(&user, &100, &token, &Bytes::new(&env), &0, &0, &None);
+    /// bridge.deposit(&user, &250, &token, &Bytes::new(&env), &0, &0, &None);
+    ///
+    /// // Migrate all receipts.
+    /// let migrated = bridge.migrate_escrow(&10);
+    /// assert_eq!(migrated, 2);
+    ///
+    /// // After migration, version is set to ESCROW_STORAGE_VERSION.
+    /// assert_eq!(bridge.get_escrow_storage_version(), ESCROW_STORAGE_VERSION);
+    /// ```
+    ///
+    /// # Cross-references
+    ///
+    /// - [`FiatBridge::migrate_escrow`] — performs the migration and sets this version
+    /// - [`FiatBridge::get_migration_cursor`] — tracks migration progress
+    /// - [`FiatBridge::get_escrow_record`] — reads migrated escrow records
+    /// - [`DataKey::EscrowStorageVersion`] — storage key for this value
+    /// - [`ESCROW_STORAGE_VERSION`] — constant value indicating completed migration
+    /// let version = bridge.get_escrow_storage_version();
+    /// if version < ESCROW_STORAGE_VERSION {
+    ///     // Migration is pending or partial.
+    /// }
+    /// ```
+    ///
+    /// ## See also
+    /// - [`FiatBridge::migrate_escrow`] — advances the migration forward.
+    /// - [`FiatBridge::get_escrow_record`] — reads a single migrated record.
+    /// - [`FiatBridge::get_migration_cursor`] — reports how far migration has
+    ///   progressed.
     pub fn get_escrow_storage_version(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -3152,6 +3403,82 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
+    /// Migrate receipt data to persistent escrow records in batches.
+    ///
+    /// The bridge issues deposits as [`Receipt`] entries stored in persistent
+    /// storage keyed by receipt hash, with a sequential index in temporary
+    /// storage for enumeration.  Temporary entries have a limited TTL, so for
+    /// long-lived escrow positions the data must be promoted to a persistent,
+    /// sequentially-keyed [`EscrowRecord`] that will not expire.
+    ///
+    /// This function walks the receipt index from the current cursor forward,
+    /// copying each receipt it finds into a persistent `EscrowRecord` slot.
+    /// The process is batched (`batch_size` entries per call) so that it can
+    /// be resumed across multiple invocations — useful when the total number
+    /// of receipts is large and a single call would exceed the Soroban budget.
+    ///
+    /// # Caller requirements
+    ///
+    /// - `admin` (the stored admin address) **must** authenticate.  See
+    ///   [`FiatBridge::transfer_admin`] for the two-step admin transfer flow.
+    ///
+    /// # Parameters
+    ///
+    /// - `batch_size` — maximum number of receipt positions to process in
+    ///   this call.  A value of `0` is accepted and immediately returns `0`.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(count)` — the number of receipts successfully migrated in this
+    ///   batch (may be less than `batch_size` when the remaining receipts
+    ///   are fewer).  `count` is `0` when the cursor has already reached the
+    ///   end of the receipt counter.
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotInitialized`] — the contract has not been initialised
+    ///   (no `Admin` key in storage).
+    /// - [`Error::MigrationAlreadyComplete`] — the stored version equals or
+    ///   exceeds [`ESCROW_STORAGE_VERSION`]; a second call is a no-op.
+    ///
+    /// # Notes
+    ///
+    /// - A receipt index entry that has **expired** from temporary storage is
+    ///   silently skipped (no `EscrowRecord` is created for that slot).  The
+    ///   cursor still advances past it, leaving a permanent gap at that id.
+    /// - The same applies when the persistent `Receipt` entry has been removed
+    ///   (e.g. after a refund or manual cleanup).
+    /// - When the last receipt in the counter has been processed, the stored
+    ///   version is bumped so that subsequent calls return
+    ///   `MigrationAlreadyComplete` immediately.
+    /// - A [`MigrationEvent`] is emitted after every batch with the new cursor
+    ///   position and the count of records migrated in that invocation.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Deposit two test receipts.
+    /// bridge.deposit(&user, &100, &token, &Bytes::new(&env), &0, &0, &None);
+    /// bridge.deposit(&user, &250, &token, &Bytes::new(&env), &0, &0, &None);
+    ///
+    /// // Migrate a batch of up to 10.
+    /// let count = bridge.migrate_escrow(&10);
+    /// assert_eq!(count, 2);               // both receipts migrated
+    /// assert_eq!(bridge.get_migration_cursor(), 2);
+    ///
+    /// // Now a second call is a no-op (version already bumped).
+    /// assert_eq!(
+    ///     bridge.try_migrate_escrow(&10),
+    ///     Err(Ok(Error::MigrationAlreadyComplete))
+    /// );
+    /// ```
+    ///
+    /// ## See also
+    /// - [`FiatBridge::get_escrow_storage_version`] — query current version.
+    /// - [`FiatBridge::get_escrow_record`] — read a migrated record by id.
+    /// - [`FiatBridge::get_migration_cursor`] — current cursor position.
+    /// - [`EscrowRecord`] — the target record type produced by migration.
+    /// - [`MigrationEvent`] — the event emitted after each batch.
     pub fn migrate_escrow(env: Env, batch_size: u32) -> Result<u32, Error> {
         let admin: Address = env
             .storage()
@@ -3310,6 +3637,72 @@ impl FiatBridge {
         env.storage().persistent().get(&DataKey::EscrowRecord(id))
     }
 
+    /// Returns the current position of the receipt→escrow migration.
+    ///
+    /// This function reports how many receipt positions have been successfully
+    /// migrated to persistent [`EscrowRecord`] entries by [`FiatBridge::migrate_escrow`].
+    /// The cursor is a monotonically increasing counter that starts at `0` and
+    /// advances as migration progresses.
+    ///
+    /// This is the primary way for indexers, dashboards, and off-chain services
+    /// to track migration progress and determine which escrow records are available
+    /// for enumeration via [`FiatBridge::get_escrow_record`].
+    ///
+    /// # Parameters
+    ///
+    /// None. This is a read-only view function that requires no arguments.
+    ///
+    /// # Returns
+    ///
+    /// - `u64` — the current migration cursor value. This represents the number
+    ///   of receipt positions that have been migrated. All escrow records with
+    ///   ids in the range `0..cursor` are guaranteed to exist (unless evicted).
+    ///   Returns `0` if migration has not started or the cursor was never set.
+    ///
+    /// # Errors
+    ///
+    /// None. This function cannot fail: it performs a simple storage read and
+    /// returns a default value (`0`) if the cursor has never been initialized.
+    /// No authentication is required and no state is mutated.
+    ///
+    /// # Notes
+    ///
+    /// - The cursor is stored in instance storage and persists across contract
+    ///   invocations.
+    /// - When the cursor equals the receipt counter, migration is considered
+    ///   complete and [`FiatBridge::get_escrow_storage_version`] is updated.
+    /// - This function is safe to call from a simulation context since it requires
+    ///   no auth and mutates no state.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Initially, no migration has occurred.
+    /// assert_eq!(bridge.get_migration_cursor(), 0);
+    ///
+    /// // Deposit some receipts.
+    /// bridge.deposit(&user, &100, &token, &Bytes::new(&env), &0, &0, &None);
+    /// bridge.deposit(&user, &250, &token, &Bytes::new(&env), &0, &0, &None);
+    ///
+    /// // Migrate up to 10 receipts.
+    /// let migrated = bridge.migrate_escrow(&10);
+    /// assert_eq!(migrated, 2);
+    ///
+    /// // Cursor now reflects the 2 migrated positions.
+    /// assert_eq!(bridge.get_migration_cursor(), 2);
+    ///
+    /// // Escrow records 0 and 1 are now available.
+    /// assert!(bridge.get_escrow_record(&0).is_some());
+    /// assert!(bridge.get_escrow_record(&1).is_some());
+    /// assert!(bridge.get_escrow_record(&2).is_none()); // Beyond cursor
+    /// ```
+    ///
+    /// # Cross-references
+    ///
+    /// - [`FiatBridge::migrate_escrow`] — advances this cursor
+    /// - [`FiatBridge::get_escrow_record`] — reads records using this cursor
+    /// - [`FiatBridge::get_escrow_storage_version`] — indicates migration completion
+    /// - [`DataKey::EscrowMigrationCursor`] — storage key for this value
     pub fn get_migration_cursor(env: Env) -> u64 {
         env.storage()
             .instance()
@@ -4334,3 +4727,6 @@ mod test;
 
 #[cfg(test)]
 mod test_oracle_staleness;
+
+#[cfg(test)]
+mod test_init_validation;
