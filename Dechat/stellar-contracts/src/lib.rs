@@ -4730,3 +4730,6 @@ mod test_oracle_staleness;
 
 #[cfg(test)]
 mod test_init_validation;
+
+#[cfg(test)]
+mod test_get_multisig_signers_invariants;
