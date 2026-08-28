@@ -4377,51 +4377,71 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
-    /// Return `true` if the circuit breaker is currently tripped.
     /// Return whether the circuit breaker is currently tripped.
     ///
-    /// This is a pure read — it reflects the stored flag at the moment of the call
-    /// and does **not** evaluate whether the auto-reset window has elapsed. A breaker
-    /// that has been tripped but whose reset window has since passed will still read
-    /// `true` here until the next guarded withdrawal or heartbeat path triggers the
-    /// auto-reset logic in [`Self::check_and_update_circuit_breaker`] or
-    /// [`Self::require_circuit_breaker_clear`].
+    /// This is the primary read-only probe for the circuit breaker's state. Use it to
+    /// gate off-chain alerting, drive monitoring dashboards, assert post-conditions in
+    /// integration tests, or verify state before deciding whether to call
+    /// [`Self::reset_circuit_breaker`].
     ///
-    /// Use this function to:
-    /// - gate off-chain alerting or monitoring dashboards,
-    /// - assert post-conditions in integration tests, or
-    /// - verify state before calling [`Self::reset_circuit_breaker`].
+    /// **Important:** this is a pure storage read — it reflects the persisted flag at
+    /// the moment of the call and does **not** evaluate whether the auto-reset window
+    /// has elapsed. If the breaker was tripped and the configured reset window has since
+    /// passed, this function still returns `true`. The flag is only cleared lazily: the
+    /// next guarded withdrawal path evaluates the window and auto-resets if eligible,
+    /// emitting [`CircuitBreakerAutoResetEvent`]. If you need an immediate clear without
+    /// waiting for a withdrawal, call [`Self::reset_circuit_breaker`] explicitly.
+    ///
+    /// # Parameters
+    ///
+    /// None. This is a read-only view function that requires no arguments and no
+    /// authentication.
     ///
     /// # Returns
     ///
     /// - `true` — the breaker is tripped; all guarded withdrawal paths will return
-    ///   [`Error::CircuitBreakerActive`] until the breaker is cleared.
+    ///   [`Error::CircuitBreakerActive`] until the breaker is cleared (either by
+    ///   [`Self::reset_circuit_breaker`] or by the lazy auto-reset on the next
+    ///   guarded withdrawal after the window elapses).
     /// - `false` — the breaker is clear, or has never been tripped (the storage key
     ///   is absent and defaults to `false`).
     ///
+    /// # Errors
+    ///
+    /// None. This function performs a plain instance-storage read, requires no auth,
+    /// and cannot panic.
+    ///
     /// # Notes
     ///
-    /// - No parameters; no errors; cannot panic.
-    /// - To clear a tripped breaker manually, call [`Self::reset_circuit_breaker`].
-    /// - To configure how long the breaker stays tripped before clearing automatically,
-    ///   call [`Self::set_circuit_breaker_reset_window`].
-    /// - To set the withdrawal volume threshold that triggers the breaker, call
+    /// - Because auto-reset is lazy, a `true` return does not necessarily mean
+    ///   withdrawals are still blocked — if the reset window has elapsed, the next
+    ///   withdrawal call will clear the breaker automatically before proceeding.
+    ///   Do not use this function alone to determine whether a withdrawal will succeed.
+    /// - To clear a tripped breaker immediately, call [`Self::reset_circuit_breaker`].
+    /// - To read the auto-reset window that governs lazy clearing, call
+    ///   [`Self::get_circuit_breaker_reset_window`].
+    /// - To read or change the volume threshold that causes the breaker to trip, call
+    ///   [`Self::get_circuit_breaker_threshold`] or
     ///   [`Self::set_circuit_breaker_threshold`].
-    /// - To read the currently configured threshold value, call
-    ///   [`Self::get_circuit_breaker_threshold`].
+    /// - To change the auto-reset window, call [`Self::set_circuit_breaker_reset_window`].
     ///
     /// # Example
     ///
     /// ```ignore
-    /// // Before any threshold breach the breaker is clear.
+    /// // 1. Before any threshold breach the breaker is clear.
     /// assert!(!bridge.is_circuit_breaker_tripped());
     ///
-    /// // A withdrawal that pushes rolling volume past the threshold trips it.
+    /// // 2. A withdrawal that pushes rolling volume past the threshold trips it.
     /// bridge.set_circuit_breaker_threshold(&env, 500)?;
-    /// bridge.withdraw(&admin, &user, &600, &token_addr)?; // succeeds but trips
+    /// bridge.withdraw(&operator, &recipient, &501, &token)?; // executes but trips
     /// assert!(bridge.is_circuit_breaker_tripped());
     ///
-    /// // After a manual reset, guarded operations resume.
+    /// // 3. Even after the reset window elapses, the flag reads true until the
+    /// //    next guarded withdrawal triggers the lazy auto-reset.
+    /// env.ledger().set_sequence_number(env.ledger().sequence() + 34_561);
+    /// assert!(bridge.is_circuit_breaker_tripped()); // still true — no withdrawal yet
+    ///
+    /// // 4. A manual reset clears it immediately and emits CircuitBreakerResetEvent.
     /// bridge.reset_circuit_breaker()?;
     /// assert!(!bridge.is_circuit_breaker_tripped());
     /// ```
