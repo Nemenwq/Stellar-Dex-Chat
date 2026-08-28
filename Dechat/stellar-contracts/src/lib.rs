@@ -4733,3 +4733,6 @@ mod test_init_validation;
 
 #[cfg(test)]
 mod test_get_multisig_signers_invariants;
+
+#[cfg(test)]
+mod test_execute_multisig_action_invariants;
