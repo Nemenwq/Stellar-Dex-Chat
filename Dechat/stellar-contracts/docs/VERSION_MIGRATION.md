@@ -34,6 +34,7 @@ env.events().publish(
 | migration | v1 | (event_name, version) | (cursor, count) |
 | batch_ok | v1 | (event_name, version) | (success_count, total_ops) |
 | batch_fail | v1 | (event_name, version) | (failed_index, total_ops) |
+| prune_inactive_operators | v1 | (event_name, version) | (removed_count, active_count) |
 
 ---
 
