@@ -34,8 +34,7 @@ export default function TestNotificationsCenterPage() {
           timestamp: Date.now() - 7200000,
           read: true,
         };
-        notificationStore['notifications'] = [readNotif1, readNotif2];
-        notificationStore.emit();
+        notificationStore.setNotifications([readNotif1, readNotif2]);
         break;
       case 'mixed':
         notificationStore.clearNotifications();
@@ -48,8 +47,7 @@ export default function TestNotificationsCenterPage() {
           timestamp: Date.now() - 10800000,
           read: true,
         };
-        notificationStore['notifications'] = [readNotif, ...notificationStore.getSnapshot()];
-        notificationStore.emit();
+        notificationStore.setNotifications([readNotif, ...notificationStore.getSnapshot()]);
         break;
     }
   }, [scenario]);
