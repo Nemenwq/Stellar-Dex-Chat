@@ -1097,6 +1097,31 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Verifies the core accounting invariants after a state-changing
+    /// operation for the given token. Called at the end of every entry point
+    /// that mutates token accounting (`deposit`, `withdraw`,
+    /// `request_withdrawal`, `execute_withdrawal`, `withdraw_fees`).
+    ///
+    /// The three invariants enforced are:
+    /// 1. `total_deposited >= total_withdrawn` — the contract never withdraws
+    ///    more than it has ever taken in.
+    /// 2. `net_deposited (total_deposited - total_withdrawn) >=
+    ///    total_liabilities` — outstanding withdrawal liabilities never exceed
+    ///    the net amount actually held.
+    /// 3. on-chain token `balance >= net_deposited` — real held tokens always
+    ///    cover the net amount owed to depositors.
+    ///
+    /// A violation of invariants 1–2 indicates corrupt internal accounting and
+    /// returns [`Error::InternalError`]; a violation of invariant 3 means the
+    /// contract's own tokens were spent on something other than a tracked
+    /// deposit/withdrawal and returns [`Error::InsufficientFunds`].
+    ///
+    /// The `>=` comparison (rather than `==`) for invariant 3 intentionally
+    /// permits "extra" untracked balance, such as accrued fees that have not
+    /// yet been withdrawn.
+    ///
+    /// See [`docs/INVARIANT_TESTING.md`](docs/INVARIANT_TESTING.md) for the
+    /// full testing strategy.
     fn check_invariants(env: &Env, token_addr: &Address) -> Result<(), Error> {
         let config: TokenConfig = env
             .storage()
