@@ -4782,13 +4782,13 @@ mod test_oracle_staleness;
 mod test_init_validation;
 
 #[cfg(test)]
-mod test_get_multisig_signers_invariants;
+mod test_approve_multisig_action_invariants;
 
 #[cfg(test)]
-mod test_execute_multisig_action_invariants;
+mod test_revoke_multisig_approval_invariants;
 
 #[cfg(test)]
-mod test_set_max_operators_event;
+mod test_get_multisig_proposal_invariants;
 
 #[cfg(test)]
-mod test_is_operator_event;
+mod test_propose_upgrade_invariants;
