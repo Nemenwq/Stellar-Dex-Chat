@@ -4276,48 +4276,80 @@ impl FiatBridge {
             .unwrap_or(CIRCUIT_BREAKER_RESET_LEDGERS)
     }
 
-    /// Manually clear a tripped circuit breaker so guarded operations can resume immediately.
+    /// Immediately clear a tripped circuit breaker so that guarded withdrawal operations
+    /// can resume without waiting for the auto-reset window to expire.
     ///
-    /// Use this when operators have investigated the withdrawal activity that triggered the
-    /// breaker and have determined it is safe to resume. It is the only way to clear the
-    /// breaker when auto-reset is disabled (`reset_window == u32::MAX`) or when you cannot
-    /// wait for the auto-reset window to elapse.
+    /// The circuit breaker halts withdrawals when rolling 24-hour outflow volume exceeds
+    /// the configured threshold. This function is the explicit admin escape-hatch: call it
+    /// after investigating the activity that caused the trip and confirming it is safe to
+    /// resume. It is the *only* way to clear the breaker when auto-reset is disabled
+    /// (`reset_window == u32::MAX`), and it is the fastest path in every other mode — there
+    /// is no need to wait for the ledger count to elapse.
     ///
-    /// The function:
-    /// 1. Flips [`DataKey::CircuitBreakerTripped`] to `false`.
-    /// 2. Emits [`CircuitBreakerResetEvent`] with the current ledger sequence.
+    /// On success the function:
+    /// 1. Clears the tripped flag in instance storage so that all subsequent guarded
+    ///    withdrawal paths proceed normally.
+    /// 2. Always emits a [`CircuitBreakerResetEvent`] carrying the current ledger sequence,
+    ///    regardless of whether the breaker was tripped at the time of the call. This
+    ///    provides an unconditional audit trail for every admin-initiated reset.
     ///
-    /// It does **not** clear [`DataKey::CircuitBreakerTrippedAt`] (the ledger at which the
-    /// breaker tripped), so that value remains available for audit purposes until the next
-    /// trip overwrites it.
+    /// The ledger sequence at which the breaker originally tripped is intentionally
+    /// preserved in storage and is not cleared by this call. It remains available for
+    /// off-chain audit until the next trip overwrites it.
+    ///
+    /// # Parameters
+    ///
+    /// None. The caller is identified solely by Soroban auth; only the current admin
+    /// address may invoke this function.
     ///
     /// # Returns
     ///
     /// `Ok(())` on success. Calling this function when the breaker is already clear is a
-    /// no-op — it succeeds silently.
+    /// no-op — it succeeds silently and still emits [`CircuitBreakerResetEvent`].
     ///
     /// # Errors
     ///
-    /// - [`Error::NotInitialized`] — contract has not been initialised (no admin in instance
-    ///   storage).
-    /// - Panics with a Soroban auth error if the caller is not the current admin.
+    /// - [`Error::NotInitialized`] — the contract has not been initialised (no admin in
+    ///   instance storage). Call `init` first.
+    /// - Panics with a Soroban host auth error if the caller is not the current admin.
+    ///   Use [`Self::transfer_admin`] to inspect or change the admin address.
     ///
     /// # Notes
     ///
-    /// - This function does not change the configured threshold or reset window.
-    /// - To check the current breaker state, call [`Self::is_circuit_breaker_tripped`].
-    /// - To change the volume threshold that triggers the breaker, call
-    ///   [`Self::set_circuit_breaker_threshold`].
-    /// - To configure how long the breaker stays tripped before clearing automatically,
-    ///   call [`Self::set_circuit_breaker_reset_window`].
+    /// - This function does not change the configured threshold or reset window. The
+    ///   breaker will trip again on the next withdrawal that breaches the same threshold.
+    ///   If the threshold needs to be raised or disabled, call
+    ///   [`Self::set_circuit_breaker_threshold`] separately.
+    /// - The rolling 24-hour withdrawal volume accumulator is **not** reset by this call.
+    ///   Volume already tracked in the current window still counts toward the threshold on
+    ///   the next withdrawal. To avoid an immediate re-trip, consider raising the threshold
+    ///   first, or waiting until the 24-hour window rolls over naturally.
+    /// - To check whether the breaker is currently tripped before calling, use
+    ///   [`Self::is_circuit_breaker_tripped`].
+    /// - To read the configured volume threshold, call
+    ///   [`Self::get_circuit_breaker_threshold`].
+    /// - To read or change the auto-reset window, call
+    ///   [`Self::get_circuit_breaker_reset_window`] or
+    ///   [`Self::set_circuit_breaker_reset_window`].
     ///
     /// # Example
     ///
     /// ```ignore
-    /// // After investigating a threshold breach, re-enable normal operations.
+    /// // 1. Configure a threshold and trip the breaker.
+    /// bridge.set_circuit_breaker_threshold(&env, 1_000)?;
+    /// bridge.withdraw(&operator, &recipient, &1_001, &token)?;
     /// assert!(bridge.is_circuit_breaker_tripped());
+    ///
+    /// // 2. Subsequent withdrawals are blocked until the breaker is cleared.
+    /// let err = bridge.try_withdraw(&operator, &recipient, &1, &token).unwrap_err();
+    /// assert_eq!(err, Ok(Error::CircuitBreakerActive));
+    ///
+    /// // 3. After investigation, clear the breaker — emits CircuitBreakerResetEvent.
     /// bridge.reset_circuit_breaker()?;
     /// assert!(!bridge.is_circuit_breaker_tripped());
+    ///
+    /// // 4. Guarded operations resume normally.
+    /// bridge.withdraw(&operator, &recipient, &1, &token)?;
     /// ```
     pub fn reset_circuit_breaker(env: Env) -> Result<(), Error> {
         let admin: Address = env
