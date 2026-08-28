@@ -42,7 +42,7 @@ fn setup_bridge(
     let token_admin = Address::generate(env);
     let (token_addr, token, token_sac) = create_token(env, &token_admin);
     let signers = vec![env, admin.clone()];
-    bridge.init(&admin, &token_addr, &limit, &1, &signers, &1);
+    bridge.init(&admin, &token_addr, &limit, &1, &signers, &1, &0);
     (contract_id, bridge, admin, token_addr, token, token_sac)
 }
 
@@ -64,7 +64,7 @@ fn setup_bridge_with_min(
     let token_admin = Address::generate(env);
     let (token_addr, token, token_sac) = create_token(env, &token_admin);
     let signers = vec![env, _admin.clone()];
-    bridge.init(&_admin, &token_addr, &limit, &min_deposit, &signers, &1);
+    bridge.init(&_admin, &token_addr, &limit, &min_deposit, &signers, &1, &0);
     (contract_id, bridge, _admin, token_addr, token, token_sac)
 }
 
@@ -3951,18 +3951,18 @@ fn test_init_rejects_invalid_min_deposit() {
     let signers = vec![&env, admin.clone()];
 
     // Reject 0
-    let result = bridge.try_init(&admin, &token_addr, &1000, &0, &signers, &1);
+    let result = bridge.try_init(&admin, &token_addr, &1000, &0, &signers, &1, &0);
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 
     // Reject negative
-    let result = bridge.try_init(&admin, &token_addr, &1000, &-5, &signers, &1);
+    let result = bridge.try_init(&admin, &token_addr, &1000, &-5, &signers, &1, &0);
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 
     // Reject min_deposit >= limit
-    let result = bridge.try_init(&admin, &token_addr, &1000, &1000, &signers, &1);
+    let result = bridge.try_init(&admin, &token_addr, &1000, &1000, &signers, &1, &0);
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 
-    let result = bridge.try_init(&admin, &token_addr, &1000, &2000, &signers, &1);
+    let result = bridge.try_init(&admin, &token_addr, &1000, &2000, &signers, &1, &0);
     assert_eq!(result, Err(Ok(Error::BelowMinimum)));
 }
 

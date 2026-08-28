@@ -53,7 +53,7 @@ fn setup_bridge(env: &Env) -> (FiatBridgeClient<'_>, Address) {
     let mut signers = Vec::new(env);
     signers.push_back(admin.clone());
 
-    client.init(&admin, &token_address, &1_000_000, &100, &signers, &1);
+    client.init(&admin, &token_address, &1_000_000, &100, &signers, &1, &0);
 
     (client, admin)
 }
@@ -259,6 +259,7 @@ fn non_admin_is_rejected_and_leaves_existing_proposal_untouched() {
         &100,
         &signers,
         &1,
+        &0,
     );
 
     let legitimate = hash_of(&env, 0x66);

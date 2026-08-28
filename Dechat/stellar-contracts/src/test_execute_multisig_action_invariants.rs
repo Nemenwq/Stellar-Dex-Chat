@@ -51,7 +51,7 @@ fn setup_bridge_with_signers<'a>(
         signers.push_back(Address::generate(env));
     }
 
-    client.init(&admin, &token_address, &1_000_000, &100, &signers, &threshold);
+    client.init(&admin, &token_address, &1_000_000, &100, &signers, &threshold, &0);
 
     (client, signers)
 }
