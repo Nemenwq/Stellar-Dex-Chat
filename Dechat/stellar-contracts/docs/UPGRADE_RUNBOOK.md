@@ -78,6 +78,7 @@ Confirm that:
 - No storage key renames that would orphan existing data.
 - No removal of existing error codes relied upon by the frontend.
 - The `new_version` constant in `lib.rs` is greater than the currently deployed version.
+- Any storage layout changes ship with a migration path.
 
 ### 3. Run the Full Test Suite
 
@@ -345,3 +346,6 @@ In the event of a failed upgrade or unexpected contract behaviour, escalate in t
 - [`VERSION_MIGRATION.md`](./VERSION_MIGRATION.md) — upgrade mechanism deep-dive and event schema
 - [`BATCH_OPERATIONS.md`](./BATCH_OPERATIONS.md) — batch admin operations reference
 - [`DEPLOYMENT.md`](../DEPLOYMENT.md) — initial Futurenet deployment guide
+- [`FEE_ACCRUAL_ARCHITECTURE.md`](./FEE_ACCRUAL_ARCHITECTURE.md) — fee accrual events and structures
+- [`NONCE_REPLAY_PROTECTION.md`](./NONCE_REPLAY_PROTECTION.md) — nonce and replay protection conventions
+- [`ERROR_CODES.md`](./ERROR_CODES.md) — canonical list of contract error codes
