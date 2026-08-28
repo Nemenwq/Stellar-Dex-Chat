@@ -729,6 +729,7 @@ pub enum DataKey {
     OperatorDailyLimit(Address),
     EmergencyRecoveryCap,
     FeeWithdrawalNonce,
+    FeeWithdrawalNonceByCaller(Address),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -4898,11 +4899,72 @@ impl FiatBridge {
     }
 
     /// Return the current nonce for fee withdrawals (used for replay protection).
-    pub fn get_fee_withdrawal_nonce(env: Env, _admin: Address) -> u64 {
+    pub fn get_fee_withdrawal_nonce(env: Env, caller: Address) -> u64 {
         env.storage()
             .instance()
-            .get(&DataKey::FeeWithdrawalNonce)
+            .get(&DataKey::FeeWithdrawalNonceByCaller(caller))
             .unwrap_or(0)
+    }
+
+    /// Validate and increment the per-caller fee-withdrawal nonce.
+    #[allow(dead_code)]
+    fn validate_and_increment_fee_withdrawal_nonce(
+        env: &Env,
+        caller: &Address,
+        provided_nonce: u64,
+    ) -> Result<(), Error> {
+        let current_nonce: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeWithdrawalNonceByCaller(caller.clone()))
+            .unwrap_or(0);
+
+        if provided_nonce != current_nonce {
+            if provided_nonce < current_nonce {
+                return Err(Error::StaleNonce);
+            } else {
+                return Err(Error::InvalidNonce);
+            }
+        }
+
+        env.storage().instance().set(
+            &DataKey::FeeWithdrawalNonceByCaller(caller.clone()),
+            &(current_nonce + 1),
+        );
+
+        NonceIncrementedEvent {
+            version: EVENT_VERSION,
+            operator: caller.clone(),
+            new_nonce: current_nonce + 1,
+        }
+        .publish(env);
+
+        Ok(())
+    }
+
+    /// Migrate the legacy global fee-withdrawal nonce to the admin's per-caller
+    /// nonce. Safe to call multiple times; only copies when the target is absent.
+    pub fn migrate_fee_withdrawal_nonce(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        if let Some(legacy_nonce) = env
+            .storage()
+            .instance()
+            .get::<_, u64>(&DataKey::FeeWithdrawalNonce)
+        {
+            let key = DataKey::FeeWithdrawalNonceByCaller(admin.clone());
+            if !env.storage().instance().has(&key) {
+                env.storage().instance().set(&key, &legacy_nonce);
+            }
+            env.storage().instance().remove(&DataKey::FeeWithdrawalNonce);
+        }
+
+        Ok(())
     }
 }
 
