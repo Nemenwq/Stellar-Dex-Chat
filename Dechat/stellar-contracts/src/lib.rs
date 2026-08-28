@@ -4055,56 +4055,89 @@ impl FiatBridge {
 
     /// Set the rolling withdrawal volume threshold that trips the global circuit breaker.
     ///
+    /// The circuit breaker is a safety mechanism that automatically halts withdrawals
+    /// when unusual outflow volume is detected within a rolling 24-hour window
+    /// (~17 280 ledgers at 5 s/ledger). This function controls the volume level at
+    /// which that halt triggers.
+    ///
     /// When cumulative withdrawal volume inside the current 24-hour ledger window
     /// reaches or exceeds `threshold`, the breaker trips: the offending withdrawal
-    /// still executes, but every subsequent guarded operation returns
-    /// [`Error::CircuitBreakerActive`] until the breaker is cleared.
+    /// still executes, but a [`CircuitBreakerTrippedEvent`] is emitted and every
+    /// subsequent guarded operation returns [`Error::CircuitBreakerActive`] until
+    /// the breaker is cleared.
     ///
-    /// The breaker is evaluated on every withdrawal-producing path that calls
-    /// [`Self::check_and_update_circuit_breaker`], which covers:
+    /// The volume check runs on every withdrawal-producing path, covering:
     /// - direct operator withdrawals ([`Self::withdraw`])
     /// - queued withdrawal execution ([`Self::execute_withdrawal`])
     /// - queued withdrawal requests ([`Self::request_withdrawal`])
     ///
     /// # Parameters
     ///
-    /// - `threshold`:
+    /// - `threshold` (`i128`): the cumulative 24-hour withdrawal volume that triggers
+    ///   the breaker, expressed in the token's smallest indivisible unit (e.g. stroops
+    ///   for XLM).
     ///   - `> 0` — enables the breaker; trips when the rolling 24-hour volume
-    ///     meets or exceeds this value (in the token's smallest unit).
-    ///   - `== 0` — disables the breaker entirely; all guarded paths skip the
-    ///     volume check.
-    ///   - Negative values are treated the same as `0` (disabled) because the
-    ///     internal check is `threshold <= 0`.
+    ///     meets or exceeds this value.
+    ///   - `== 0` — disables the breaker entirely; all guarded withdrawal paths
+    ///     skip the volume check.
+    ///   - Negative values are treated identically to `0` (disabled), because the
+    ///     internal guard evaluates `threshold <= 0`.
     ///
     /// # Returns
     ///
-    /// `Ok(())` on success.
+    /// `Ok(())` on success. The value is persisted to instance storage and takes
+    /// effect on the very next withdrawal evaluation.
     ///
     /// # Errors
     ///
-    /// - [`Error::NotInitialized`] — contract has not been initialised yet
-    ///   (no admin stored in instance storage).
-    /// - Panics with a Soroban auth error if the caller is not the current admin.
+    /// - [`Error::NotInitialized`] — the contract has not been initialised yet
+    ///   (no admin stored in instance storage). Call `init` first.
+    /// - Panics with a Soroban host auth error if the caller is not the current admin.
+    ///   Use [`Self::transfer_admin`] to inspect or change the admin address.
     ///
     /// # Notes
     ///
     /// - The new threshold takes effect immediately for the **next** withdrawal
     ///   evaluation; it does not retroactively clear or trip the breaker.
-    /// - To clear an already-tripped breaker, call [`Self::reset_circuit_breaker`].
-    /// - To read the currently configured threshold, call
+    /// - Lowering the threshold while the breaker is already tripped has no
+    ///   additional effect — the breaker remains tripped until explicitly cleared.
+    ///   Raising the threshold while the breaker is tripped likewise does not
+    ///   auto-clear it; call [`Self::reset_circuit_breaker`] explicitly.
+    /// - Setting `threshold` to `0` while the breaker is tripped does **not**
+    ///   automatically clear it. Clear the breaker first with
+    ///   [`Self::reset_circuit_breaker`], then set the threshold to `0`.
+    /// - The rolling 24-hour volume accumulator is **not** reset by this call.
+    ///   Volume tracked before this call counts toward the new threshold on the
+    ///   next withdrawal.
+    /// - To read the currently active threshold, call
     ///   [`Self::get_circuit_breaker_threshold`].
+    /// - To clear a tripped breaker, call [`Self::reset_circuit_breaker`].
     /// - To configure how long the breaker stays tripped before auto-reset, call
     ///   [`Self::set_circuit_breaker_reset_window`].
+    /// - To inspect whether the breaker is currently tripped, call
+    ///   [`Self::is_circuit_breaker_tripped`].
     ///
     /// # Example
     ///
     /// ```ignore
-    /// // Enable: trip the breaker if more than 10 000 stroops are withdrawn
-    /// // within any rolling 24-hour window (~17 280 ledgers).
+    /// // 1. Enable the breaker: trip if more than 10 000 stroops are withdrawn
+    /// //    within any rolling 24-hour window (~17 280 ledgers at 5 s/ledger).
     /// bridge.set_circuit_breaker_threshold(&env, 10_000)?;
+    /// assert_eq!(bridge.get_circuit_breaker_threshold(), 10_000);
     ///
-    /// // Disable: no volume limit enforced.
+    /// // 2. A withdrawal that pushes cumulative volume past 10 000 stroops will
+    /// //    still execute, emit CircuitBreakerTrippedEvent, and then block
+    /// //    all subsequent guarded operations with Error::CircuitBreakerActive.
+    /// bridge.withdraw(&operator, &recipient, &10_001, &token)?;
+    /// assert!(bridge.is_circuit_breaker_tripped());
+    ///
+    /// // 3. After investigating, clear the breaker manually and resume operations.
+    /// bridge.reset_circuit_breaker()?;
+    /// assert!(!bridge.is_circuit_breaker_tripped());
+    ///
+    /// // 4. Disable the breaker entirely — no volume limit enforced.
     /// bridge.set_circuit_breaker_threshold(&env, 0)?;
+    /// assert_eq!(bridge.get_circuit_breaker_threshold(), 0);
     /// ```
     pub fn set_circuit_breaker_threshold(env: Env, threshold: i128) -> Result<(), Error> {
         let admin: Address = env
