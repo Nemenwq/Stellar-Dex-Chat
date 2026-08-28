@@ -406,6 +406,20 @@ pub struct SetOperatorEvent {
     pub active: bool,
 }
 
+/// Emitted on every accepted `set_max_operators` call. `previous` is the cap in
+/// force before the call (0 when none had been configured, which is the
+/// "unlimited" sentinel) and `max_operators` is the newly stored cap, so
+/// indexers can reconstruct the full history of the limit without replaying
+/// storage.
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct SetMaxOperatorsEvent {
+    pub version: u32,
+    pub previous: u32,
+    pub max_operators: u32,
+    pub active_operators: u32,
+}
+
 #[contractevent]
 #[derive(Clone, Debug)]
 pub struct DenyAddressEvent {
@@ -560,6 +574,17 @@ pub struct DenyRemovedEvent {
 pub struct IsDeniedCheckedEvent {
     pub version: u32,
     pub address: Address,
+    pub result: bool,
+}
+
+/// Emitted on every `is_operator` query, mirroring `IsDeniedCheckedEvent` for
+/// the denylist. `is_operator` is an access-control lookup, so the audit trail
+/// records which address was checked and what the contract answered.
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct IsOperatorCheckedEvent {
+    pub version: u32,
+    pub operator: Address,
     pub result: bool,
 }
 
@@ -2306,20 +2331,35 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        let current_count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::OperatorCount)
+            .unwrap_or(0);
         // Reject if reduction would go below current active operator count
-        if max_operators > 0 {
-            let current_count: u32 = env
-                .storage()
-                .instance()
-                .get(&DataKey::OperatorCount)
-                .unwrap_or(0);
-            if current_count > max_operators {
-                return Err(Error::ExceedsLimit);
-            }
+        if max_operators > 0 && current_count > max_operators {
+            return Err(Error::ExceedsLimit);
         }
+        // Read the outgoing cap before overwriting it so the event carries the
+        // full transition. A missing key means no cap was configured, which the
+        // contract treats as unlimited and the event reports as 0.
+        let previous: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxOperators)
+            .unwrap_or(0);
         env.storage()
             .instance()
             .set(&DataKey::MaxOperators, &max_operators);
+
+        SetMaxOperatorsEvent {
+            version: EVENT_VERSION,
+            previous,
+            max_operators,
+            active_operators: current_count,
+        }
+        .publish(&env);
+
         Ok(())
     }
 
@@ -2382,10 +2422,20 @@ impl FiatBridge {
     }
 
     pub fn is_operator(env: Env, operator: Address) -> bool {
-        env.storage()
+        let result = env
+            .storage()
             .instance()
-            .get::<_, bool>(&DataKey::Operator(operator))
-            .unwrap_or(false)
+            .get::<_, bool>(&DataKey::Operator(operator.clone()))
+            .unwrap_or(false);
+
+        IsOperatorCheckedEvent {
+            version: EVENT_VERSION,
+            operator,
+            result,
+        }
+        .publish(&env);
+
+        result
     }
 
     pub fn get_operator_heartbeat(env: Env, operator: Address) -> Option<u32> {
