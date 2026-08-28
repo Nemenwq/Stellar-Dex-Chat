@@ -252,6 +252,32 @@ describe('ChatHistorySidebar', () => {
     expect(screen.queryByText('History cleared')).toBeNull();
   });
 
+  it('optimistically removes a session from the list on delete and restores it on undo', async () => {
+    const keep = makeSession('keep-1');
+    const target = makeSession('drop-1');
+    mockUnpinnedSessions = [keep, target];
+    mockAllSessions = [keep, target];
+
+    await renderAndLoad();
+
+    expect(screen.getByText('Chat drop-1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByTitle('Delete conversation')[1]);
+    fireEvent.click(screen.getByText('Delete'));
+
+    // Row disappears immediately, before the backing store is touched.
+    expect(screen.queryByText('Chat drop-1')).not.toBeInTheDocument();
+    expect(screen.getByText('Chat keep-1')).toBeInTheDocument();
+    expect(mockDeleteSession).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+
+    // Row is back and the delete never propagated.
+    expect(screen.getByText('Chat drop-1')).toBeInTheDocument();
+    await act(async () => { vi.advanceTimersByTime(5100); });
+    expect(mockDeleteSession).not.toHaveBeenCalled();
+  });
+
   it('announces filtered search result counts', async () => {
     const sessions = [makeSession('search-a'), makeSession('search-b')];
     mockUnpinnedSessions = sessions;
