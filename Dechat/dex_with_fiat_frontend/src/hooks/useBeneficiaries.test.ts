@@ -710,7 +710,7 @@ describe('useBeneficiaries', () => {
     });
 
     it('does not save to localStorage when isLoaded is false', () => {
-      const { result } = renderHook(() => useBeneficiaries());
+      renderHook(() => useBeneficiaries());
 
       // Clear calls from initial render
       localStorageMock.setItem.mockClear();

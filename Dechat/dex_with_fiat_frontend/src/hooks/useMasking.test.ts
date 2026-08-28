@@ -6,7 +6,7 @@ import * as textMaskingLib from '@/lib/textMasking';
 
 // Mock the text masking module
 vi.mock('@/lib/textMasking', () => ({
-  maskText: vi.fn((text: string, manager, style) => {
+  maskText: vi.fn((text: string) => {
     // Simple mock implementation: replace all lowercase vowels with *
     return text.replace(/[aeiou]/gi, '*');
   }),
@@ -50,7 +50,7 @@ describe('useMasking', () => {
 
     it('should use default style asterisk when not specified', () => {
       const text = 'test text';
-      const { result } = renderHook(() =>
+      renderHook(() =>
         useMasking(text, {
           enabled: true,
         }),
@@ -65,7 +65,7 @@ describe('useMasking', () => {
 
     it('should use provided custom masking style', () => {
       const text = 'test';
-      const { result } = renderHook(() =>
+      renderHook(() =>
         useMasking(text, {
           enabled: true,
           style: 'block',
@@ -81,7 +81,7 @@ describe('useMasking', () => {
 
     it('should create default SensitiveTermsManager when not provided', () => {
       const text = 'test';
-      const { result } = renderHook(() =>
+      renderHook(() =>
         useMasking(text, {
           enabled: true,
         }),
@@ -94,7 +94,7 @@ describe('useMasking', () => {
     it('should use custom SensitiveTermsManager when provided', () => {
       const text = 'test';
       const customManager = new SensitiveTermsManager();
-      const { result } = renderHook(() =>
+      renderHook(() =>
         useMasking(text, {
           enabled: true,
           customTerms: customManager,
@@ -182,7 +182,7 @@ describe('useMasking', () => {
     });
 
     it('should remask when style changes', () => {
-      const { result, rerender } = renderHook(
+      const { rerender } = renderHook(
         ({ text, options }) =>
           useMasking(text, options),
         {
@@ -217,7 +217,7 @@ describe('useMasking', () => {
       const manager1 = new SensitiveTermsManager();
       const manager2 = new SensitiveTermsManager();
 
-      const { result, rerender } = renderHook(
+      const { rerender } = renderHook(
         ({ text, options }) =>
           useMasking(text, options),
         {
@@ -244,7 +244,7 @@ describe('useMasking', () => {
 
     it('should not remask when unrelated props change', () => {
       const { rerender } = renderHook(
-        ({ text, options, unrelated }) =>
+        ({ text, options }) =>
           useMasking(text, options),
         {
           initialProps: {
@@ -323,7 +323,7 @@ describe('useMasking', () => {
     });
 
     it('should handle whitespace-only text', () => {
-      const { result } = renderHook(() =>
+      renderHook(() =>
         useMasking('   ', {
           enabled: true,
           style: 'asterisk',
@@ -340,7 +340,7 @@ describe('useMasking', () => {
       for (const style of styles) {
         vi.mocked(textMaskingLib.maskText).mockClear();
 
-        const { result } = renderHook(() =>
+        renderHook(() =>
           useMasking('test', {
             enabled: true,
             style,
@@ -358,7 +358,7 @@ describe('useMasking', () => {
     it('should handle manager property check for SensitiveTermsManager instance', () => {
       const customManager = new SensitiveTermsManager();
 
-      const { result } = renderHook(() =>
+      renderHook(() =>
         useMasking('test', {
           enabled: true,
           customTerms: customManager,
@@ -371,7 +371,7 @@ describe('useMasking', () => {
 
     it('should handle non-manager custom terms by creating default manager', () => {
       // Testing the branch where customTerms is not a SensitiveTermsManager instance
-      const { result } = renderHook(() =>
+      renderHook(() =>
         useMasking('test', {
           enabled: true,
           customTerms: undefined,
@@ -383,7 +383,7 @@ describe('useMasking', () => {
     });
 
     it('should verify memos optimize re-renders', () => {
-      const { result, rerender } = renderHook(
+      const { rerender } = renderHook(
         ({ options }) => {
           const maskedText = useMasking('Hello', options);
           return { maskedText, optionsRef: options };
