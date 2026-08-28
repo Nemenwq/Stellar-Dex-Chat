@@ -577,6 +577,17 @@ pub struct IsDeniedCheckedEvent {
     pub result: bool,
 }
 
+/// Emitted on every `is_operator` query, mirroring `IsDeniedCheckedEvent` for
+/// the denylist. `is_operator` is an access-control lookup, so the audit trail
+/// records which address was checked and what the contract answered.
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct IsOperatorCheckedEvent {
+    pub version: u32,
+    pub operator: Address,
+    pub result: bool,
+}
+
 #[contractevent]
 #[derive(Clone, Debug)]
 pub struct EmergencyRecoverySetEvent {
@@ -2411,10 +2422,20 @@ impl FiatBridge {
     }
 
     pub fn is_operator(env: Env, operator: Address) -> bool {
-        env.storage()
+        let result = env
+            .storage()
             .instance()
-            .get::<_, bool>(&DataKey::Operator(operator))
-            .unwrap_or(false)
+            .get::<_, bool>(&DataKey::Operator(operator.clone()))
+            .unwrap_or(false);
+
+        IsOperatorCheckedEvent {
+            version: EVENT_VERSION,
+            operator,
+            result,
+        }
+        .publish(&env);
+
+        result
     }
 
     pub fn get_operator_heartbeat(env: Env, operator: Address) -> Option<u32> {
@@ -4768,3 +4789,6 @@ mod test_execute_multisig_action_invariants;
 
 #[cfg(test)]
 mod test_set_max_operators_event;
+
+#[cfg(test)]
+mod test_is_operator_event;

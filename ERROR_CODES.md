@@ -67,3 +67,19 @@ call (`0` when none had been configured). Rejected calls emit nothing and leave
 No storage layout change ships with this event: it is emitted from the existing
 `DataKey::MaxOperators` write path and reads only keys that already exist, so no
 migration is required.
+
+## Operator role checks (`is_operator`)
+
+`is_operator` is a lookup, not a state transition, and introduces no new error
+variants: it returns a bare `bool` and cannot fail. An address that was never
+registered, and an uninitialised contract, both answer `false`.
+
+Every query emits `IsOperatorCheckedEvent { version, operator, result }`, where
+`version` is `EVENT_VERSION`, `operator` is the address that was queried and
+`result` is the answer returned. This mirrors `IsDeniedCheckedEvent`, the
+equivalent audit record already emitted by `is_denied`, so both access-control
+lookups leave the same kind of trail.
+
+No storage layout change ships with this event: it reads only the existing
+`DataKey::Operator(address)` key and writes nothing, so no migration is
+required.
