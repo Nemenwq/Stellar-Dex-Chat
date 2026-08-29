@@ -83,3 +83,28 @@ lookups leave the same kind of trail.
 No storage layout change ships with this event: it reads only the existing
 `DataKey::Operator(address)` key and writes nothing, so no migration is
 required.
+
+## Batch fee withdrawal nonce (`withdraw_fees_batch`)
+
+`withdraw_fees_batch` (Issue #1113) now takes a caller-supplied nonce and
+enforces per-caller replay protection, reusing the existing replay-protection
+variants below — no new error codes are introduced:
+
+| Code | Name             | Raised when                                                                 |
+| ---- | ---------------- | --------------------------------------------------------------------------- |
+| 902  | `StaleNonce`     | The caller replays an already-used nonce (`provided < current`). |
+| 901  | `InvalidNonce`   | The caller skips ahead (`provided > current`).                 |
+
+A new per-caller storage key ships with this change:
+
+```rust
+DataKey::FeeWithdrawalBatchNonce(Address) // u64, next expected nonce (starts at 0)
+```
+
+The key defaults to `0` when absent, so **no data migration is required**: existing
+deployments simply start at nonce `0` after the upgrade and advance by one on each
+successful batch withdrawal. The legacy global `FeeWithdrawalNonce` used by
+single-token `withdraw_fees` is unchanged. See `get_fee_withdrawal_batch_nonce`
+for the next expected nonce and `VERSION_MIGRATION.md` for the full migration
+path.
+
