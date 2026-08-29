@@ -2345,7 +2345,7 @@ impl FiatBridge {
     }
 
     // ── Operator Role & Heartbeat ───────────────────────────────────────
-    pub fn set_operator(env: Env, operator: Address, active: bool) -> Result<(), Error> {
+    pub fn set_operator(env: Env, operator: Address, active: bool, nonce: u64) -> Result<(), Error> {
         let admin: Address = env
             .storage()
             .instance()
@@ -2361,6 +2361,9 @@ impl FiatBridge {
         if operator == env.current_contract_address() {
             return Err(Error::InvalidRecipient);
         }
+
+        // Validate and increment nonce for replay protection
+        Self::validate_and_increment_nonce(&env, &operator, nonce)?;
 
         Self::prune_inactive_operators_internal(&env);
         let was_active = env

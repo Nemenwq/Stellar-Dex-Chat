@@ -497,7 +497,7 @@ fn test_heartbeat_blocked_by_circuit_breaker() {
     let (contract_id, bridge, admin, token_addr, _, token_sac) = setup_bridge(&env, 1_000);
 
     let operator = Address::generate(&env);
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // Set circuit breaker threshold and trip it
     bridge.set_circuit_breaker_threshold(&500);
@@ -1391,7 +1391,7 @@ fn test_operator_cap_enforced() {
     let op2 = Address::generate(&env);
 
     bridge.set_max_operators(&1);
-    bridge.set_operator(&op1, &true);
+    bridge.set_operator(&op1, &true, &0);
 
     bridge.deposit(&user, &200, &token_addr, &Bytes::new(&env), &0, &0, &None);
 
@@ -1412,9 +1412,9 @@ fn test_operator_cap_recovers_after_deactivation() {
     let op2 = Address::generate(&env);
 
     bridge.set_max_operators(&1);
-    bridge.set_operator(&op1, &true);
-    bridge.set_operator(&op1, &false);
-    bridge.set_operator(&op2, &true);
+    bridge.set_operator(&op1, &true, &0);
+    bridge.set_operator(&op1, &false, &1);
+    bridge.set_operator(&op2, &true, &0);
 
     assert!(!bridge.is_operator(&op1));
     assert!(bridge.is_operator(&op2));
@@ -1432,9 +1432,9 @@ fn test_set_max_operators_boundary_check_rejects_reduction_below_current_count()
 
     // Set max to 3 and add 3 operators
     bridge.set_max_operators(&3);
-    bridge.set_operator(&op1, &true);
-    bridge.set_operator(&op2, &true);
-    bridge.set_operator(&op3, &true);
+    bridge.set_operator(&op1, &true, &0);
+    bridge.set_operator(&op2, &true, &0);
+    bridge.set_operator(&op3, &true, &0);
 
     assert!(bridge.is_operator(&op1));
     assert!(bridge.is_operator(&op2));
@@ -1461,8 +1461,8 @@ fn test_set_max_operators_allows_increase_above_current_count() {
 
     // Set max to 2 and add 2 operators
     bridge.set_max_operators(&2);
-    bridge.set_operator(&op1, &true);
-    bridge.set_operator(&op2, &true);
+    bridge.set_operator(&op1, &true, &0);
+    bridge.set_operator(&op2, &true, &0);
 
     // Increasing max should succeed
     bridge.set_max_operators(&5);
@@ -1483,8 +1483,8 @@ fn test_set_max_operators_allows_exact_match_with_current_count() {
 
     // Set max to 2 and add 2 operators
     bridge.set_max_operators(&2);
-    bridge.set_operator(&op1, &true);
-    bridge.set_operator(&op2, &true);
+    bridge.set_operator(&op1, &true, &0);
+    bridge.set_operator(&op2, &true, &0);
 
     // Setting max to exact current count should succeed
     bridge.set_max_operators(&2);
@@ -1506,9 +1506,9 @@ fn test_set_max_operators_zero_remains_unlimited() {
 
     // Set max to 0 (unlimited) with multiple operators should always work
     bridge.set_max_operators(&0);
-    bridge.set_operator(&op1, &true);
-    bridge.set_operator(&op2, &true);
-    bridge.set_operator(&op3, &true);
+    bridge.set_operator(&op1, &true, &0);
+    bridge.set_operator(&op2, &true, &0);
+    bridge.set_operator(&op3, &true, &0);
 
     // Setting max to 0 again should always succeed (unlimited is always valid)
     bridge.set_max_operators(&0);
@@ -1527,8 +1527,8 @@ fn test_prune_inactive_operators_keeps_active_operator() {
     let inactive = Address::generate(&env);
     let active = Address::generate(&env);
 
-    bridge.set_operator(&inactive, &true);
-    bridge.set_operator(&active, &true);
+    bridge.set_operator(&inactive, &true, &0);
+    bridge.set_operator(&active, &true, &0);
     bridge.heartbeat(&inactive, &0);
 
     env.ledger().with_mut(|li| {
@@ -1551,14 +1551,14 @@ fn test_set_operator_prunes_inactive_on_next_admin_action() {
     let stale = Address::generate(&env);
     let newcomer = Address::generate(&env);
 
-    bridge.set_operator(&stale, &true);
+    bridge.set_operator(&stale, &true, &0);
     bridge.heartbeat(&stale, &0);
 
     env.ledger().with_mut(|li| {
         li.sequence_number = DEFAULT_INACTIVITY_THRESHOLD + 5;
     });
 
-    bridge.set_operator(&newcomer, &true);
+    bridge.set_operator(&newcomer, &true, &0);
 
     assert!(!bridge.is_operator(&stale));
     assert!(bridge.is_operator(&newcomer));
@@ -1631,7 +1631,7 @@ fn test_unauthorized_operator_management() {
 
     // Attacker tries to set themselves as operator, should fail because they are not admin
     // Note: mock_all_auths handles the check, here we just verify the call structure
-    bridge.set_operator(&victim, &true);
+    bridge.set_operator(&victim, &true, &0);
     assert!(bridge.is_operator(&victim));
 }
 
@@ -2438,7 +2438,7 @@ fn test_operator_nonce_starts_at_zero() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
     assert_eq!(bridge.get_operator_nonce(&operator), 0);
 }
 
@@ -2450,7 +2450,7 @@ fn test_heartbeat_with_valid_nonce_succeeds() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // First heartbeat with nonce 0
     bridge.heartbeat(&operator, &0);
@@ -2469,7 +2469,7 @@ fn test_heartbeat_with_stale_nonce_fails() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // First heartbeat with nonce 0
     bridge.heartbeat(&operator, &0);
@@ -2491,7 +2491,7 @@ fn test_heartbeat_with_future_nonce_fails() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // Try to use nonce 5 when current is 0
     let result = bridge.try_heartbeat(&operator, &5);
@@ -2509,7 +2509,7 @@ fn test_heartbeat_replay_attack_prevented() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // Execute heartbeat with nonce 0
     bridge.heartbeat(&operator, &0);
@@ -2563,7 +2563,7 @@ fn test_nonce_increments_monotonically() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // Execute multiple heartbeats
     for i in 0..10 {
@@ -2581,7 +2581,7 @@ fn test_nonce_skipping_not_allowed() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // Use nonce 0
     bridge.heartbeat(&operator, &0);
@@ -2606,7 +2606,7 @@ fn test_nonce_persists_across_operator_deactivation() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // Use nonce 0 and 1
     bridge.heartbeat(&operator, &0);
@@ -2614,13 +2614,13 @@ fn test_nonce_persists_across_operator_deactivation() {
     assert_eq!(bridge.get_operator_nonce(&operator), 2);
 
     // Deactivate operator
-    bridge.set_operator(&operator, &false);
+    bridge.set_operator(&operator, &false, &1);
 
     // Nonce should still be 2
     assert_eq!(bridge.get_operator_nonce(&operator), 2);
 
     // Reactivate operator
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // Must use nonce 2, not 0
     let result = bridge.try_heartbeat(&operator, &0);
@@ -2638,7 +2638,7 @@ fn test_duplicate_nonce_rejected() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // Use nonce 0
     bridge.heartbeat(&operator, &0);
@@ -2663,7 +2663,7 @@ fn test_nonce_validation_before_heartbeat_update() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     let initial_ledger = env.ledger().sequence();
     bridge.heartbeat(&operator, &0);
@@ -2715,7 +2715,7 @@ fn test_nonce_overflow_protection() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // Simulate high nonce value (near u64::MAX would take too long to test)
     // Instead, test that the system handles large nonces correctly
@@ -2740,9 +2740,9 @@ fn test_concurrent_operators_independent_nonces() {
     let op2 = Address::generate(&env);
     let op3 = Address::generate(&env);
 
-    bridge.set_operator(&op1, &true);
-    bridge.set_operator(&op2, &true);
-    bridge.set_operator(&op3, &true);
+    bridge.set_operator(&op1, &true, &0);
+    bridge.set_operator(&op2, &true, &0);
+    bridge.set_operator(&op3, &true, &0);
 
     // Interleaved operations
     bridge.heartbeat(&op1, &0);
@@ -3455,7 +3455,7 @@ fn test_event_snapshot_heartbeat() {
     let (contract_id, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
     env.ledger().with_mut(|li| {
         li.sequence_number = 12_345;
     });
@@ -4973,10 +4973,10 @@ fn test_set_operator_invariant_activation() {
 
     assert!(!bridge.is_operator(&operator));
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
     assert!(bridge.is_operator(&operator));
 
-    bridge.set_operator(&operator, &false);
+    bridge.set_operator(&operator, &false, &1);
     assert!(!bridge.is_operator(&operator));
 }
 
@@ -4990,15 +4990,15 @@ fn test_set_operator_invariant_operator_list_consistency() {
     let op2 = Address::generate(&env);
     let op3 = Address::generate(&env);
 
-    bridge.set_operator(&op1, &true);
-    bridge.set_operator(&op2, &true);
-    bridge.set_operator(&op3, &true);
+    bridge.set_operator(&op1, &true, &0);
+    bridge.set_operator(&op2, &true, &0);
+    bridge.set_operator(&op3, &true, &0);
 
     assert!(bridge.is_operator(&op1));
     assert!(bridge.is_operator(&op2));
     assert!(bridge.is_operator(&op3));
 
-    bridge.set_operator(&op2, &false);
+    bridge.set_operator(&op2, &false, &1);
 
     assert!(bridge.is_operator(&op1));
     assert!(!bridge.is_operator(&op2));
@@ -5013,7 +5013,7 @@ fn test_set_operator_invariant_emits_event() {
     let (contract_id, bridge, _, _, _, _) = setup_bridge(&env, 1000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     let events = env.events().all().filter_by_contract(&contract_id);
     let raw = events.events();
@@ -5030,11 +5030,11 @@ fn test_set_operator_invariant_idempotent_activation() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
     assert!(bridge.is_operator(&operator));
 
     // Setting to true again should be safe
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
     assert!(bridge.is_operator(&operator));
 }
 
@@ -5046,15 +5046,15 @@ fn test_set_operator_invariant_idempotent_deactivation() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
-    bridge.set_operator(&operator, &false);
+    bridge.set_operator(&operator, &true, &0);
+    bridge.set_operator(&operator, &false, &1);
     assert!(!bridge.is_operator(&operator));
 
     // Issue #492: deactivating an already-inactive operator now returns
     // NotOperator instead of silently succeeding, to prevent caller bugs
     // from corrupting batch operation state.
     assert_eq!(
-        bridge.try_set_operator(&operator, &false),
+        bridge.try_set_operator(&operator, &false, &2),
         Err(Ok(Error::NotOperator))
     );
 }
@@ -5072,11 +5072,11 @@ fn test_set_operator_invariant_respects_max_cap() {
     let op2 = Address::generate(&env);
     let op3 = Address::generate(&env);
 
-    bridge.set_operator(&op1, &true);
-    bridge.set_operator(&op2, &true);
+    bridge.set_operator(&op1, &true, &0);
+    bridge.set_operator(&op2, &true, &0);
 
     // Third operator should fail due to cap
-    let result = bridge.try_set_operator(&op3, &true);
+    let result = bridge.try_set_operator(&op3, &true, &0);
     assert_eq!(result, Err(Ok(Error::OperatorCapReached)));
 
     assert!(bridge.is_operator(&op1));
@@ -6038,7 +6038,7 @@ fn test_set_operator_rejects_admin_as_operator() {
 
     let (_, bridge, admin, _, _, _) = setup_bridge(&env, 1_000);
 
-    let result = bridge.try_set_operator(&admin, &true);
+    let result = bridge.try_set_operator(&admin, &true, &0);
     assert_eq!(result, Err(Ok(Error::NotAllowed)));
     assert!(!bridge.is_operator(&admin));
 }
@@ -6051,7 +6051,7 @@ fn test_set_operator_rejects_contract_address_as_operator() {
 
     let (contract_id, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
 
-    let result = bridge.try_set_operator(&contract_id, &true);
+    let result = bridge.try_set_operator(&contract_id, &true, &0);
     assert_eq!(result, Err(Ok(Error::InvalidRecipient)));
     assert!(!bridge.is_operator(&contract_id));
 }
@@ -6065,7 +6065,7 @@ fn test_set_operator_rejects_deactivating_admin_as_operator() {
     let (_, bridge, admin, _, _, _) = setup_bridge(&env, 1_000);
 
     // Attempt to deactivate admin as operator — should still be rejected
-    let result = bridge.try_set_operator(&admin, &false);
+    let result = bridge.try_set_operator(&admin, &false, &0);
     assert_eq!(result, Err(Ok(Error::NotAllowed)));
 }
 
@@ -6078,7 +6078,7 @@ fn test_set_operator_still_accepts_valid_operator() {
     let (_, bridge, _, _, _, _) = setup_bridge(&env, 1_000);
     let operator = Address::generate(&env);
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
     assert!(bridge.is_operator(&operator));
 }
 
@@ -6093,7 +6093,7 @@ fn test_set_operator_circuit_breaker_not_affected_by_admin_role_confusion() {
 
     // Confirm admin cannot be operator
     assert_eq!(
-        bridge.try_set_operator(&admin, &true),
+        bridge.try_set_operator(&admin, &true, &0),
         Err(Ok(Error::NotAllowed))
     );
 
