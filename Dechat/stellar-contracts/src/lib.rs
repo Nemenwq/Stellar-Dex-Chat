@@ -414,12 +414,21 @@ pub struct AdminActionExecutedEvent {
     pub action_id: u64,
 }
 
+/// Emitted on every accepted `set_operator` call. `previous_active` is the
+/// operator's flag *before* the call and `active` the flag after it, so an
+/// indexer can tell a real transition from a no-op re-activation without
+/// replaying storage. `operator_count` is the live active-operator count once
+/// the change has been applied — the same number `set_max_operators` is
+/// checked against — which makes the cap invariant auditable from the event
+/// stream alone.
 #[contractevent]
 #[derive(Clone, Debug)]
 pub struct SetOperatorEvent {
     pub version: u32,
     pub operator: Address,
     pub active: bool,
+    pub previous_active: bool,
+    pub operator_count: u32,
 }
 
 /// Emitted on every accepted `set_max_operators` call. `previous` is the cap in
@@ -772,7 +781,9 @@ pub enum DataKey {
     EmergencyRecoveryCap,
     FeeWithdrawalNonce,
     FeeWithdrawalNonceByCaller(Address),
+    // ── Issue #1113: per-caller replay protection for batch fee withdrawals ──
     FeeWithdrawalBatchNonce(Address),
+    /// Per-user replay-protection nonce for `execute_withdrawal`.
     WithdrawalExecutionNonce(Address),
     InitNonce(Address),
     UpgradeCancellationNonce(Address),
@@ -2812,7 +2823,14 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::OperatorCount, &operators.len());
 
-        SetOperatorEvent { version: EVENT_VERSION, operator: operator.clone(), active }.publish(&env);
+        SetOperatorEvent {
+            version: EVENT_VERSION,
+            operator: operator.clone(),
+            active,
+            previous_active: was_active,
+            operator_count: operators.len(),
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -3359,7 +3377,7 @@ impl FiatBridge {
     /// - **Zero Amount Guard**: Rejects `amount <= 0`.
     /// - **Vault Balance Guard**: Validates `amount <= current_accrued_fees`, ensuring `current - amount` cannot underflow.
     /// - **Guarded State Update**: Updates `FeeVault` with exact guarded subtraction `current - amount`.
-    /// - **Sequential Replay Nonce**: Increments `FeeWithdrawalNonce` with `nonce + 1`.
+    /// - **Sequential Replay Nonce**: Increments the caller's `FeeWithdrawalNonceByCaller` entry with `nonce + 1`.
     ///
     /// # Arguments
     /// * `env` – The Soroban host environment.
@@ -3424,6 +3442,9 @@ impl FiatBridge {
 
         env.storage().persistent().set(&key, &(current - amount));
         // Increment fee withdrawal nonce for replay protection tracking
+        let nonce_key = DataKey::FeeWithdrawalNonceByCaller(admin.clone());
+        let nonce: u64 = env.storage().instance().get(&nonce_key).unwrap_or(0);
+        env.storage().instance().set(&nonce_key, &(nonce + 1));
         let nonce: u64 = env.storage().instance().get(&DataKey::FeeWithdrawalNonce).unwrap_or(0);
         env.storage().instance().set(&DataKey::FeeWithdrawalNonce, &(nonce + 1));
         let caller_nonce: u64 = env.storage().instance().get(&DataKey::FeeWithdrawalNonceByCaller(admin.clone())).unwrap_or(0);
@@ -5673,20 +5694,6 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
-    pub fn get_fee_withdrawal_batch_nonce(env: Env, caller: Address) -> u64 {
-        env.storage()
-            .instance()
-            .get(&DataKey::FeeWithdrawalBatchNonce(caller))
-            .unwrap_or(0)
-    }
-
-    pub fn get_withdrawal_execution_nonce(env: Env, caller: Address) -> u64 {
-        env.storage()
-            .instance()
-            .get(&DataKey::WithdrawalExecutionNonce(caller))
-            .unwrap_or(0)
-    }
-
     /// Validate and increment the per-caller fee-withdrawal nonce.
     #[allow(dead_code)]
     fn validate_and_increment_fee_withdrawal_nonce(
@@ -5755,6 +5762,23 @@ impl FiatBridge {
             .get(&DataKey::UpgradeCancellationNonce(admin))
             .unwrap_or(0)
     }
+
+    /// Get the current withdrawal execution nonce for a user
+    pub fn get_withdrawal_execution_nonce(env: Env, user: Address) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::WithdrawalExecutionNonce(user))
+            .unwrap_or(0)
+    }
+
+    /// Return the current per-caller nonce for batch fee withdrawals
+    /// (used for replay protection, Issue #1113).
+    pub fn get_fee_withdrawal_batch_nonce(env: Env, caller: Address) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::FeeWithdrawalBatchNonce(caller))
+            .unwrap_or(0)
+    }
 }
 
 #[cfg(test)]
@@ -5788,6 +5812,9 @@ mod test_reclaim_expired_withdrawal_invariants;
 mod test_execute_upgrade_invariants;
 
 #[cfg(test)]
+mod test_execute_upgrade_timelock_invariants;
+
+#[cfg(test)]
 mod test_reset_circuit_breaker_invariants;
 
 #[cfg(test)]
@@ -5797,5 +5824,12 @@ mod test_set_circuit_breaker_threshold_invariants;
 mod test_set_circuit_breaker_reset_window_invariants;
 
 #[cfg(test)]
+mod test_get_next_priority_withdrawal_invariants;
+
+#[cfg(test)]
+mod test_set_operator_invariants;
+
+#[cfg(test)]
+mod test_request_withdrawal_invariants;
 mod test_execute_withdrawal_invariants;
 
