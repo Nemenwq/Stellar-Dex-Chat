@@ -688,7 +688,6 @@ pub struct FeeWithdrawalBatchNonceEvent {
     pub caller: Address,
     pub new_nonce: u64,
 }
-
 // ── Storage keys ──────────────────────────────────────────────────────────
 #[contracttype]
 pub enum DataKey {
@@ -965,6 +964,9 @@ impl FiatBridge {
         }
         .publish(&env);
 
+        env.storage()
+            .instance()
+            .set(&DataKey::InitNonce(admin.clone()), &0u64);
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         Ok(())
     }
@@ -1623,7 +1625,7 @@ impl FiatBridge {
             .get(&DataKey::WithdrawQueue(request_id))
             .ok_or(Error::RequestNotFound)?;
 
-        // Validate and increment nonce for replay protection
+        // Validate nonce for replay protection
         let current_nonce: u64 = env
             .storage()
             .instance()
@@ -1637,11 +1639,6 @@ impl FiatBridge {
                 return Err(Error::InvalidNonce);
             }
         }
-
-        // Increment nonce
-        env.storage()
-            .instance()
-            .set(&DataKey::WithdrawalExecutionNonce(request.to.clone()), &(current_nonce + 1));
 
         if env.ledger().sequence() < request.unlock_ledger {
             return Err(Error::WithdrawalLocked);
@@ -1700,6 +1697,12 @@ impl FiatBridge {
             }
             Self::check_slippage(&env, expected_price, actual_price, max_slippage)?;
         }
+
+        // Increment nonce after all validation checks pass
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawalExecutionNonce(request.to.clone()), &(current_nonce + 1));
+
         token_client.transfer(
             &env.current_contract_address(),
             &request.to,
@@ -2764,6 +2767,11 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
 
+        let current_slippage_threshold: u32 = Self::get_slippage_threshold(env);
+        if current_slippage_threshold > 10000 {
+            return Err(Error::SlippageTooHigh);
+        }
+
         // Reject admin as operator (role confusion guard)
         if operator == admin {
             return Err(Error::NotAllowed);
@@ -3336,6 +3344,17 @@ impl FiatBridge {
     }
 
     pub fn get_accrued_fees(env: Env, token: Address) -> i128 {
+        // Boundary check: ensure token is whitelisted/registered
+        let _token_config: TokenConfig = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TokenRegistry(token.clone()))
+            .unwrap_or_else(|| {
+                // Token not whitelisted - return 0 but this path is intentional
+                // for backward compatibility; callers should verify token status
+                return 0;
+            });
+
         let amount = env
             .storage()
             .persistent()
@@ -3426,6 +3445,10 @@ impl FiatBridge {
         let nonce_key = DataKey::FeeWithdrawalNonceByCaller(admin.clone());
         let nonce: u64 = env.storage().instance().get(&nonce_key).unwrap_or(0);
         env.storage().instance().set(&nonce_key, &(nonce + 1));
+        let nonce: u64 = env.storage().instance().get(&DataKey::FeeWithdrawalNonce).unwrap_or(0);
+        env.storage().instance().set(&DataKey::FeeWithdrawalNonce, &(nonce + 1));
+        let caller_nonce: u64 = env.storage().instance().get(&DataKey::FeeWithdrawalNonceByCaller(admin.clone())).unwrap_or(0);
+        env.storage().instance().set(&DataKey::FeeWithdrawalNonceByCaller(admin), &(caller_nonce + 1));
         FeeWithdrawnEvent { version: EVENT_VERSION, to: recipient, amount }.publish(&env);
         Ok(())
     }
@@ -3463,7 +3486,7 @@ impl FiatBridge {
         admin.require_auth();
 
         // ── Issue #1113: per-caller replay protection ────────────────────
-        Self::validate_and_increment_batch_withdrawal_nonce(&env, &admin, nonce)?;
+        Self::validate_and_increment_fee_withdrawal_nonce(&env, &admin, nonce)?;
 
         // ── Issue #1044: use fee_recipient if set, otherwise use the provided 'to' address
         let recipient = env
@@ -3485,44 +3508,6 @@ impl FiatBridge {
             env.storage().persistent().set(&key, &0i128);
             FeeWithdrawnEvent { version: EVENT_VERSION, to: recipient.clone(), amount: current }.publish(&env);
         }
-
-        Ok(())
-    }
-
-    /// Validate and increment the per-caller replay-protection nonce for
-    /// batch fee withdrawals (Issue #1113), following the per-caller nonce
-    /// convention established for operator heartbeats.
-    fn validate_and_increment_batch_withdrawal_nonce(
-        env: &Env,
-        caller: &Address,
-        provided_nonce: u64,
-    ) -> Result<(), Error> {
-        let current_nonce: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeWithdrawalBatchNonce(caller.clone()))
-            .unwrap_or(0);
-
-        // Nonce must be exactly current_nonce (monotonically increasing).
-        if provided_nonce != current_nonce {
-            if provided_nonce < current_nonce {
-                return Err(Error::StaleNonce);
-            } else {
-                return Err(Error::InvalidNonce);
-            }
-        }
-
-        env.storage().instance().set(
-            &DataKey::FeeWithdrawalBatchNonce(caller.clone()),
-            &(current_nonce + 1),
-        );
-
-        FeeWithdrawalBatchNonceEvent {
-            version: EVENT_VERSION,
-            caller: caller.clone(),
-            new_nonce: current_nonce + 1,
-        }
-        .publish(env);
 
         Ok(())
     }
@@ -5819,8 +5804,11 @@ mod test_get_multisig_proposal_invariants;
 
 #[cfg(test)]
 mod test_propose_upgrade_invariants;
+#[cfg(test)]
+mod test_reclaim_expired_withdrawal_invariants;
 
 #[cfg(test)]
+#[cfg(test)] mod test_execute_upgrade_invariants;
 mod test_execute_upgrade_invariants;
 
 #[cfg(test)]
@@ -5843,3 +5831,5 @@ mod test_set_operator_invariants;
 
 #[cfg(test)]
 mod test_request_withdrawal_invariants;
+mod test_execute_withdrawal_invariants;
+

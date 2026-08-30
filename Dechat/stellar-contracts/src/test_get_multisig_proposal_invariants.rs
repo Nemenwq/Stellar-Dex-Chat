@@ -384,11 +384,8 @@ proptest! {
         let proposer = signers.get(0).unwrap();
         let id = bridge.propose_multisig_action(&proposer, &sample_action(&env));
 
-        // Approval count starts at 1 — the proposer's implicit approval — and
-        // grows by exactly one per additional signer.
-        for (expected, i) in (2u32..).zip(1..signers.len()) {
+        for (i, expected) in (1..signers.len()).zip(2u32..) {
             bridge.approve_multisig_action(&signers.get(i).unwrap(), &id);
-
             let p = bridge.get_multisig_proposal(&id).unwrap();
             prop_assert_eq!(p.approvals.len(), expected);
         }
