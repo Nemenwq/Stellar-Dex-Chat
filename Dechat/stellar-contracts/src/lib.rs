@@ -679,7 +679,6 @@ pub struct FeeWithdrawalBatchNonceEvent {
     pub caller: Address,
     pub new_nonce: u64,
 }
-
 // ── Storage keys ──────────────────────────────────────────────────────────
 #[contracttype]
 pub enum DataKey {
@@ -1612,7 +1611,7 @@ impl FiatBridge {
             .get(&DataKey::WithdrawQueue(request_id))
             .ok_or(Error::RequestNotFound)?;
 
-        // Validate and increment nonce for replay protection
+        // Validate nonce for replay protection
         let current_nonce: u64 = env
             .storage()
             .instance()
@@ -1626,11 +1625,6 @@ impl FiatBridge {
                 return Err(Error::InvalidNonce);
             }
         }
-
-        // Increment nonce
-        env.storage()
-            .instance()
-            .set(&DataKey::WithdrawalExecutionNonce(request.to.clone()), &(current_nonce + 1));
 
         if env.ledger().sequence() < request.unlock_ledger {
             return Err(Error::WithdrawalLocked);
@@ -1689,6 +1683,12 @@ impl FiatBridge {
             }
             Self::check_slippage(&env, expected_price, actual_price, max_slippage)?;
         }
+
+        // Increment nonce after all validation checks pass
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawalExecutionNonce(request.to.clone()), &(current_nonce + 1));
+
         token_client.transfer(
             &env.current_contract_address(),
             &request.to,
@@ -3407,6 +3407,8 @@ impl FiatBridge {
         // Increment fee withdrawal nonce for replay protection tracking
         let nonce: u64 = env.storage().instance().get(&DataKey::FeeWithdrawalNonce).unwrap_or(0);
         env.storage().instance().set(&DataKey::FeeWithdrawalNonce, &(nonce + 1));
+        let caller_nonce: u64 = env.storage().instance().get(&DataKey::FeeWithdrawalNonceByCaller(admin.clone())).unwrap_or(0);
+        env.storage().instance().set(&DataKey::FeeWithdrawalNonceByCaller(admin), &(caller_nonce + 1));
         FeeWithdrawnEvent { version: EVENT_VERSION, to: recipient, amount }.publish(&env);
         Ok(())
     }
@@ -3444,7 +3446,7 @@ impl FiatBridge {
         admin.require_auth();
 
         // ── Issue #1113: per-caller replay protection ────────────────────
-        Self::validate_and_increment_batch_withdrawal_nonce(&env, &admin, nonce)?;
+        Self::validate_and_increment_fee_withdrawal_nonce(&env, &admin, nonce)?;
 
         // ── Issue #1044: use fee_recipient if set, otherwise use the provided 'to' address
         let recipient = env
@@ -3466,44 +3468,6 @@ impl FiatBridge {
             env.storage().persistent().set(&key, &0i128);
             FeeWithdrawnEvent { version: EVENT_VERSION, to: recipient.clone(), amount: current }.publish(&env);
         }
-
-        Ok(())
-    }
-
-    /// Validate and increment the per-caller replay-protection nonce for
-    /// batch fee withdrawals (Issue #1113), following the per-caller nonce
-    /// convention established for operator heartbeats.
-    fn validate_and_increment_batch_withdrawal_nonce(
-        env: &Env,
-        caller: &Address,
-        provided_nonce: u64,
-    ) -> Result<(), Error> {
-        let current_nonce: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeWithdrawalBatchNonce(caller.clone()))
-            .unwrap_or(0);
-
-        // Nonce must be exactly current_nonce (monotonically increasing).
-        if provided_nonce != current_nonce {
-            if provided_nonce < current_nonce {
-                return Err(Error::StaleNonce);
-            } else {
-                return Err(Error::InvalidNonce);
-            }
-        }
-
-        env.storage().instance().set(
-            &DataKey::FeeWithdrawalBatchNonce(caller.clone()),
-            &(current_nonce + 1),
-        );
-
-        FeeWithdrawalBatchNonceEvent {
-            version: EVENT_VERSION,
-            caller: caller.clone(),
-            new_nonce: current_nonce + 1,
-        }
-        .publish(env);
 
         Ok(())
     }
@@ -5809,3 +5773,7 @@ mod test_set_circuit_breaker_threshold_invariants;
 
 #[cfg(test)]
 mod test_set_circuit_breaker_reset_window_invariants;
+
+#[cfg(test)]
+mod test_execute_withdrawal_invariants;
+
