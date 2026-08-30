@@ -3039,16 +3039,24 @@ impl FiatBridge {
         Ok(())
     }
 
-    pub fn withdraw_fees_batch(env: Env, to: Address, tokens: Vec<Address>) -> Result<(), Error> {
+    pub fn withdraw_fees_batch(
+        env: Env,
+        to: Address,
+        tokens: Vec<Address>,
+        nonce: u64,
+    ) -> Result<(), Error> {
         // ── Issue #1041: emit telemetry event
         Self::emit_telemetry(&env, Symbol::new(&env, "withdraw_fees_batch"));
-        
+
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+
+        // ── Issue #1113: per-caller replay protection ────────────────────
+        Self::validate_and_increment_batch_withdrawal_nonce(&env, &admin, nonce)?;
 
         // ── Issue #1044: use fee_recipient if set, otherwise use the provided 'to' address
         let recipient = env
@@ -3070,6 +3078,44 @@ impl FiatBridge {
             env.storage().persistent().set(&key, &0i128);
             FeeWithdrawnEvent { version: EVENT_VERSION, to: recipient.clone(), amount: current }.publish(&env);
         }
+
+        Ok(())
+    }
+
+    /// Validate and increment the per-caller replay-protection nonce for
+    /// batch fee withdrawals (Issue #1113), following the per-caller nonce
+    /// convention established for operator heartbeats.
+    fn validate_and_increment_batch_withdrawal_nonce(
+        env: &Env,
+        caller: &Address,
+        provided_nonce: u64,
+    ) -> Result<(), Error> {
+        let current_nonce: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeWithdrawalBatchNonce(caller.clone()))
+            .unwrap_or(0);
+
+        // Nonce must be exactly current_nonce (monotonically increasing).
+        if provided_nonce != current_nonce {
+            if provided_nonce < current_nonce {
+                return Err(Error::StaleNonce);
+            } else {
+                return Err(Error::InvalidNonce);
+            }
+        }
+
+        env.storage().instance().set(
+            &DataKey::FeeWithdrawalBatchNonce(caller.clone()),
+            &(current_nonce + 1),
+        );
+
+        FeeWithdrawalBatchNonceEvent {
+            version: EVENT_VERSION,
+            caller: caller.clone(),
+            new_nonce: current_nonce + 1,
+        }
+        .publish(env);
 
         Ok(())
     }

@@ -2226,7 +2226,7 @@ fn test_withdraw_fees_batch_full_sweep() {
     tokens.push_back(token_a_addr.clone());
     tokens.push_back(token_b_addr.clone());
 
-    bridge.withdraw_fees_batch(&recipient, &tokens);
+    bridge.withdraw_fees_batch(&recipient, &tokens, &0);
 
     assert_eq!(bridge.get_accrued_fees(&token_a_addr), 0);
     assert_eq!(bridge.get_accrued_fees(&token_b_addr), 0);
@@ -2251,7 +2251,7 @@ fn test_withdraw_fees_batch_partial_sweep() {
     tokens.push_back(token_a_addr.clone());
     tokens.push_back(token_b_addr.clone());
 
-    bridge.withdraw_fees_batch(&recipient, &tokens);
+    bridge.withdraw_fees_batch(&recipient, &tokens, &0);
 
     assert_eq!(bridge.get_accrued_fees(&token_a_addr), 0);
     assert_eq!(bridge.get_accrued_fees(&token_b_addr), 0);
@@ -5401,7 +5401,7 @@ fn test_withdraw_fees_batch_emits_per_token_event() {
     tokens.push_back(token_c_addr.clone());
 
     assert_bridge_events_have_version(&env, &contract_id, || {
-        bridge.withdraw_fees_batch(&recipient, &tokens);
+        bridge.withdraw_fees_batch(&recipient, &tokens, &0);
     });
 
     // ── Balance assertions ────────────────────────────────────────────────
@@ -5410,6 +5410,91 @@ fn test_withdraw_fees_batch_emits_per_token_event() {
     assert_eq!(bridge.get_accrued_fees(&token_a_addr), 0);
     assert_eq!(bridge.get_accrued_fees(&token_b_addr), 0);
     assert_eq!(bridge.get_accrued_fees(&token_c_addr), 0);
+}
+
+// ── Issue #1113: per-caller nonce replay protection for withdraw_fees_batch ──
+
+#[test]
+fn test_withdraw_fees_batch_nonce_replay_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, admin, token_a_addr, token_a, token_a_sac) =
+        setup_bridge(&env, 10_000);
+    let recipient = Address::generate(&env);
+
+    token_a_sac.mint(&contract_id, &100);
+    bridge.accrue_fee(&token_a_addr, &100);
+
+    let mut tokens = soroban_sdk::Vec::new(&env);
+    tokens.push_back(token_a_addr.clone());
+
+    // Fresh contract: per-caller nonce starts at 0.
+    assert_eq!(bridge.get_fee_withdrawal_batch_nonce(&admin), 0);
+
+    // First batch withdrawal uses nonce 0 and increments to 1.
+    bridge.withdraw_fees_batch(&recipient, &tokens, &0);
+    assert_eq!(bridge.get_fee_withdrawal_batch_nonce(&admin), 1);
+    assert_eq!(token_a.balance(&recipient), 100);
+
+    // Replaying the same nonce must be rejected (stale nonce).
+    let replay = bridge.try_withdraw_fees_batch(&recipient, &tokens, &0);
+    assert_eq!(replay, Err(Ok(Error::StaleNonce)));
+
+    // Using an out-of-sequence higher nonce must be rejected.
+    let skip = bridge.try_withdraw_fees_batch(&recipient, &tokens, &5);
+    assert_eq!(skip, Err(Ok(Error::InvalidNonce)));
+}
+
+#[test]
+fn test_withdraw_fees_batch_nonce_is_per_caller() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, admin, token_a_addr, _, token_a_sac) =
+        setup_bridge(&env, 10_000);
+    let recipient = Address::generate(&env);
+
+    token_a_sac.mint(&contract_id, &50);
+    bridge.accrue_fee(&token_a_addr, &50);
+
+    let mut tokens = soroban_sdk::Vec::new(&env);
+    tokens.push_back(token_a_addr.clone());
+
+    // An unrelated caller has its own independent nonce counter at 0.
+    let other = Address::generate(&env);
+    assert_eq!(bridge.get_fee_withdrawal_batch_nonce(&admin), 0);
+    assert_eq!(bridge.get_fee_withdrawal_batch_nonce(&other), 0);
+
+    // Admin's nonce advances to 1 for its own counter only.
+    bridge.withdraw_fees_batch(&recipient, &tokens, &0);
+    assert_eq!(bridge.get_fee_withdrawal_batch_nonce(&admin), 1);
+    assert_eq!(bridge.get_fee_withdrawal_batch_nonce(&other), 0);
+}
+
+#[test]
+fn test_withdraw_fees_batch_emits_nonce_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, bridge, admin, token_a_addr, _, token_a_sac) =
+        setup_bridge(&env, 10_000);
+    let recipient = Address::generate(&env);
+
+    token_a_sac.mint(&contract_id, &40);
+    bridge.accrue_fee(&token_a_addr, &40);
+
+    let mut tokens = soroban_sdk::Vec::new(&env);
+    tokens.push_back(token_a_addr.clone());
+
+    // Every event emitted by withdraw_fees_batch — including the per-caller
+    // nonce event — must carry EVENT_VERSION (Issue #1113 / #1041 conventions).
+    assert_bridge_events_have_version(&env, &contract_id, || {
+        bridge.withdraw_fees_batch(&recipient, &tokens, &0);
+    });
+
+    // The per-caller nonce advanced, confirming the nonce event fired.
+    assert_eq!(bridge.get_fee_withdrawal_batch_nonce(&admin), 1);
 }
 
 /// Verifies that the `remaining_fees` value in the emitted event matches
