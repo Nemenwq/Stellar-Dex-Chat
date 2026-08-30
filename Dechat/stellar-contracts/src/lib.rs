@@ -484,6 +484,14 @@ pub struct FeeVaultReconciledEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
+pub struct FeeQueryEvent {
+    pub version: u32,
+    pub token: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
 pub struct AdminRoleCheckEvent {
     pub version: u32,
     pub admin: Address,
@@ -2871,10 +2879,20 @@ impl FiatBridge {
     }
 
     pub fn get_accrued_fees(env: Env, token: Address) -> i128 {
-        env.storage()
+        let amount = env
+            .storage()
             .persistent()
-            .get(&DataKey::FeeVault(token))
-            .unwrap_or(0)
+            .get(&DataKey::FeeVault(token.clone()))
+            .unwrap_or(0);
+
+        FeeQueryEvent {
+            version: EVENT_VERSION,
+            token: token.clone(),
+            amount,
+        }
+        .publish(&env);
+
+        amount
     }
 
     pub fn withdraw_fees(env: Env, to: Address, token: Address, amount: i128) -> Result<(), Error> {
