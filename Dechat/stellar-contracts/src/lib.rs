@@ -5263,3 +5263,6 @@ mod test_get_next_priority_withdrawal_invariants;
 
 #[cfg(test)]
 mod test_set_operator_invariants;
+
+#[cfg(test)]
+mod test_request_withdrawal_invariants;
