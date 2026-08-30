@@ -80,6 +80,9 @@ Invariant test modules live in `src/` alongside the contract code:
 | `test_get_multisig_proposal_invariants.rs` | read-only proposal accessor | module in `lib.rs` |
 | `test_get_multisig_signers_invariants.rs` | read-only signers accessor | module in `lib.rs` |
 | `test_propose_upgrade_invariants.rs` | governed upgrade proposal state | module in `lib.rs` |
+| `test_request_withdrawal_invariants.rs` | withdrawal-queue entry accounting | module in `lib.rs` |
+| `test_get_next_priority_withdrawal_invariants.rs` | read-only risk-tier scheduler | module in `lib.rs` |
+| `test_set_operator_invariants.rs` | operator roster, cap and nonces | module in `lib.rs` |
 
 ### Standalone vs. Module Registration
 
@@ -144,6 +147,50 @@ The multisig files assert state-transition and access-control invariants:
   `None` for unknown ids without creating entries.
 - **`get_multisig_signers`**: read-only accessor purity, empty vector on
   uninitialised contract.
+
+### Withdrawal Queue Invariants
+
+Three suites cover the queue end to end.
+
+**`test_request_withdrawal_invariants.rs`** — the only entry point into the
+queue. Re-asserts all three core accounting invariants after each accepted
+request and pins down:
+
+- liabilities move by exactly the requested amount and never past
+  `net_deposited`,
+- `request_id`s are allocated once, in order, and never recycled — including
+  after a cancellation,
+- the stored `WithdrawRequest` mirrors its inputs, with
+  `unlock_ledger = queued_ledger + lock_period`,
+- every rejection path rolls back wholesale. This matters especially here:
+  the entry point writes the queue entry, bumps `next_request_id` and updates
+  both queue lengths *before* it validates the token registry and available
+  funds, so a `TokenNotWhitelisted` or `InsufficientFunds` rejection is the
+  sharpest available test that failures leave no partial state.
+
+**`test_get_next_priority_withdrawal_invariants.rs`** — the read-only risk-tier
+scheduler:
+
+- read-only purity (repeated calls are stable and mutate nothing),
+- referential integrity: a returned id always names a live request,
+- lowest occupied tier wins over insertion order; FIFO within that tier,
+- cancelled requests are never handed back out,
+- rejected and unauthorised mutations never shift the priority head.
+
+Note the deliberate compute-budget bound the suite documents: the scan covers
+only `min(next_request_id, 256)` tiers, so a request filed in a tier above
+that window is invisible to the scheduler until the window widens.
+
+**`test_set_operator_invariants.rs`** — the operator roster:
+
+- `is_operator` agrees with the flag written, and no bystander's flag moves,
+- the `operator_count` carried by `SetOperatorEvent` always equals the number
+  of set flags and never exceeds `max_operators`,
+- grant and revoke are exact inverses; re-activation never double-counts,
+- nonces advance by exactly one on success and are untouched by every
+  rejection, so a failure can never burn or skip a nonce,
+- role-confusion guards (admin, contract address) and the cap rejection leave
+  no flag, nonce or event behind.
 
 ### Upgrade Invariants (`test_propose_upgrade_invariants.rs`)
 
