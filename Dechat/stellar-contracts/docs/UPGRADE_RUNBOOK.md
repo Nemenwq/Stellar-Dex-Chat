@@ -81,6 +81,7 @@ Confirm that:
 - New `withdraw_fees` events use the `EVENT_VERSION` topic prefix.
 - The per-caller nonce migration for `withdraw_fees` described in `NONCE_REPLAY_PROTECTION.md` is included.
 - The `new_version` constant in `lib.rs` is greater than the currently deployed version.
+- Any storage layout changes ship with a migration path.
 
 ### 3. Run the Full Test Suite
 
@@ -360,3 +361,6 @@ In the event of a failed upgrade or unexpected contract behaviour, escalate in t
 - [`NONCE_REPLAY_PROTECTION.md`](./NONCE_REPLAY_PROTECTION.md) — per-caller nonce schema and migration path
 - [`BATCH_OPERATIONS.md`](./BATCH_OPERATIONS.md) — batch admin operations reference
 - [`DEPLOYMENT.md`](../DEPLOYMENT.md) — initial Futurenet deployment guide
+- [`FEE_ACCRUAL_ARCHITECTURE.md`](./FEE_ACCRUAL_ARCHITECTURE.md) — fee accrual events and structures
+- [`NONCE_REPLAY_PROTECTION.md`](./NONCE_REPLAY_PROTECTION.md) — nonce and replay protection conventions
+- [`ERROR_CODES.md`](./ERROR_CODES.md) — canonical list of contract error codes

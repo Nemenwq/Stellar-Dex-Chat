@@ -469,6 +469,7 @@ pub struct InitNonceIncrementedEvent {
 #[contractevent]
 #[derive(Clone, Debug)]
 pub struct OperatorPrunedEvent {
+    #[topic]
     pub version: u32,
     pub operator: Address,
     pub ledger: u32,
