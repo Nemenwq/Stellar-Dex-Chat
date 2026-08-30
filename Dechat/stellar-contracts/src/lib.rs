@@ -602,6 +602,16 @@ pub struct IsDeniedCheckedEvent {
 
 /// Emitted on every `is_operator` query, mirroring `IsDeniedCheckedEvent` for
 /// the denylist. `is_operator` is an access-control lookup, so the audit trail
+/// Emitted whenever the per-caller batch fee-withdrawal nonce is consumed,
+/// so indexers can follow replay-protection state without replaying storage.
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct FeeWithdrawalBatchNonceEvent {
+    pub version: u32,
+    pub caller: Address,
+    pub new_nonce: u64,
+}
+
 /// records which address was checked and what the contract answered.
 #[contractevent]
 #[derive(Clone, Debug)]
@@ -653,15 +663,6 @@ pub struct CircuitBreakerAutoResetEvent {
     pub version: u32,
     pub tripped_at: u32,
     pub reset_at: u32,
-}
-
-#[contractevent]
-#[derive(Clone, Debug)]
-pub struct UpgradeCancelledEvent {
-    pub version: u32,
-    pub admin: Address,
-    pub wasm_hash: BytesN<32>,
-    pub nonce: u64,
 }
 
 // ── Storage keys ──────────────────────────────────────────────────────────
@@ -757,6 +758,10 @@ pub enum DataKey {
     EmergencyRecoveryCap,
     FeeWithdrawalNonce,
     UpgradeCancellationNonce(Address),
+    /// Per-user replay-protection nonce for `execute_withdrawal`.
+    WithdrawalExecutionNonce(Address),
+    // ── Issue #1113: per-caller replay protection for batch fee withdrawals ──
+    FeeWithdrawalBatchNonce(Address),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -5192,6 +5197,23 @@ impl FiatBridge {
         env.storage()
             .instance()
             .get(&DataKey::UpgradeCancellationNonce(admin))
+            .unwrap_or(0)
+    }
+
+    /// Get the current withdrawal execution nonce for a user
+    pub fn get_withdrawal_execution_nonce(env: Env, user: Address) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::WithdrawalExecutionNonce(user))
+            .unwrap_or(0)
+    }
+
+    /// Return the current per-caller nonce for batch fee withdrawals
+    /// (used for replay protection, Issue #1113).
+    pub fn get_fee_withdrawal_batch_nonce(env: Env, caller: Address) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::FeeWithdrawalBatchNonce(caller))
             .unwrap_or(0)
     }
 }
