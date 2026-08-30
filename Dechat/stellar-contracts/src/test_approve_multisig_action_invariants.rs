@@ -14,6 +14,9 @@
 //! Registered from `lib.rs` behind `#[cfg(test)]`; this file deliberately
 //! carries no inner `#![cfg(test)]` so clippy's `duplicated_attributes` lint
 //! stays quiet.
+//!
+//! See [`docs/INVARIANT_TESTING.md`](docs/INVARIANT_TESTING.md) for the
+//! invariant-testing strategy and contributor checklist.
 
 use crate::{BatchAdminOp, Error, FiatBridge, FiatBridgeClient, MultisigProposal};
 use proptest::prelude::*;
@@ -59,6 +62,7 @@ fn setup_multisig(
         &100,
         &signers,
         &threshold,
+        &0,
     );
 
     (client, signers)
