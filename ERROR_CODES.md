@@ -83,3 +83,36 @@ lookups leave the same kind of trail.
 No storage layout change ships with this event: it reads only the existing
 `DataKey::Operator(address)` key and writes nothing, so no migration is
 required.
+
+## Operator role management (`set_operator`)
+
+`set_operator` now requires a nonce parameter for replay protection, following
+the same pattern as `heartbeat`. It reuses existing error codes:
+
+| Code | Name             | Raised when                                                                 |
+| ---- | ---------------- | --------------------------------------------------------------------------- |
+| 901  | `InvalidNonce`   | The provided nonce is greater than the current expected nonce (future nonce). |
+| 902  | `StaleNonce`     | The provided nonce is less than the current expected nonce (replay attempt). |
+
+Every accepted call emits `SetOperatorEvent { version, operator, active }`,
+where `version` is `EVENT_VERSION`. Rejected calls emit nothing and leave
+storage untouched.
+
+The nonce validation uses the existing `DataKey::OperatorNonce(Address)` storage
+key and the existing `validate_and_increment_nonce` helper function, so no new
+storage layout changes are required. The nonce is validated before any state
+changes occur, ensuring that failed nonce validations do not modify operator
+status.
+
+## Fee vault queries (`get_accrued_fees`)
+
+`get_accrued_fees` is a read-only view function that now emits an audit event
+for query tracking. It introduces no new error variants:
+
+Every query emits `FeeQueryEvent { version, token, amount }`, where `version` is
+`EVENT_VERSION`, `token` is the address queried, and `amount` is the ledger
+balance returned. This provides an audit trail for fee vault queries without
+modifying any storage.
+
+No storage layout change ships with this event: it reads only the existing
+`DataKey::FeeVault(token)` key and writes nothing, so no migration is required.

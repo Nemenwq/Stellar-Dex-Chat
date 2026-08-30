@@ -91,7 +91,7 @@ fn positive_check_emits_event_with_true_result() {
 
     let (contract_id, bridge, _admin) = setup_bridge(&env);
     let operator = Address::generate(&env);
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     assert!(bridge.is_operator(&operator));
 
@@ -143,7 +143,7 @@ fn event_names_the_queried_address() {
     let (contract_id, bridge, _admin) = setup_bridge(&env);
     let registered = Address::generate(&env);
     let queried = Address::generate(&env);
-    bridge.set_operator(&registered, &true);
+    bridge.set_operator(&registered, &true, &0);
 
     bridge.is_operator(&queried);
 
@@ -160,7 +160,7 @@ fn every_query_emits_an_event() {
 
     let (contract_id, bridge, _admin) = setup_bridge(&env);
     let operator = Address::generate(&env);
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // The event buffer holds the most recent invocation, so a non-empty buffer
     // after each call means that call emitted.
@@ -185,11 +185,11 @@ fn reported_result_tracks_operator_transitions() {
     assert!(!bridge.is_operator(&operator));
     assert_eq!(last_event_bool(&env, &contract_id, "result"), Some(false));
 
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
     assert!(bridge.is_operator(&operator));
     assert_eq!(last_event_bool(&env, &contract_id, "result"), Some(true));
 
-    bridge.set_operator(&operator, &false);
+    bridge.set_operator(&operator, &false, &1);
     assert!(!bridge.is_operator(&operator));
     assert_eq!(last_event_bool(&env, &contract_id, "result"), Some(false));
 }
