@@ -460,6 +460,14 @@ pub struct NonceIncrementedEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
+pub struct InitNonceIncrementedEvent {
+    pub version: u32,
+    pub admin: Address,
+    pub new_nonce: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
 pub struct OperatorPrunedEvent {
     pub version: u32,
     pub operator: Address,
@@ -756,6 +764,7 @@ pub enum DataKey {
     OperatorDailyLimit(Address),
     EmergencyRecoveryCap,
     FeeWithdrawalNonce,
+    InitNonce(Address),
     UpgradeCancellationNonce(Address),
 }
 
@@ -780,9 +789,13 @@ impl FiatBridge {
         min_deposit: i128,
         signers: Vec<Address>,
         threshold: u32,
+        nonce: u64,
     ) -> Result<(), Error> {
         // ── Issue #1041: emit telemetry event
         Self::emit_telemetry(&env, Symbol::new(&env, "init"));
+
+        admin.require_auth();
+        Self::validate_and_increment_init_nonce(&env, &admin, nonce)?;
         
         // Prevent reinitialization: check both Admin and SchemaVersion
         // (Admin may be removed by execute_renounce_admin, but SchemaVersion persists)
@@ -884,6 +897,13 @@ impl FiatBridge {
 
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         Ok(())
+    }
+
+    pub fn get_init_nonce(env: Env, admin: Address) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::InitNonce(admin))
+            .unwrap_or(0)
     }
 
     pub fn deposit(
@@ -2695,6 +2715,40 @@ impl FiatBridge {
             version: EVENT_VERSION,
             operator: operator.clone(),
             new_nonce: current_nonce + 1,
+        }
+        .publish(env);
+
+        Ok(())
+    }
+
+    fn validate_and_increment_init_nonce(
+        env: &Env,
+        admin: &Address,
+        provided_nonce: u64,
+    ) -> Result<(), Error> {
+        let current_nonce: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::InitNonce(admin.clone()))
+            .unwrap_or(0);
+
+        if provided_nonce != current_nonce {
+            if provided_nonce < current_nonce {
+                return Err(Error::StaleNonce);
+            } else {
+                return Err(Error::InvalidNonce);
+            }
+        }
+
+        let next_nonce = current_nonce.checked_add(1).ok_or(Error::Overflow)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::InitNonce(admin.clone()), &next_nonce);
+
+        InitNonceIncrementedEvent {
+            version: EVENT_VERSION,
+            admin: admin.clone(),
+            new_nonce: next_nonce,
         }
         .publish(env);
 

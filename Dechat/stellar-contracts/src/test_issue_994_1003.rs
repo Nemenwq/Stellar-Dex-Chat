@@ -22,7 +22,7 @@ fn setup(env: &Env) -> (FiatBridgeClient<'_>, Address, Address) {
         .address();
 
     let signers = vec![env, admin.clone()];
-    client.init(&admin, &token_addr, &10_000_000i128, &1i128, &signers, &1);
+    client.init(&admin, &token_addr, &10_000_000i128, &1i128, &signers, &1, &0);
 
     (client, admin, token_addr)
 }

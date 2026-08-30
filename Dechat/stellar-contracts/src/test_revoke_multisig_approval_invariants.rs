@@ -68,6 +68,7 @@ fn setup_multisig(
         &100,
         &signers,
         &threshold,
+        &0,
     );
 
     (client, signers)
