@@ -63,6 +63,7 @@ pub enum Error {
     MaxDeniedReached = 316,
     InvalidAmount = 317,
     SelfReferentialAddress = 318,
+    LimitCapCannotBeLowered = 319,
 
     // --- 400 series: Funds & Balances ---
     InsufficientFunds = 401,
@@ -666,11 +667,17 @@ pub struct CircuitBreakerAutoResetEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
-pub struct UpgradeCancelledEvent {
+pub struct LimitMaxCapSetEvent {
     pub version: u32,
-    pub admin: Address,
-    pub wasm_hash: BytesN<32>,
-    pub nonce: u64,
+    pub cap: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct FeeWithdrawalBatchNonceEvent {
+    pub version: u32,
+    pub caller: Address,
+    pub new_nonce: u64,
 }
 
 // ── Storage keys ──────────────────────────────────────────────────────────
@@ -766,6 +773,8 @@ pub enum DataKey {
     EmergencyRecoveryCap,
     FeeWithdrawalNonce,
     FeeWithdrawalNonceByCaller(Address),
+    FeeWithdrawalBatchNonce(Address),
+    WithdrawalExecutionNonce(Address),
     InitNonce(Address),
     UpgradeCancellationNonce(Address),
 }
@@ -5599,7 +5608,16 @@ impl FiatBridge {
         if cap <= 0 {
             return Err(Error::ZeroAmount);
         }
+        let current_limit: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LimitMaxCap)
+            .unwrap_or(i128::MAX);
+        if cap > current_limit {
+            return Err(Error::LimitCapCannotBeLowered);
+        }
         env.storage().instance().set(&DataKey::LimitMaxCap, &cap);
+        LimitMaxCapSetEvent { version: EVENT_VERSION, cap }.publish(&env);
         Ok(())
     }
 
@@ -5691,6 +5709,20 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
+    pub fn get_fee_withdrawal_batch_nonce(env: Env, caller: Address) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::FeeWithdrawalBatchNonce(caller))
+            .unwrap_or(0)
+    }
+
+    pub fn get_withdrawal_execution_nonce(env: Env, caller: Address) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::WithdrawalExecutionNonce(caller))
+            .unwrap_or(0)
+    }
+
     /// Validate and increment the per-caller fee-withdrawal nonce.
     #[allow(dead_code)]
     fn validate_and_increment_fee_withdrawal_nonce(
@@ -5750,6 +5782,8 @@ impl FiatBridge {
         }
 
         Ok(())
+    }
+
     /// Get the current upgrade cancellation nonce for an admin
     pub fn get_upgrade_cancellation_nonce(env: Env, admin: Address) -> u64 {
         env.storage()
@@ -5787,3 +5821,13 @@ mod test_reclaim_expired_withdrawal_invariants;
 
 #[cfg(test)]
 #[cfg(test)] mod test_execute_upgrade_invariants;
+mod test_execute_upgrade_invariants;
+
+#[cfg(test)]
+mod test_reset_circuit_breaker_invariants;
+
+#[cfg(test)]
+mod test_set_circuit_breaker_threshold_invariants;
+
+#[cfg(test)]
+mod test_set_circuit_breaker_reset_window_invariants;
