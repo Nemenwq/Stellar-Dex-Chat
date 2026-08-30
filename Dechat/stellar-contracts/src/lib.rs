@@ -413,12 +413,21 @@ pub struct AdminActionExecutedEvent {
     pub action_id: u64,
 }
 
+/// Emitted on every accepted `set_operator` call. `previous_active` is the
+/// operator's flag *before* the call and `active` the flag after it, so an
+/// indexer can tell a real transition from a no-op re-activation without
+/// replaying storage. `operator_count` is the live active-operator count once
+/// the change has been applied — the same number `set_max_operators` is
+/// checked against — which makes the cap invariant auditable from the event
+/// stream alone.
 #[contractevent]
 #[derive(Clone, Debug)]
 pub struct SetOperatorEvent {
     pub version: u32,
     pub operator: Address,
     pub active: bool,
+    pub previous_active: bool,
+    pub operator_count: u32,
 }
 
 /// Emitted on every accepted `set_max_operators` call. `previous` is the cap in
@@ -2527,7 +2536,14 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::OperatorCount, &operators.len());
 
-        SetOperatorEvent { version: EVENT_VERSION, operator: operator.clone(), active }.publish(&env);
+        SetOperatorEvent {
+            version: EVENT_VERSION,
+            operator: operator.clone(),
+            active,
+            previous_active: was_active,
+            operator_count: operators.len(),
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -5244,3 +5260,6 @@ mod test_propose_upgrade_invariants;
 
 #[cfg(test)]
 mod test_get_next_priority_withdrawal_invariants;
+
+#[cfg(test)]
+mod test_set_operator_invariants;
