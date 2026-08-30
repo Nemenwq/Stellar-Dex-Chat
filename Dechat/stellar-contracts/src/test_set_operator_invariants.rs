@@ -74,7 +74,7 @@ fn setup_bridge(env: &Env) -> (Address, FiatBridgeClient<'_>, Address) {
     let mut signers = Vec::new(env);
     signers.push_back(admin.clone());
 
-    client.init(&admin, &token_address, &1_000_000, &100, &signers, &1);
+    client.init(&admin, &token_address, &1_000_000, &100, &signers, &1, &0);
 
     (contract_id, client, admin)
 }

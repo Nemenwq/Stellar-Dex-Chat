@@ -469,7 +469,16 @@ pub struct NonceIncrementedEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
+pub struct InitNonceIncrementedEvent {
+    pub version: u32,
+    pub admin: Address,
+    pub new_nonce: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
 pub struct OperatorPrunedEvent {
+    #[topic]
     pub version: u32,
     pub operator: Address,
     pub ledger: u32,
@@ -766,6 +775,8 @@ pub enum DataKey {
     OperatorDailyLimit(Address),
     EmergencyRecoveryCap,
     FeeWithdrawalNonce,
+    FeeWithdrawalNonceByCaller(Address),
+    InitNonce(Address),
     UpgradeCancellationNonce(Address),
     /// Per-user replay-protection nonce for `execute_withdrawal`.
     WithdrawalExecutionNonce(Address),
@@ -776,6 +787,22 @@ pub enum DataKey {
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
 
 // ── Contract ──────────────────────────────────────────────────────────────
+/// # FiatBridge Smart Contract
+///
+/// The `FiatBridge` contract manages cross-chain fiat/crypto liquidity bridging on Stellar
+/// using Soroban. It provides high-assurance deposit and withdrawal vaults, multi-signer
+/// governance, rolling volume limits, oracle price validation, and timelocked upgrades.
+///
+/// ## Overflow Prevention Architecture
+/// The contract enforces deterministic arithmetic safety throughout its lifecycle:
+/// - **Zero Implicit Wrapping**: Release builds enforce `overflow-checks = true`.
+/// - **Explicit Error Propagation**: Uses [`checked_add`](https://doc.rust-lang.org/std/primitive.i128.html#method.checked_add)
+///   and [`checked_sub`](https://doc.rust-lang.org/std/primitive.i128.html#method.checked_sub) on financial
+///   accumulators, returning typed errors ([`Error::Overflow`], [`Error::InternalError`]) rather than panicking.
+/// - **Safe Fixed-Point Scaling**: Decimal operations delegate to [`crate::math::checked_mul_div_floor`] /
+///   [`crate::math::checked_mul_div_ceil`].
+/// - **Saturating Sequence Arithmetic**: Non-financial ledger calculations use [`saturating_add`](https://doc.rust-lang.org/std/primitive.u32.html#method.saturating_add).
+/// - **Guarded Invariant Subtractions**: State reductions require strict preceding inequality guards.
 #[contract]
 pub struct FiatBridge;
 
@@ -786,6 +813,38 @@ impl FiatBridge {
         TelemetryEvent { version: EVENT_VERSION, function_name }.publish(env);
     }
     
+    /// Initializes the `FiatBridge` contract configuration, token limits, and multisig governance.
+    ///
+    /// # Overflow Prevention & Boundary Invariants
+    /// - **Limit Validation**: `limit` must be strictly positive (`limit > 0`) and strictly below
+    ///   `i128::MAX` (`limit != i128::MAX`) to prevent edge-adjacent arithmetic saturation.
+    /// - **Minimum Deposit Guard**: `min_deposit` must be $\ge 1$, strictly below `limit` (`min_deposit < limit`),
+    ///   and $\ne \text{i128::MAX}$.
+    /// - **Multisig Signer Bounds**: `signers.len()` is capped at [`MAX_SIGNERS`] (20) to prevent storage
+    ///   exhaustion and loop execution gas blowups.
+    /// - **Threshold Validation**: Threshold must be non-zero and $\le \text{signers.len()}$.
+    /// - **Replay Protection**: Validates and increments the initialization nonce using checked arithmetic.
+    ///
+    /// # Arguments
+    /// * `env` – The Soroban host environment.
+    /// * `admin` – The initial administrative address.
+    /// * `token` – The primary bridged token contract address.
+    /// * `limit` – The per-transaction maximum deposit/withdrawal limit in token stroops.
+    /// * `min_deposit` – The minimum deposit floor in token stroops.
+    /// * `signers` – Vector of authorized multisig signer addresses (max 20).
+    /// * `threshold` – Required approval quorum for multisig proposals.
+    /// * `nonce` – Monotonic initialization nonce for caller authentication.
+    ///
+    /// # Errors
+    /// * [`Error::AlreadyInitialized`] – If the contract has already been initialized.
+    /// * [`Error::ZeroAmount`] – If `limit <= 0`.
+    /// * [`Error::InvalidAmount`] – If `limit == i128::MAX` or `min_deposit == i128::MAX`.
+    /// * [`Error::BelowMinimum`] – If `min_deposit < 1` or `min_deposit >= limit`.
+    /// * [`Error::MaxSignersReached`] – If `signers.len() > MAX_SIGNERS`.
+    /// * [`Error::InvalidThreshold`] – If `threshold == 0` or `threshold > signers.len()`.
+    /// * [`Error::DuplicateSigner`] – If `signers` contains duplicate addresses.
+    /// * [`Error::SelfReferentialAddress`] – If `admin == token`.
+    /// * [`Error::Unauthorized`] – If `admin` is the contract's own address or signature fails.
     pub fn init(
         env: Env,
         admin: Address,
@@ -794,9 +853,13 @@ impl FiatBridge {
         min_deposit: i128,
         signers: Vec<Address>,
         threshold: u32,
+        nonce: u64,
     ) -> Result<(), Error> {
         // ── Issue #1041: emit telemetry event
         Self::emit_telemetry(&env, Symbol::new(&env, "init"));
+
+        admin.require_auth();
+        Self::validate_and_increment_init_nonce(&env, &admin, nonce)?;
         
         // Prevent reinitialization: check both Admin and SchemaVersion
         // (Admin may be removed by execute_renounce_admin, but SchemaVersion persists)
@@ -900,6 +963,53 @@ impl FiatBridge {
         Ok(())
     }
 
+    pub fn get_init_nonce(env: Env, admin: Address) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::InitNonce(admin))
+            .unwrap_or(0)
+    }
+
+    /// Deposits tokens into the bridge vault, minting a cryptographic receipt and updating accumulators.
+    ///
+    /// # Overflow Prevention & Safety Invariants
+    /// - **Amount Guard**: Ensures `amount > 0` and within token limits to avoid zero/negative math bugs.
+    /// - **Saturating Cooldown Offsets**: Uses [`u32::saturating_add`] on `last.saturating_add(cooldown)`
+    ///   to safely evaluate anti-sandwich and deposit rate delays without ledger wraparound panics.
+    /// - **Checked Vault Accumulation**: Increases `config.total_deposited` via
+    ///   [`i128::checked_add(amount)`](https://doc.rust-lang.org/std/primitive.i128.html#method.checked_add),
+    ///   returning [`Error::Overflow`] if total deposits exceed `i128::MAX`.
+    /// - **Checked User Accounting**: Increases `user_total` via [`i128::checked_add`], returning
+    ///   [`Error::InternalError`] on overflow.
+    /// - **Sequential Receipt Counter**: Increments `ReceiptCounter` (`u64`) with `receipt_counter + 1`.
+    /// - **Oracle Price Scaling**: Converts amount to USD cents via [`crate::math::checked_mul_div_floor`]
+    ///   and evaluates 24-hour limit windows using saturating ledger addition.
+    /// - **Cross-Multiplication Slippage Guard**: Validates expected vs actual prices using integer
+    ///   cross-multiplication in [`check_slippage`](FiatBridge::check_slippage).
+    ///
+    /// # Arguments
+    /// * `env` – The Soroban host environment.
+    /// * `from` – The depositor address (must authenticate).
+    /// * `amount` – Amount of tokens to deposit in stroops (must be $> 0$).
+    /// * `token` – The address of the token contract being deposited.
+    /// * `reference` – Client payment reference (length $\le 64$).
+    /// * `expected_price` – Expected benchmark oracle price scaled by `FIXED_POINT` (0 to skip slippage check).
+    /// * `max_slippage` – Maximum allowed downward price slippage in basis points (BPS).
+    /// * `memo_hash` – Optional 32-byte hash identifying the deposit batch/memo.
+    ///
+    /// # Returns
+    /// * `Ok(BytesN<32>)` – The unique deterministic receipt identifier.
+    ///
+    /// # Errors
+    /// * [`Error::ZeroAmount`] – If `amount <= 0`.
+    /// * [`Error::ReferenceTooLong`] – If `reference.len() > MAX_REFERENCE_LEN` (64).
+    /// * [`Error::CooldownActive`] – If user makes repeated deposits within cooldown window.
+    /// * [`Error::AddressDenied`] – If depositor is on the denylist.
+    /// * [`Error::TokenNotWhitelisted`] – If token is not registered.
+    /// * [`Error::ExceedsLimit`] – If `amount` exceeds per-transaction limit.
+    /// * [`Error::ExceedsFiatLimit`] – If `amount` exceeds 24-hour fiat volume cap.
+    /// * [`Error::SlippageTooHigh`] – If execution price deviates downward beyond `max_slippage`.
+    /// * [`Error::Overflow`] – If vault deposit accumulator overflows `i128`.
     pub fn deposit(
         env: Env,
         from: Address,
@@ -1191,6 +1301,32 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Directly processes an authorized withdrawal from the contract to a recipient address.
+    ///
+    /// # Overflow Prevention & Safety Invariants
+    /// - **Authorization Guard**: Requires admin or authorized operator authentication.
+    /// - **Recipient Guard**: Prevents tokens from being withdrawn back to the contract's own address.
+    /// - **Token Balance Check**: Verifies contract on-chain balance $\ge \text{amount}$.
+    /// - **Checked Accumulation**: Increases `config.total_withdrawn` via [`i128::checked_add`],
+    ///   returning [`Error::InternalError`] on overflow.
+    /// - **Post-State Invariant Check**: Runs [`check_invariants`](FiatBridge::check_invariants) to
+    ///   ensure `total_deposited >= total_withdrawn` and `balance >= net_deposited`.
+    ///
+    /// # Arguments
+    /// * `env` – The Soroban host environment.
+    /// * `caller` – The authorized administrator or withdrawal operator.
+    /// * `to` – Destination recipient address.
+    /// * `amount` – Amount to withdraw in stroops ($> 0$).
+    /// * `token` – Token contract address.
+    ///
+    /// # Errors
+    /// * [`Error::Unauthorized`] – If `caller` is not admin or active withdraw operator.
+    /// * [`Error::ZeroAmount`] – If `amount <= 0`.
+    /// * [`Error::InvalidRecipient`] – If `to == env.current_contract_address()`.
+    /// * [`Error::AddressDenied`] – If recipient is on the denylist.
+    /// * [`Error::InsufficientFunds`] – If contract holds fewer tokens than `amount`.
+    /// * [`Error::TokenNotWhitelisted`] – If token registry record does not exist.
+    /// * [`Error::InternalError`] – If `total_withdrawn` overflows `i128`.
     pub fn withdraw(
         env: Env,
         caller: Address,
@@ -1265,6 +1401,32 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Enqueues a timelocked withdrawal request and records liability in the vault accumulator.
+    ///
+    /// # Overflow Prevention & Safety Invariants
+    /// - **Checked Liabilities Addition**: Adds `amount` to `config.total_liabilities` using
+    ///   [`i128::checked_add`], returning [`Error::Overflow`] on overflow.
+    /// - **Saturating TTL Calculations**: Computes receipt and queue item TTL extensions using
+    ///   [`u32::saturating_add`] on `MIN_TTL + lock_period + cooldown_ledgers`.
+    /// - **Monotonic Request ID**: Increments `NextRequestID` (`u64`) with checked addition.
+    /// - **Cooldown Verification**: Verifies large deposit cooldown via saturating ledger sequence addition.
+    ///
+    /// # Arguments
+    /// * `env` – The Soroban host environment.
+    /// * `to` – Destination recipient address.
+    /// * `amount` – Amount requested for withdrawal in stroops ($> 0$).
+    /// * `token` – Token contract address.
+    /// * `memo_hash` – Optional 32-byte memo hash.
+    /// * `risk_tier` – Security risk tier modifying lock duration.
+    ///
+    /// # Returns
+    /// * `Ok(u64)` – Unique withdrawal request identifier.
+    ///
+    /// # Errors
+    /// * [`Error::ZeroAmount`] – If `amount <= 0`.
+    /// * [`Error::AddressDenied`] – If recipient is on the denylist.
+    /// * [`Error::CooldownActive`] – If large deposit cooldown is active.
+    /// * [`Error::Overflow`] – If liability accumulator overflows `i128`.
     pub fn request_withdrawal(
         env: Env,
         to: Address,
@@ -1408,6 +1570,37 @@ impl FiatBridge {
         Ok(request_id)
     }
 
+    /// Executes an unlocked withdrawal request, transferring tokens to the recipient and updating liability accumulators.
+    ///
+    /// # Overflow Prevention & Safety Invariants
+    /// - **Sequential Nonce Increment**: Protects against double-execution with `current_nonce + 1`.
+    /// - **Saturating Delay Checks**: Uses [`u32::saturating_add`] on `last_deposit.saturating_add(delay)`
+    ///   to evaluate anti-sandwich delay safely.
+    /// - **Guarded Partial Amount**: Validates `amt <= request.amount && amt > 0` before modifying balances.
+    /// - **Cross-Multiplication Slippage Guard**: Intercepts oracle price deviations with integer
+    ///   cross-multiplication in [`check_slippage`](FiatBridge::check_slippage).
+    /// - **Guarded Liability Decrement**: Subtraction `config.total_liabilities -= execute_amount` is
+    ///   guaranteed non-underflowing by `execute_amount <= request.amount` and previous liability accumulation.
+    /// - **Checked Total Withdrawn**: Accumulates `config.total_withdrawn` via [`i128::checked_add`],
+    ///   returning [`Error::InternalError`] on overflow.
+    /// - **Post-Execution Invariant**: Validates `total_deposited >= total_withdrawn` and `balance >= net_deposited`.
+    ///
+    /// # Arguments
+    /// * `env` – The Soroban host environment.
+    /// * `request_id` – Queue ID of the withdrawal request.
+    /// * `partial_amount` – Optional sub-amount to partially execute (if `None`, executes full remaining amount).
+    /// * `expected_price` – Expected benchmark oracle price scaled by `FIXED_POINT` (0 to skip slippage check).
+    /// * `max_slippage` – Maximum allowed downward price slippage in basis points.
+    /// * `nonce` – Replay protection nonce corresponding to recipient address.
+    ///
+    /// # Errors
+    /// * [`Error::RequestNotFound`] – If `request_id` does not exist.
+    /// * [`Error::StaleNonce`] / [`Error::InvalidNonce`] – If replay protection nonce is invalid.
+    /// * [`Error::WithdrawalLocked`] – If request is still within timelock.
+    /// * [`Error::AntiSandwichDelayActive`] – If executed before anti-sandwich delay expires.
+    /// * [`Error::InsufficientFunds`] – If contract balance is insufficient.
+    /// * [`Error::SlippageTooHigh`] – If actual oracle price exceeds max slippage threshold.
+    /// * [`Error::InternalError`] – If `total_withdrawn` overflows `i128`.
     pub fn execute_withdrawal(
         env: Env,
         request_id: u64,
@@ -1568,6 +1761,21 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Cancels a pending withdrawal request and releases reserved liabilities back to the vault.
+    ///
+    /// # Overflow Prevention & Safety Invariants
+    /// - **Authorization Guard**: Requires admin authentication.
+    /// - **Guarded Liability Release**: Safely decrements `config.total_liabilities -= request.amount`.
+    ///   Since `request.amount` was strictly added during request creation, this subtraction cannot underflow.
+    /// - **Post-Cancellation Invariant Check**: Runs [`check_invariants`](FiatBridge::check_invariants).
+    ///
+    /// # Arguments
+    /// * `env` – The Soroban host environment.
+    /// * `request_id` – Queue ID of the withdrawal request to cancel.
+    ///
+    /// # Errors
+    /// * [`Error::RequestNotFound`] – If `request_id` is not present in storage.
+    /// * [`Error::TokenNotWhitelisted`] – If the associated token configuration is missing.
     pub fn cancel_withdrawal(env: Env, request_id: u64) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -2261,6 +2469,28 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Validates execution price against expected benchmark using integer cross-multiplication.
+    ///
+    /// # Overflow Prevention & Mathematical Analysis
+    /// Standard integer division $\lfloor ((\text{expected} - \text{actual}) \times 10\,000) / \text{expected} \rfloor$
+    /// truncates fractional digits, which can allow trades slightly over the slippage limit to pass.
+    ///
+    /// This function prevents truncation evasion and overflow using a three-step integer arithmetic strategy:
+    /// 1. **Downward Filter**: Evaluates only downward movements (`actual_price < expected_price`).
+    /// 2. **Fast-Reject Cross-Multiplication**: Evaluates $(\text{expected} - \text{actual}) \times 10\,000 > \text{max\_slippage\_bps} \times \text{expected}$
+    ///    to reject out-of-bounds prices immediately without division truncation.
+    /// 3. **Exact Quotient & Ceiling Remainder Guard**: If integer quotient equals `max_slippage_bps`,
+    ///    inspects the remainder $((\text{expected} - \text{actual}) \times 10\,000) \pmod{\text{expected}}$.
+    ///    If $\text{remainder} \ge \text{expected} / 2$, ceiling rounding would exceed the threshold, returning [`Error::SlippageTooHigh`].
+    ///
+    /// # Arguments
+    /// * `env` – The Soroban host environment.
+    /// * `expected_price` – Expected benchmark oracle price scaled by `FIXED_POINT` (0 to skip check).
+    /// * `actual_price` – Realized oracle price scaled by `FIXED_POINT`.
+    /// * `max_slippage_bps` – Maximum allowable downward slippage in basis points (1 BPS = 0.01%).
+    ///
+    /// # Errors
+    /// * [`Error::SlippageTooHigh`] – If downward price slippage exceeds `max_slippage_bps`.
     fn check_slippage(
         env: &Env,
         expected_price: i128,
@@ -2316,6 +2546,29 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Queries price from the oracle and enforces 24-hour rolling fiat deposit caps.
+    ///
+    /// # Overflow Prevention & Safety Invariants
+    /// - **Fixed-Point Conversion**: Computes USD cents via [`crate::math::mul_div_floor`] with
+    ///   divisor `ORACLE_PRICE_DECIMALS / 100` ($10^5$), ensuring zero precision loss and intermediate
+    ///   multiplication safety.
+    /// - **Rolling Window Saturation**: Ledger window rollover is evaluated via
+    ///   `curr >= vol.window_start + WINDOW_LEDGERS`, preventing premature window resets.
+    /// - **Volume Accumulation Check**: Verifies `vol.usd_cents + usd_cents <= limit` before adding.
+    ///
+    /// # Arguments
+    /// * `env` – The Soroban host environment.
+    /// * `depositor` – Address of the depositor.
+    /// * `token` – Address of the token contract.
+    /// * `amount` – Deposit amount in stroops.
+    ///
+    /// # Returns
+    /// * `Ok(i128)` – Realized token price from oracle in fixed-point units.
+    ///
+    /// # Errors
+    /// * [`Error::OracleNotSet`] – If fiat limits are enabled but no oracle is configured.
+    /// * [`Error::OraclePriceInvalid`] – If oracle returns price $\le 0$.
+    /// * [`Error::ExceedsFiatLimit`] – If 24-hour rolling fiat deposit limit is exceeded.
     fn validate_fiat_limit(
         env: &Env,
         depositor: &Address,
@@ -2406,6 +2659,26 @@ impl FiatBridge {
     }
 
     // ── Timelock ──────────────────────────────────────────────────────────
+    /// Queues an administrative action subject to a mandatory timelock delay.
+    ///
+    /// # Overflow Prevention & Safety Invariants
+    /// - **Timelock Addition Check**: Computes `target_ledger = current_ledger.checked_add(delay).ok_or(Error::Overflow)?`.
+    ///   Using checked addition guarantees that ledger number wraparound cannot produce a target ledger
+    ///   in the past, preventing timelock bypass attacks.
+    /// - **Sequential Action ID**: Increments `NextActionID` with `id.checked_add(1).ok_or(Error::Overflow)?`.
+    ///
+    /// # Arguments
+    /// * `env` – The Soroban host environment.
+    /// * `action_type` – Symbol identifier for the governance action.
+    /// * `payload` – Serialized byte payload for execution.
+    /// * `delay` – Enforced timelock delay in ledgers ($\ge \text{MIN\_TIMELOCK\_DELAY}$).
+    ///
+    /// # Returns
+    /// * `Ok(u64)` – Unique action identifier.
+    ///
+    /// # Errors
+    /// * [`Error::ActionNotReady`] – If `delay < MIN_TIMELOCK_DELAY`.
+    /// * [`Error::Overflow`] – If `current_ledger + delay` or `NextActionID` overflows.
     pub fn queue_admin_action(
         env: Env,
         action_type: Symbol,
@@ -2588,6 +2861,19 @@ impl FiatBridge {
     }
 
     // ── Denylist ──────────────────────────────────────────────────────────
+    /// Adds an address to the persistent denylist and increments the enumeration counter.
+    ///
+    /// # Overflow Prevention & Safety Invariants
+    /// - **Capacity Assertion**: Checks `count == u64::MAX` returning [`Error::MaxDeniedReached`].
+    /// - **Checked Counter Increment**: Increments `DeniedCount` with `count.checked_add(1).ok_or(Error::Overflow)?`.
+    ///
+    /// # Arguments
+    /// * `env` – The Soroban host environment.
+    /// * `address` – Target address to deny.
+    ///
+    /// # Errors
+    /// * [`Error::MaxDeniedReached`] – If denylist capacity reaches `u64::MAX`.
+    /// * [`Error::Overflow`] – If counter increment overflows `u64`.
     pub fn deny_address(env: Env, address: Address) -> Result<(), Error> {
         let admin: Address = env
             .storage()
@@ -2716,6 +3002,40 @@ impl FiatBridge {
             version: EVENT_VERSION,
             operator: operator.clone(),
             new_nonce: current_nonce + 1,
+        }
+        .publish(env);
+
+        Ok(())
+    }
+
+    fn validate_and_increment_init_nonce(
+        env: &Env,
+        admin: &Address,
+        provided_nonce: u64,
+    ) -> Result<(), Error> {
+        let current_nonce: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::InitNonce(admin.clone()))
+            .unwrap_or(0);
+
+        if provided_nonce != current_nonce {
+            if provided_nonce < current_nonce {
+                return Err(Error::StaleNonce);
+            } else {
+                return Err(Error::InvalidNonce);
+            }
+        }
+
+        let next_nonce = current_nonce.checked_add(1).ok_or(Error::Overflow)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::InitNonce(admin.clone()), &next_nonce);
+
+        InitNonceIncrementedEvent {
+            version: EVENT_VERSION,
+            admin: admin.clone(),
+            new_nonce: next_nonce,
         }
         .publish(env);
 
@@ -3026,6 +3346,24 @@ impl FiatBridge {
         amount
     }
 
+    /// Withdraws accrued protocol fees for a specific token to the fee recipient.
+    ///
+    /// # Overflow Prevention & Safety Invariants
+    /// - **Zero Amount Guard**: Rejects `amount <= 0`.
+    /// - **Vault Balance Guard**: Validates `amount <= current_accrued_fees`, ensuring `current - amount` cannot underflow.
+    /// - **Guarded State Update**: Updates `FeeVault` with exact guarded subtraction `current - amount`.
+    /// - **Sequential Replay Nonce**: Increments the caller's `FeeWithdrawalNonceByCaller` entry with `nonce + 1`.
+    ///
+    /// # Arguments
+    /// * `env` – The Soroban host environment.
+    /// * `to` – Fallback recipient address (overridden if `FeeRecipient` is set in configuration).
+    /// * `token` – Token contract address.
+    /// * `amount` – Fee amount in stroops to withdraw.
+    ///
+    /// # Errors
+    /// * [`Error::ZeroAmount`] – If `amount <= 0`.
+    /// * [`Error::NoFeesToWithdraw`] – If no fees are accrued in the vault.
+    /// * [`Error::FeeWithdrawalExceedsBalance`] – If `amount > current_accrued_fees`.
     pub fn withdraw_fees(env: Env, to: Address, token: Address, amount: i128) -> Result<(), Error> {
         // ── Issue #1041: emit telemetry event
         Self::emit_telemetry(&env, Symbol::new(&env, "withdraw_fees"));
@@ -3079,12 +3417,29 @@ impl FiatBridge {
 
         env.storage().persistent().set(&key, &(current - amount));
         // Increment fee withdrawal nonce for replay protection tracking
-        let nonce: u64 = env.storage().instance().get(&DataKey::FeeWithdrawalNonce).unwrap_or(0);
-        env.storage().instance().set(&DataKey::FeeWithdrawalNonce, &(nonce + 1));
+        let nonce_key = DataKey::FeeWithdrawalNonceByCaller(admin.clone());
+        let nonce: u64 = env.storage().instance().get(&nonce_key).unwrap_or(0);
+        env.storage().instance().set(&nonce_key, &(nonce + 1));
         FeeWithdrawnEvent { version: EVENT_VERSION, to: recipient, amount }.publish(&env);
         Ok(())
     }
 
+    /// Atomically sweeps accrued protocol fees across multiple registered tokens.
+    ///
+    /// # Overflow Prevention & Safety Invariants
+    /// - **Per-Caller Replay Protection**: Validates and increments caller batch nonce via checked addition.
+    /// - **Safe Iteration**: Iterates over caller-provided token addresses, sweeping non-zero fee balances.
+    /// - **Guarded Reset**: Resets each swept fee vault entry directly to 0 (`0i128`), avoiding arithmetic drift.
+    ///
+    /// # Arguments
+    /// * `env` – The Soroban host environment.
+    /// * `to` – Fallback recipient address.
+    /// * `tokens` – List of token addresses to sweep.
+    /// * `nonce` – Caller's batch withdrawal nonce.
+    ///
+    /// # Errors
+    /// * [`Error::Unauthorized`] – If caller is not admin.
+    /// * [`Error::StaleNonce`] / [`Error::InvalidNonce`] – If replay protection nonce is invalid.
     pub fn withdraw_fees_batch(
         env: Env,
         to: Address,
@@ -4333,56 +4688,89 @@ impl FiatBridge {
 
     /// Set the rolling withdrawal volume threshold that trips the global circuit breaker.
     ///
+    /// The circuit breaker is a safety mechanism that automatically halts withdrawals
+    /// when unusual outflow volume is detected within a rolling 24-hour window
+    /// (~17 280 ledgers at 5 s/ledger). This function controls the volume level at
+    /// which that halt triggers.
+    ///
     /// When cumulative withdrawal volume inside the current 24-hour ledger window
     /// reaches or exceeds `threshold`, the breaker trips: the offending withdrawal
-    /// still executes, but every subsequent guarded operation returns
-    /// [`Error::CircuitBreakerActive`] until the breaker is cleared.
+    /// still executes, but a [`CircuitBreakerTrippedEvent`] is emitted and every
+    /// subsequent guarded operation returns [`Error::CircuitBreakerActive`] until
+    /// the breaker is cleared.
     ///
-    /// The breaker is evaluated on every withdrawal-producing path that calls
-    /// [`Self::check_and_update_circuit_breaker`], which covers:
+    /// The volume check runs on every withdrawal-producing path, covering:
     /// - direct operator withdrawals ([`Self::withdraw`])
     /// - queued withdrawal execution ([`Self::execute_withdrawal`])
     /// - queued withdrawal requests ([`Self::request_withdrawal`])
     ///
     /// # Parameters
     ///
-    /// - `threshold`:
+    /// - `threshold` (`i128`): the cumulative 24-hour withdrawal volume that triggers
+    ///   the breaker, expressed in the token's smallest indivisible unit (e.g. stroops
+    ///   for XLM).
     ///   - `> 0` — enables the breaker; trips when the rolling 24-hour volume
-    ///     meets or exceeds this value (in the token's smallest unit).
-    ///   - `== 0` — disables the breaker entirely; all guarded paths skip the
-    ///     volume check.
-    ///   - Negative values are treated the same as `0` (disabled) because the
-    ///     internal check is `threshold <= 0`.
+    ///     meets or exceeds this value.
+    ///   - `== 0` — disables the breaker entirely; all guarded withdrawal paths
+    ///     skip the volume check.
+    ///   - Negative values are treated identically to `0` (disabled), because the
+    ///     internal guard evaluates `threshold <= 0`.
     ///
     /// # Returns
     ///
-    /// `Ok(())` on success.
+    /// `Ok(())` on success. The value is persisted to instance storage and takes
+    /// effect on the very next withdrawal evaluation.
     ///
     /// # Errors
     ///
-    /// - [`Error::NotInitialized`] — contract has not been initialised yet
-    ///   (no admin stored in instance storage).
-    /// - Panics with a Soroban auth error if the caller is not the current admin.
+    /// - [`Error::NotInitialized`] — the contract has not been initialised yet
+    ///   (no admin stored in instance storage). Call `init` first.
+    /// - Panics with a Soroban host auth error if the caller is not the current admin.
+    ///   Use [`Self::transfer_admin`] to inspect or change the admin address.
     ///
     /// # Notes
     ///
     /// - The new threshold takes effect immediately for the **next** withdrawal
     ///   evaluation; it does not retroactively clear or trip the breaker.
-    /// - To clear an already-tripped breaker, call [`Self::reset_circuit_breaker`].
-    /// - To read the currently configured threshold, call
+    /// - Lowering the threshold while the breaker is already tripped has no
+    ///   additional effect — the breaker remains tripped until explicitly cleared.
+    ///   Raising the threshold while the breaker is tripped likewise does not
+    ///   auto-clear it; call [`Self::reset_circuit_breaker`] explicitly.
+    /// - Setting `threshold` to `0` while the breaker is tripped does **not**
+    ///   automatically clear it. Clear the breaker first with
+    ///   [`Self::reset_circuit_breaker`], then set the threshold to `0`.
+    /// - The rolling 24-hour volume accumulator is **not** reset by this call.
+    ///   Volume tracked before this call counts toward the new threshold on the
+    ///   next withdrawal.
+    /// - To read the currently active threshold, call
     ///   [`Self::get_circuit_breaker_threshold`].
+    /// - To clear a tripped breaker, call [`Self::reset_circuit_breaker`].
     /// - To configure how long the breaker stays tripped before auto-reset, call
     ///   [`Self::set_circuit_breaker_reset_window`].
+    /// - To inspect whether the breaker is currently tripped, call
+    ///   [`Self::is_circuit_breaker_tripped`].
     ///
     /// # Example
     ///
     /// ```ignore
-    /// // Enable: trip the breaker if more than 10 000 stroops are withdrawn
-    /// // within any rolling 24-hour window (~17 280 ledgers).
+    /// // 1. Enable the breaker: trip if more than 10 000 stroops are withdrawn
+    /// //    within any rolling 24-hour window (~17 280 ledgers at 5 s/ledger).
     /// bridge.set_circuit_breaker_threshold(&env, 10_000)?;
+    /// assert_eq!(bridge.get_circuit_breaker_threshold(), 10_000);
     ///
-    /// // Disable: no volume limit enforced.
+    /// // 2. A withdrawal that pushes cumulative volume past 10 000 stroops will
+    /// //    still execute, emit CircuitBreakerTrippedEvent, and then block
+    /// //    all subsequent guarded operations with Error::CircuitBreakerActive.
+    /// bridge.withdraw(&operator, &recipient, &10_001, &token)?;
+    /// assert!(bridge.is_circuit_breaker_tripped());
+    ///
+    /// // 3. After investigating, clear the breaker manually and resume operations.
+    /// bridge.reset_circuit_breaker()?;
+    /// assert!(!bridge.is_circuit_breaker_tripped());
+    ///
+    /// // 4. Disable the breaker entirely — no volume limit enforced.
     /// bridge.set_circuit_breaker_threshold(&env, 0)?;
+    /// assert_eq!(bridge.get_circuit_breaker_threshold(), 0);
     /// ```
     pub fn set_circuit_breaker_threshold(env: Env, threshold: i128) -> Result<(), Error> {
         let admin: Address = env
@@ -4397,68 +4785,101 @@ impl FiatBridge {
         Ok(())
     }
 
-    /// Set how long the circuit breaker stays tripped before it clears itself automatically.
+    /// Configure how long the circuit breaker stays tripped before it clears itself automatically.
     ///
-    /// When the breaker trips, the contract records the current ledger sequence in
-    /// [`DataKey::CircuitBreakerTrippedAt`]. On every subsequent guarded path
-    /// ([`Self::require_circuit_breaker_clear`] and
-    /// [`Self::check_and_update_circuit_breaker`]), the contract evaluates:
+    /// When the breaker trips it can either stay tripped indefinitely (requiring a
+    /// manual admin call to clear it) or clear itself once a configurable ledger count
+    /// has elapsed. This function lets operators choose between those two modes and
+    /// tune how aggressive the cool-down period is — a shorter window restores normal
+    /// operations sooner after a spike; a longer window (or `u32::MAX`) forces a human
+    /// review before withdrawals resume.
+    ///
+    /// When the breaker trips, the contract records the current ledger sequence number.
+    /// On every subsequent guarded withdrawal path the contract evaluates:
     ///
     /// ```text
     /// current_ledger > tripped_at + reset_window
     /// ```
     ///
-    /// If that condition holds, the breaker auto-resets: the tripped flag is
-    /// cleared, the 24-hour withdrawal volume window is rolled forward, and a
+    /// If that condition holds, the breaker auto-resets: the tripped flag is cleared,
+    /// the 24-hour withdrawal volume window is rolled forward, and a
     /// [`CircuitBreakerAutoResetEvent`] is emitted before the operation continues.
     ///
-    /// If it does not hold (or auto-reset is disabled), the operation returns
+    /// If the condition does not hold, or auto-reset is disabled, the operation returns
     /// [`Error::CircuitBreakerActive`].
+    ///
+    /// If this function has never been called, the runtime falls back to the compile-time
+    /// constant `CIRCUIT_BREAKER_RESET_LEDGERS` (34 560 ledgers, ~48 hours at 5 s/ledger).
     ///
     /// # Parameters
     ///
-    /// - `ledgers`:
-    ///   - `u32::MAX` — disables auto-reset entirely; the breaker will remain
-    ///     tripped until [`Self::reset_circuit_breaker`] is called manually.
-    ///   - any other value — the breaker auto-resets this many ledgers after it
-    ///     tripped (e.g. `17_280` ≈ 24 h, `34_560` ≈ 48 h).
-    ///   - Note: passing `0` means the condition `current > tripped_at + 0` is
-    ///     true on the very next ledger, so the breaker effectively auto-resets
-    ///     immediately. This is almost never what you want; use
-    ///     [`Self::reset_circuit_breaker`] for an instant manual clear instead.
-    ///
-    /// When no value has been explicitly stored (i.e. this function has never been
-    /// called), the runtime falls back to [`CIRCUIT_BREAKER_RESET_LEDGERS`]
-    /// (~48 hours).
+    /// - `ledgers` (`u32`): the number of ledgers after the breaker trips before it
+    ///   auto-resets.
+    ///   - `u32::MAX` — disables auto-reset entirely; the breaker will remain tripped
+    ///     until [`Self::reset_circuit_breaker`] is called manually. Use this for
+    ///     high-security deployments where every trip must be reviewed by an admin.
+    ///   - `17_280` — auto-reset after ~24 hours (1 × `WINDOW_LEDGERS`). A balanced
+    ///     default for most production deployments.
+    ///   - `34_560` — auto-reset after ~48 hours (the compile-time default). Gives
+    ///     a full business-day buffer for out-of-hours incidents.
+    ///   - any other non-`MAX` value — auto-resets that many ledgers after the trip.
+    ///   - `0` — the condition `current_ledger > tripped_at + 0` becomes true on the
+    ///     very next ledger, so the breaker effectively auto-resets immediately. This
+    ///     is almost never the right choice; call [`Self::reset_circuit_breaker`] for
+    ///     an instant manual clear instead.
     ///
     /// # Returns
     ///
-    /// `Ok(())` on success.
+    /// `Ok(())` on success. The value is persisted to instance storage and takes
+    /// effect on the very next guarded withdrawal evaluation.
     ///
     /// # Errors
     ///
-    /// - [`Error::NotInitialized`] — contract has not been initialised (no admin
-    ///   in instance storage).
-    /// - Panics with a Soroban auth error if the caller is not the current admin.
+    /// - [`Error::NotInitialized`] — the contract has not been initialised (no admin
+    ///   in instance storage). Call `init` first.
+    /// - Panics with a Soroban host auth error if the caller is not the current admin.
+    ///   Use [`Self::transfer_admin`] to inspect or change the admin address.
     ///
     /// # Notes
     ///
     /// - The new window takes effect immediately for the next guarded evaluation;
     ///   it does not retroactively change whether the breaker is currently tripped.
-    /// - To read the active window, call [`Self::get_circuit_breaker_reset_window`].
-    /// - To set the volume threshold that trips the breaker, call
+    /// - Changing the window while the breaker is already tripped does not clear it.
+    ///   If you want to shorten the wait and resume immediately, call
+    ///   [`Self::reset_circuit_breaker`] explicitly.
+    /// - The auto-reset check uses `saturating_add` to guard against `tripped_at`
+    ///   overflow. Values near `u32::MAX - 1` will saturate at `u32::MAX`, and the
+    ///   condition will never be true unless `current_ledger` also reaches `u32::MAX`.
+    /// - To read the currently active window, call [`Self::get_circuit_breaker_reset_window`].
+    /// - To set the withdrawal volume threshold that trips the breaker, call
     ///   [`Self::set_circuit_breaker_threshold`].
-    /// - To clear a tripped breaker right now without waiting for auto-reset, call
+    /// - To clear a tripped breaker right now without waiting, call
     ///   [`Self::reset_circuit_breaker`].
+    /// - To inspect whether the breaker is currently tripped, call
+    ///   [`Self::is_circuit_breaker_tripped`].
     ///
     /// # Example
     ///
     /// ```ignore
-    /// // Auto-reset after ~24 hours (~17 280 ledgers at 5 s/ledger).
+    /// // 1. Configure a 24-hour auto-reset window (~17 280 ledgers at 5 s/ledger).
     /// bridge.set_circuit_breaker_reset_window(&env, 17_280)?;
+    /// assert_eq!(bridge.get_circuit_breaker_reset_window(), 17_280);
     ///
-    /// // Disable auto-reset — only a manual reset_circuit_breaker call can clear it.
+    /// // 2. Trip the breaker by crossing the volume threshold.
+    /// bridge.set_circuit_breaker_threshold(&env, 500)?;
+    /// bridge.withdraw(&operator, &recipient, &501, &token)?;
+    /// assert!(bridge.is_circuit_breaker_tripped());
+    ///
+    /// // 3. Advance the ledger past the reset window; the next guarded
+    /// //    withdrawal will auto-reset the breaker and emit
+    /// //    CircuitBreakerAutoResetEvent before proceeding.
+    /// env.ledger().set_sequence_number(env.ledger().sequence() + 17_281);
+    /// bridge.withdraw(&operator, &recipient, &1, &token)?; // succeeds; breaker cleared
+    /// assert!(!bridge.is_circuit_breaker_tripped());
+    ///
+    /// // 4. Disable auto-reset — only a manual reset_circuit_breaker call can clear it.
     /// bridge.set_circuit_breaker_reset_window(&env, u32::MAX)?;
+    /// assert_eq!(bridge.get_circuit_breaker_reset_window(), u32::MAX);
     /// ```
     pub fn set_circuit_breaker_reset_window(env: Env, ledgers: u32) -> Result<(), Error> {
         let admin: Address = env
@@ -4488,48 +4909,80 @@ impl FiatBridge {
             .unwrap_or(CIRCUIT_BREAKER_RESET_LEDGERS)
     }
 
-    /// Manually clear a tripped circuit breaker so guarded operations can resume immediately.
+    /// Immediately clear a tripped circuit breaker so that guarded withdrawal operations
+    /// can resume without waiting for the auto-reset window to expire.
     ///
-    /// Use this when operators have investigated the withdrawal activity that triggered the
-    /// breaker and have determined it is safe to resume. It is the only way to clear the
-    /// breaker when auto-reset is disabled (`reset_window == u32::MAX`) or when you cannot
-    /// wait for the auto-reset window to elapse.
+    /// The circuit breaker halts withdrawals when rolling 24-hour outflow volume exceeds
+    /// the configured threshold. This function is the explicit admin escape-hatch: call it
+    /// after investigating the activity that caused the trip and confirming it is safe to
+    /// resume. It is the *only* way to clear the breaker when auto-reset is disabled
+    /// (`reset_window == u32::MAX`), and it is the fastest path in every other mode — there
+    /// is no need to wait for the ledger count to elapse.
     ///
-    /// The function:
-    /// 1. Flips [`DataKey::CircuitBreakerTripped`] to `false`.
-    /// 2. Emits [`CircuitBreakerResetEvent`] with the current ledger sequence.
+    /// On success the function:
+    /// 1. Clears the tripped flag in instance storage so that all subsequent guarded
+    ///    withdrawal paths proceed normally.
+    /// 2. Always emits a [`CircuitBreakerResetEvent`] carrying the current ledger sequence,
+    ///    regardless of whether the breaker was tripped at the time of the call. This
+    ///    provides an unconditional audit trail for every admin-initiated reset.
     ///
-    /// It does **not** clear [`DataKey::CircuitBreakerTrippedAt`] (the ledger at which the
-    /// breaker tripped), so that value remains available for audit purposes until the next
-    /// trip overwrites it.
+    /// The ledger sequence at which the breaker originally tripped is intentionally
+    /// preserved in storage and is not cleared by this call. It remains available for
+    /// off-chain audit until the next trip overwrites it.
+    ///
+    /// # Parameters
+    ///
+    /// None. The caller is identified solely by Soroban auth; only the current admin
+    /// address may invoke this function.
     ///
     /// # Returns
     ///
     /// `Ok(())` on success. Calling this function when the breaker is already clear is a
-    /// no-op — it succeeds silently.
+    /// no-op — it succeeds silently and still emits [`CircuitBreakerResetEvent`].
     ///
     /// # Errors
     ///
-    /// - [`Error::NotInitialized`] — contract has not been initialised (no admin in instance
-    ///   storage).
-    /// - Panics with a Soroban auth error if the caller is not the current admin.
+    /// - [`Error::NotInitialized`] — the contract has not been initialised (no admin in
+    ///   instance storage). Call `init` first.
+    /// - Panics with a Soroban host auth error if the caller is not the current admin.
+    ///   Use [`Self::transfer_admin`] to inspect or change the admin address.
     ///
     /// # Notes
     ///
-    /// - This function does not change the configured threshold or reset window.
-    /// - To check the current breaker state, call [`Self::is_circuit_breaker_tripped`].
-    /// - To change the volume threshold that triggers the breaker, call
-    ///   [`Self::set_circuit_breaker_threshold`].
-    /// - To configure how long the breaker stays tripped before clearing automatically,
-    ///   call [`Self::set_circuit_breaker_reset_window`].
+    /// - This function does not change the configured threshold or reset window. The
+    ///   breaker will trip again on the next withdrawal that breaches the same threshold.
+    ///   If the threshold needs to be raised or disabled, call
+    ///   [`Self::set_circuit_breaker_threshold`] separately.
+    /// - The rolling 24-hour withdrawal volume accumulator is **not** reset by this call.
+    ///   Volume already tracked in the current window still counts toward the threshold on
+    ///   the next withdrawal. To avoid an immediate re-trip, consider raising the threshold
+    ///   first, or waiting until the 24-hour window rolls over naturally.
+    /// - To check whether the breaker is currently tripped before calling, use
+    ///   [`Self::is_circuit_breaker_tripped`].
+    /// - To read the configured volume threshold, call
+    ///   [`Self::get_circuit_breaker_threshold`].
+    /// - To read or change the auto-reset window, call
+    ///   [`Self::get_circuit_breaker_reset_window`] or
+    ///   [`Self::set_circuit_breaker_reset_window`].
     ///
     /// # Example
     ///
     /// ```ignore
-    /// // After investigating a threshold breach, re-enable normal operations.
+    /// // 1. Configure a threshold and trip the breaker.
+    /// bridge.set_circuit_breaker_threshold(&env, 1_000)?;
+    /// bridge.withdraw(&operator, &recipient, &1_001, &token)?;
     /// assert!(bridge.is_circuit_breaker_tripped());
+    ///
+    /// // 2. Subsequent withdrawals are blocked until the breaker is cleared.
+    /// let err = bridge.try_withdraw(&operator, &recipient, &1, &token).unwrap_err();
+    /// assert_eq!(err, Ok(Error::CircuitBreakerActive));
+    ///
+    /// // 3. After investigation, clear the breaker — emits CircuitBreakerResetEvent.
     /// bridge.reset_circuit_breaker()?;
     /// assert!(!bridge.is_circuit_breaker_tripped());
+    ///
+    /// // 4. Guarded operations resume normally.
+    /// bridge.withdraw(&operator, &recipient, &1, &token)?;
     /// ```
     pub fn reset_circuit_breaker(env: Env) -> Result<(), Error> {
         let admin: Address = env
@@ -4557,51 +5010,71 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
-    /// Return `true` if the circuit breaker is currently tripped.
     /// Return whether the circuit breaker is currently tripped.
     ///
-    /// This is a pure read — it reflects the stored flag at the moment of the call
-    /// and does **not** evaluate whether the auto-reset window has elapsed. A breaker
-    /// that has been tripped but whose reset window has since passed will still read
-    /// `true` here until the next guarded withdrawal or heartbeat path triggers the
-    /// auto-reset logic in [`Self::check_and_update_circuit_breaker`] or
-    /// [`Self::require_circuit_breaker_clear`].
+    /// This is the primary read-only probe for the circuit breaker's state. Use it to
+    /// gate off-chain alerting, drive monitoring dashboards, assert post-conditions in
+    /// integration tests, or verify state before deciding whether to call
+    /// [`Self::reset_circuit_breaker`].
     ///
-    /// Use this function to:
-    /// - gate off-chain alerting or monitoring dashboards,
-    /// - assert post-conditions in integration tests, or
-    /// - verify state before calling [`Self::reset_circuit_breaker`].
+    /// **Important:** this is a pure storage read — it reflects the persisted flag at
+    /// the moment of the call and does **not** evaluate whether the auto-reset window
+    /// has elapsed. If the breaker was tripped and the configured reset window has since
+    /// passed, this function still returns `true`. The flag is only cleared lazily: the
+    /// next guarded withdrawal path evaluates the window and auto-resets if eligible,
+    /// emitting [`CircuitBreakerAutoResetEvent`]. If you need an immediate clear without
+    /// waiting for a withdrawal, call [`Self::reset_circuit_breaker`] explicitly.
+    ///
+    /// # Parameters
+    ///
+    /// None. This is a read-only view function that requires no arguments and no
+    /// authentication.
     ///
     /// # Returns
     ///
     /// - `true` — the breaker is tripped; all guarded withdrawal paths will return
-    ///   [`Error::CircuitBreakerActive`] until the breaker is cleared.
+    ///   [`Error::CircuitBreakerActive`] until the breaker is cleared (either by
+    ///   [`Self::reset_circuit_breaker`] or by the lazy auto-reset on the next
+    ///   guarded withdrawal after the window elapses).
     /// - `false` — the breaker is clear, or has never been tripped (the storage key
     ///   is absent and defaults to `false`).
     ///
+    /// # Errors
+    ///
+    /// None. This function performs a plain instance-storage read, requires no auth,
+    /// and cannot panic.
+    ///
     /// # Notes
     ///
-    /// - No parameters; no errors; cannot panic.
-    /// - To clear a tripped breaker manually, call [`Self::reset_circuit_breaker`].
-    /// - To configure how long the breaker stays tripped before clearing automatically,
-    ///   call [`Self::set_circuit_breaker_reset_window`].
-    /// - To set the withdrawal volume threshold that triggers the breaker, call
+    /// - Because auto-reset is lazy, a `true` return does not necessarily mean
+    ///   withdrawals are still blocked — if the reset window has elapsed, the next
+    ///   withdrawal call will clear the breaker automatically before proceeding.
+    ///   Do not use this function alone to determine whether a withdrawal will succeed.
+    /// - To clear a tripped breaker immediately, call [`Self::reset_circuit_breaker`].
+    /// - To read the auto-reset window that governs lazy clearing, call
+    ///   [`Self::get_circuit_breaker_reset_window`].
+    /// - To read or change the volume threshold that causes the breaker to trip, call
+    ///   [`Self::get_circuit_breaker_threshold`] or
     ///   [`Self::set_circuit_breaker_threshold`].
-    /// - To read the currently configured threshold value, call
-    ///   [`Self::get_circuit_breaker_threshold`].
+    /// - To change the auto-reset window, call [`Self::set_circuit_breaker_reset_window`].
     ///
     /// # Example
     ///
     /// ```ignore
-    /// // Before any threshold breach the breaker is clear.
+    /// // 1. Before any threshold breach the breaker is clear.
     /// assert!(!bridge.is_circuit_breaker_tripped());
     ///
-    /// // A withdrawal that pushes rolling volume past the threshold trips it.
+    /// // 2. A withdrawal that pushes rolling volume past the threshold trips it.
     /// bridge.set_circuit_breaker_threshold(&env, 500)?;
-    /// bridge.withdraw(&admin, &user, &600, &token_addr)?; // succeeds but trips
+    /// bridge.withdraw(&operator, &recipient, &501, &token)?; // executes but trips
     /// assert!(bridge.is_circuit_breaker_tripped());
     ///
-    /// // After a manual reset, guarded operations resume.
+    /// // 3. Even after the reset window elapses, the flag reads true until the
+    /// //    next guarded withdrawal triggers the lazy auto-reset.
+    /// env.ledger().set_sequence_number(env.ledger().sequence() + 34_561);
+    /// assert!(bridge.is_circuit_breaker_tripped()); // still true — no withdrawal yet
+    ///
+    /// // 4. A manual reset clears it immediately and emits CircuitBreakerResetEvent.
     /// bridge.reset_circuit_breaker()?;
     /// assert!(!bridge.is_circuit_breaker_tripped());
     /// ```
@@ -4850,6 +5323,19 @@ impl FiatBridge {
             .unwrap_or(MIN_UPGRADE_DELAY)
     }
 
+    /// Proposes a contract WASM upgrade subject to a timelock delay.
+    ///
+    /// # Overflow Prevention & Safety Invariants
+    /// - **Delay Bounds**: Validates `delay >= MIN_UPGRADE_DELAY`.
+    /// - **Saturating Timelock Sequence**: Calculates `executable_after = env.ledger().sequence().saturating_add(delay)`,
+    ///   ensuring that sequence number calculations cannot overflow or bypass the timelock.
+    ///
+    /// # Arguments
+    /// * `env` – The Soroban host environment.
+    /// * `new_wasm_hash` – 32-byte hash of the newly uploaded WASM binary.
+    ///
+    /// # Errors
+    /// * [`Error::Unauthorized`] – If caller is not admin.
     #[allow(deprecated)]
     pub fn propose_upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
         let admin: Address = env
@@ -5201,11 +5687,72 @@ impl FiatBridge {
     }
 
     /// Return the current nonce for fee withdrawals (used for replay protection).
-    pub fn get_fee_withdrawal_nonce(env: Env, _admin: Address) -> u64 {
+    pub fn get_fee_withdrawal_nonce(env: Env, caller: Address) -> u64 {
         env.storage()
             .instance()
-            .get(&DataKey::FeeWithdrawalNonce)
+            .get(&DataKey::FeeWithdrawalNonceByCaller(caller))
             .unwrap_or(0)
+    }
+
+    /// Validate and increment the per-caller fee-withdrawal nonce.
+    #[allow(dead_code)]
+    fn validate_and_increment_fee_withdrawal_nonce(
+        env: &Env,
+        caller: &Address,
+        provided_nonce: u64,
+    ) -> Result<(), Error> {
+        let current_nonce: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeWithdrawalNonceByCaller(caller.clone()))
+            .unwrap_or(0);
+
+        if provided_nonce != current_nonce {
+            if provided_nonce < current_nonce {
+                return Err(Error::StaleNonce);
+            } else {
+                return Err(Error::InvalidNonce);
+            }
+        }
+
+        env.storage().instance().set(
+            &DataKey::FeeWithdrawalNonceByCaller(caller.clone()),
+            &(current_nonce + 1),
+        );
+
+        NonceIncrementedEvent {
+            version: EVENT_VERSION,
+            operator: caller.clone(),
+            new_nonce: current_nonce + 1,
+        }
+        .publish(env);
+
+        Ok(())
+    }
+
+    /// Migrate the legacy global fee-withdrawal nonce to the admin's per-caller
+    /// nonce. Safe to call multiple times; only copies when the target is absent.
+    pub fn migrate_fee_withdrawal_nonce(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        if let Some(legacy_nonce) = env
+            .storage()
+            .instance()
+            .get::<_, u64>(&DataKey::FeeWithdrawalNonce)
+        {
+            let key = DataKey::FeeWithdrawalNonceByCaller(admin.clone());
+            if !env.storage().instance().has(&key) {
+                env.storage().instance().set(&key, &legacy_nonce);
+            }
+            env.storage().instance().remove(&DataKey::FeeWithdrawalNonce);
+        }
+
+        Ok(())
     }
 
     /// Get the current upgrade cancellation nonce for an admin
@@ -5257,6 +5804,9 @@ mod test_get_multisig_proposal_invariants;
 
 #[cfg(test)]
 mod test_propose_upgrade_invariants;
+
+#[cfg(test)]
+mod test_execute_upgrade_invariants;
 
 #[cfg(test)]
 mod test_get_next_priority_withdrawal_invariants;

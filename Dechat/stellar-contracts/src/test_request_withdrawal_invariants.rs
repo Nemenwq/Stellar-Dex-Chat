@@ -78,7 +78,7 @@ fn setup_bridge(env: &Env) -> Fixture<'_> {
     let mut signers = Vec::new(env);
     signers.push_back(admin.clone());
 
-    bridge.init(&admin, &token_addr, &1_000_000, &100, &signers, &1);
+    bridge.init(&admin, &token_addr, &1_000_000, &100, &signers, &1, &0);
 
     Fixture {
         contract_id,

@@ -86,7 +86,7 @@ fn setup_bridge(
     let mut signers = Vec::new(env);
     signers.push_back(admin.clone());
 
-    client.init(&admin, &token_address, &1_000_000, &100, &signers, &1);
+    client.init(&admin, &token_address, &1_000_000, &100, &signers, &1, &0);
 
     (client, admin, token_address, token_admin)
 }
@@ -264,7 +264,7 @@ fn accounting_totals_survive_the_call_unchanged() {
     let bridge = FiatBridgeClient::new(&env, &contract_id);
     let mut signers = Vec::new(&env);
     signers.push_back(admin.clone());
-    bridge.init(&admin, &token_addr, &1_000_000, &100, &signers, &1);
+    bridge.init(&admin, &token_addr, &1_000_000, &100, &signers, &1, &0);
 
     let user = funded_user(&env, &bridge, &token_addr, &token_admin, 10_000);
     bridge.request_withdrawal(&user, &400, &token_addr, &None, &1);
