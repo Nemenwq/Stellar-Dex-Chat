@@ -8,6 +8,10 @@
 //!
 //! The property-based cases use `proptest` over the signer-count / threshold
 //! input space, mirroring `test_deposit_fuzz.rs`.
+//!
+//! Registered from `lib.rs` behind `#[cfg(test)]`. See
+//! [`docs/INVARIANT_TESTING.md`](docs/INVARIANT_TESTING.md) for the
+//! invariant-testing strategy and contributor checklist.
 
 use crate::{FiatBridge, FiatBridgeClient, MAX_SIGNERS};
 use proptest::prelude::*;
