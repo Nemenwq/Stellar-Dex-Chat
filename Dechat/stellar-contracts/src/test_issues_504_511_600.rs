@@ -77,7 +77,7 @@ fn heartbeat_rejected_when_contract_paused() {
 
     // Register an operator and allow one slot
     bridge.set_max_operators(&50);
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // Pause the contract
     bridge.pause();
@@ -98,7 +98,7 @@ fn heartbeat_rejected_when_circuit_breaker_tripped() {
 
     // Register operator
     bridge.set_max_operators(&50);
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // Set a low circuit breaker threshold, fund the contract, then trip it
     bridge.set_circuit_breaker_threshold(&100);
@@ -133,7 +133,7 @@ fn heartbeat_succeeds_for_valid_operator() {
     let operator = Address::generate(&env);
 
     bridge.set_max_operators(&50);
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     // Valid heartbeat should succeed
     bridge.heartbeat(&operator, &0);
@@ -151,7 +151,7 @@ fn heartbeat_nonce_replay_rejected() {
     let operator = Address::generate(&env);
 
     bridge.set_max_operators(&50);
-    bridge.set_operator(&operator, &true);
+    bridge.set_operator(&operator, &true, &0);
 
     bridge.heartbeat(&operator, &0);
 

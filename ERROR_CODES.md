@@ -84,27 +84,35 @@ No storage layout change ships with this event: it reads only the existing
 `DataKey::Operator(address)` key and writes nothing, so no migration is
 required.
 
-## Upgrade cancellation (`cancel_upgrade`)
+## Operator role management (`set_operator`)
 
-`cancel_upgrade` now requires a nonce parameter for replay protection and emits
-a structured event. It reuses existing error codes:
+`set_operator` now requires a nonce parameter for replay protection, following
+the same pattern as `heartbeat`. It reuses existing error codes:
 
 | Code | Name             | Raised when                                                                 |
 | ---- | ---------------- | --------------------------------------------------------------------------- |
-| 606  | `UpgradeProposalMissing` | No upgrade proposal exists to cancel.                                        |
-| 901  | `InvalidNonce`   | Provided nonce is too high (future nonce).                                   |
-| 902  | `StaleNonce`     | Provided nonce has already been used (replay attempt).                       |
+| 901  | `InvalidNonce`   | The provided nonce is greater than the current expected nonce (future nonce). |
+| 902  | `StaleNonce`     | The provided nonce is less than the current expected nonce (replay attempt). |
 
-Every successful cancellation emits `UpgradeCancelledEvent { version, admin, wasm_hash, nonce }`,
-where `version` is `EVENT_VERSION`, `admin` is the address that authorized the cancellation,
-`wasm_hash` is the hash of the cancelled proposal, and `nonce` is the incremented nonce value.
+Every accepted call emits `SetOperatorEvent { version, operator, active }`,
+where `version` is `EVENT_VERSION`. Rejected calls emit nothing and leave
+storage untouched.
 
-The function signature has changed from `cancel_upgrade(env: Env)` to
-`cancel_upgrade(env: Env, nonce: u64)`. Clients must now:
+The nonce validation uses the existing `DataKey::OperatorNonce(Address)` storage
+key and the existing `validate_and_increment_nonce` helper function, so no new
+storage layout changes are required. The nonce is validated before any state
+changes occur, ensuring that failed nonce validations do not modify operator
+status.
 
-1. Query the current nonce with `get_upgrade_cancellation_nonce(admin)`
-2. Pass the nonce when calling `cancel_upgrade`
-3. Handle `StaleNonce` and `InvalidNonce` errors appropriately
+## Fee vault queries (`get_accrued_fees`)
 
-Storage layout change: adds `DataKey::UpgradeCancellationNonce(Address)` for per-admin
-nonce tracking. No migration is required as the key is optional and defaults to 0.
+`get_accrued_fees` is a read-only view function that now emits an audit event
+for query tracking. It introduces no new error variants:
+
+Every query emits `FeeQueryEvent { version, token, amount }`, where `version` is
+`EVENT_VERSION`, `token` is the address queried, and `amount` is the ledger
+balance returned. This provides an audit trail for fee vault queries without
+modifying any storage.
+
+No storage layout change ships with this event: it reads only the existing
+`DataKey::FeeVault(token)` key and writes nothing, so no migration is required.

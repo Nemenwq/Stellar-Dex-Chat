@@ -485,6 +485,14 @@ pub struct FeeVaultReconciledEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
+pub struct FeeQueryEvent {
+    pub version: u32,
+    pub token: Address,
+    pub amount: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
 pub struct AdminRoleCheckEvent {
     pub version: u32,
     pub admin: Address,
@@ -2387,7 +2395,7 @@ impl FiatBridge {
     }
 
     // ── Operator Role & Heartbeat ───────────────────────────────────────
-    pub fn set_operator(env: Env, operator: Address, active: bool) -> Result<(), Error> {
+    pub fn set_operator(env: Env, operator: Address, active: bool, nonce: u64) -> Result<(), Error> {
         let admin: Address = env
             .storage()
             .instance()
@@ -2403,6 +2411,9 @@ impl FiatBridge {
         if operator == env.current_contract_address() {
             return Err(Error::InvalidRecipient);
         }
+
+        // Validate and increment nonce for replay protection
+        Self::validate_and_increment_nonce(&env, &operator, nonce)?;
 
         Self::prune_inactive_operators_internal(&env);
         let was_active = env
@@ -2910,10 +2921,20 @@ impl FiatBridge {
     }
 
     pub fn get_accrued_fees(env: Env, token: Address) -> i128 {
-        env.storage()
+        let amount = env
+            .storage()
             .persistent()
-            .get(&DataKey::FeeVault(token))
-            .unwrap_or(0)
+            .get(&DataKey::FeeVault(token.clone()))
+            .unwrap_or(0);
+
+        FeeQueryEvent {
+            version: EVENT_VERSION,
+            token: token.clone(),
+            amount,
+        }
+        .publish(&env);
+
+        amount
     }
 
     pub fn withdraw_fees(env: Env, to: Address, token: Address, amount: i128) -> Result<(), Error> {
