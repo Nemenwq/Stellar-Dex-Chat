@@ -320,6 +320,7 @@ pub struct WithdrawalExecutedEvent {
     pub request_id: u64,
     pub to: Address,
     pub amount: i128,
+    pub nonce: u64,
 }
 
 #[contractevent]
@@ -484,10 +485,10 @@ pub struct FeeVaultReconciledEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
-pub struct FeeWithdrawalBatchNonceEvent {
+pub struct FeeQueryEvent {
     pub version: u32,
-    pub caller: Address,
-    pub new_nonce: u64,
+    pub token: Address,
+    pub amount: i128,
 }
 
 #[contractevent]
@@ -612,6 +613,15 @@ pub struct IsOperatorCheckedEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
+pub struct UpgradeCancelledEvent {
+    pub version: u32,
+    pub admin: Address,
+    pub wasm_hash: BytesN<32>,
+    pub nonce: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
 pub struct EmergencyRecoverySetEvent {
     pub version: u32,
     pub recovery: Address,
@@ -643,6 +653,15 @@ pub struct CircuitBreakerAutoResetEvent {
     pub version: u32,
     pub tripped_at: u32,
     pub reset_at: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct UpgradeCancelledEvent {
+    pub version: u32,
+    pub admin: Address,
+    pub wasm_hash: BytesN<32>,
+    pub nonce: u64,
 }
 
 // ── Storage keys ──────────────────────────────────────────────────────────
@@ -737,8 +756,7 @@ pub enum DataKey {
     OperatorDailyLimit(Address),
     EmergencyRecoveryCap,
     FeeWithdrawalNonce,
-    // ── Issue #1113: per-caller replay protection for batch fee withdrawals ──
-    FeeWithdrawalBatchNonce(Address),
+    UpgradeCancellationNonce(Address),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -1357,6 +1375,7 @@ impl FiatBridge {
         partial_amount: Option<i128>,
         expected_price: i128,
         max_slippage: u32,
+        nonce: u64,
     ) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         Self::require_not_paused(&env)?;
@@ -1365,6 +1384,26 @@ impl FiatBridge {
             .persistent()
             .get(&DataKey::WithdrawQueue(request_id))
             .ok_or(Error::RequestNotFound)?;
+
+        // Validate and increment nonce for replay protection
+        let current_nonce: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawalExecutionNonce(request.to.clone()))
+            .unwrap_or(0);
+
+        if nonce != current_nonce {
+            if nonce < current_nonce {
+                return Err(Error::StaleNonce);
+            } else {
+                return Err(Error::InvalidNonce);
+            }
+        }
+
+        // Increment nonce
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawalExecutionNonce(request.to.clone()), &(current_nonce + 1));
 
         if env.ledger().sequence() < request.unlock_ledger {
             return Err(Error::WithdrawalLocked);
@@ -1483,6 +1522,7 @@ impl FiatBridge {
             request_id,
             to: request.to.clone(),
             amount: execute_amount,
+            nonce: current_nonce + 1,
         }
         .publish(&env);
 
@@ -1859,6 +1899,10 @@ impl FiatBridge {
         token: Address,
         limit_per_day: i128,
     ) -> Result<(), Error> {
+        // ── Issue #1041: emit telemetry event
+        Self::emit_telemetry(&env, Symbol::new(&env, "set_daily_deposit_limit"));
+        
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
             .storage()
             .instance()
@@ -1870,6 +1914,10 @@ impl FiatBridge {
             .persistent()
             .get(&DataKey::TokenRegistry(token.clone()))
             .ok_or(Error::TokenNotWhitelisted)?;
+        // Bounds check: daily limit cannot exceed token's overall limit
+        if limit_per_day > config.limit {
+            return Err(Error::ExceedsLimit);
+        }
         config.daily_deposit_limit = limit_per_day;
         env.storage()
             .persistent()
@@ -1884,6 +1932,12 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        
+        // Reject u32::MAX as it could cause overflow issues
+        if ledgers == u32::MAX {
+            return Err(Error::InvalidAmount);
+        }
+        
         env.storage()
             .instance()
             .set(&DataKey::CooldownLedgers, &ledgers);
@@ -1901,6 +1955,20 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        
+        // Reject u32::MAX as it could cause overflow issues
+        if ledgers == u32::MAX {
+            return Err(Error::InvalidAmount);
+        }
+        
+        // Reject negative and i128::MAX threshold values
+        if threshold < 0 {
+            return Err(Error::InvalidAmount);
+        }
+        if threshold == i128::MAX {
+            return Err(Error::InvalidAmount);
+        }
+        
         env.storage()
             .instance()
             .set(&DataKey::WithdrawCooldownLedgers, &ledgers);
@@ -2020,6 +2088,12 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        
+        // Reject u32::MAX as it could cause overflow issues
+        if ledgers == u32::MAX {
+            return Err(Error::InvalidAmount);
+        }
+        
         env.storage()
             .instance()
             .set(&DataKey::AntiSandwichDelay, &ledgers);
@@ -2122,6 +2196,15 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        
+        // Reject self-referential addresses
+        if oracle == admin {
+            return Err(Error::SelfReferentialAddress);
+        }
+        if oracle == env.current_contract_address() {
+            return Err(Error::SelfReferentialAddress);
+        }
+        
         env.storage().instance().set(&DataKey::Oracle, &oracle);
         Ok(())
     }
@@ -2355,7 +2438,7 @@ impl FiatBridge {
     }
 
     // ── Operator Role & Heartbeat ───────────────────────────────────────
-    pub fn set_operator(env: Env, operator: Address, active: bool) -> Result<(), Error> {
+    pub fn set_operator(env: Env, operator: Address, active: bool, nonce: u64) -> Result<(), Error> {
         let admin: Address = env
             .storage()
             .instance()
@@ -2371,6 +2454,9 @@ impl FiatBridge {
         if operator == env.current_contract_address() {
             return Err(Error::InvalidRecipient);
         }
+
+        // Validate and increment nonce for replay protection
+        Self::validate_and_increment_nonce(&env, &operator, nonce)?;
 
         Self::prune_inactive_operators_internal(&env);
         let was_active = env
@@ -2878,10 +2964,20 @@ impl FiatBridge {
     }
 
     pub fn get_accrued_fees(env: Env, token: Address) -> i128 {
-        env.storage()
+        let amount = env
+            .storage()
             .persistent()
-            .get(&DataKey::FeeVault(token))
-            .unwrap_or(0)
+            .get(&DataKey::FeeVault(token.clone()))
+            .unwrap_or(0);
+
+        FeeQueryEvent {
+            version: EVENT_VERSION,
+            token: token.clone(),
+            amount,
+        }
+        .publish(&env);
+
+        amount
     }
 
     pub fn withdraw_fees(env: Env, to: Address, token: Address, amount: i128) -> Result<(), Error> {
@@ -3182,6 +3278,46 @@ impl FiatBridge {
             .unwrap_or(0)
     }
     
+    /// Set the slippage threshold for batch operations.
+    ///
+    /// This function sets the maximum allowed slippage in basis points (BPS).
+    /// 1 BPS = 0.01%, so 10000 BPS = 100%.
+    ///
+    /// # Parameters
+    ///
+    /// - `threshold_bps` – the slippage threshold in basis points (0-10000)
+    ///
+    /// # Errors
+    ///
+    /// - `Error::NotInitialized` – if the contract has not been initialized
+    /// - `Error::Unauthorized` – if the caller is not the admin
+    /// - `Error::SlippageTooHigh` – if the threshold exceeds 10000 BPS (100%)
+    /// - `Error::InvalidAmount` – if the threshold is u32::MAX
+    pub fn set_slippage_threshold(env: Env, threshold_bps: u32) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        
+        // Reject u32::MAX as it could cause overflow issues
+        if threshold_bps == u32::MAX {
+            return Err(Error::InvalidAmount);
+        }
+        
+        // Validate slippage threshold is reasonable (0-10000 bps = 0-100%)
+        if threshold_bps > 10000 {
+            return Err(Error::SlippageTooHigh);
+        }
+        
+        env.storage()
+            .instance()
+            .set(&DataKey::SlippageThreshold, &threshold_bps);
+        SlippageThresholdSetEvent { version: EVENT_VERSION, threshold_bps }.publish(&env);
+        Ok(())
+    }
+    
     // ── Issue #1044: fee recipient management ───────────────────────────
     pub fn set_fee_recipient(env: Env, recipient: Address) -> Result<(), Error> {
         // ── Issue #1041: emit telemetry event
@@ -3358,6 +3494,10 @@ impl FiatBridge {
 
     // ── Withdrawal Quota ──────────────────────────────────────────────────
     pub fn set_withdrawal_quota(env: Env, quota: i128) -> Result<(), Error> {
+        // ── Issue #1041: emit telemetry event
+        Self::emit_telemetry(&env, Symbol::new(&env, "set_withdrawal_quota"));
+        
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
             .storage()
             .instance()
@@ -3951,6 +4091,42 @@ impl FiatBridge {
             .instance()
             .get(&DataKey::EscrowMigrationCursor)
             .unwrap_or(0)
+    }
+
+    /// Set the migration cursor to a specific value.
+    ///
+    /// This function allows manual control over the migration cursor position.
+    /// It is primarily intended for recovery scenarios where the cursor needs
+    /// to be adjusted due to migration issues.
+    ///
+    /// # Parameters
+    ///
+    /// - `cursor` – the new cursor value to set
+    ///
+    /// # Errors
+    ///
+    /// - `Error::NotInitialized` – if the contract has not been initialized
+    /// - `Error::Unauthorized` – if the caller is not the admin
+    /// - `Error::InvalidAmount` – if the cursor is zero, negative, or i128::MAX
+    pub fn set_migration_cursor(env: Env, cursor: i128) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        
+        if cursor <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        if cursor == i128::MAX {
+            return Err(Error::InvalidAmount);
+        }
+        
+        env.storage()
+            .instance()
+            .set(&DataKey::EscrowMigrationCursor, &(cursor as u64));
+        Ok(())
     }
 
     // ── Batched Admin Operations ──────────────────────────────────────────
@@ -4677,13 +4853,33 @@ impl FiatBridge {
     }
 
     #[allow(deprecated)]
-    pub fn cancel_upgrade(env: Env) -> Result<(), Error> {
+    pub fn cancel_upgrade(env: Env, nonce: u64) -> Result<(), Error> {
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+
+        // Validate and increment nonce for replay protection
+        let current_nonce: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::UpgradeCancellationNonce(admin.clone()))
+            .unwrap_or(0);
+
+        if nonce != current_nonce {
+            if nonce < current_nonce {
+                return Err(Error::StaleNonce);
+            } else {
+                return Err(Error::InvalidNonce);
+            }
+        }
+
+        // Increment nonce
+        env.storage()
+            .instance()
+            .set(&DataKey::UpgradeCancellationNonce(admin.clone()), &(current_nonce + 1));
 
         let proposal: UpgradeProposal = env
             .storage()
@@ -4692,8 +4888,13 @@ impl FiatBridge {
             .ok_or(Error::UpgradeProposalMissing)?;
 
         env.storage().instance().remove(&DataKey::UpgradeProposal);
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "upg_can")), proposal.wasm_hash);
+        UpgradeCancelledEvent {
+            version: EVENT_VERSION,
+            admin: admin.clone(),
+            wasm_hash: proposal.wasm_hash.clone(),
+            nonce: current_nonce + 1,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -4961,12 +5162,11 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
-    /// Return the current per-caller nonce for batch fee withdrawals
-    /// (used for replay protection, Issue #1113).
-    pub fn get_fee_withdrawal_batch_nonce(env: Env, caller: Address) -> u64 {
+    /// Get the current upgrade cancellation nonce for an admin
+    pub fn get_upgrade_cancellation_nonce(env: Env, admin: Address) -> u64 {
         env.storage()
             .instance()
-            .get(&DataKey::FeeWithdrawalBatchNonce(caller))
+            .get(&DataKey::UpgradeCancellationNonce(admin))
             .unwrap_or(0)
     }
 }

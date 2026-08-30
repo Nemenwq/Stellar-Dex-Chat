@@ -84,27 +84,35 @@ No storage layout change ships with this event: it reads only the existing
 `DataKey::Operator(address)` key and writes nothing, so no migration is
 required.
 
-## Batch fee withdrawal nonce (`withdraw_fees_batch`)
+## Operator role management (`set_operator`)
 
-`withdraw_fees_batch` (Issue #1113) now takes a caller-supplied nonce and
-enforces per-caller replay protection, reusing the existing replay-protection
-variants below — no new error codes are introduced:
+`set_operator` now requires a nonce parameter for replay protection, following
+the same pattern as `heartbeat`. It reuses existing error codes:
 
 | Code | Name             | Raised when                                                                 |
 | ---- | ---------------- | --------------------------------------------------------------------------- |
-| 902  | `StaleNonce`     | The caller replays an already-used nonce (`provided < current`). |
-| 901  | `InvalidNonce`   | The caller skips ahead (`provided > current`).                 |
+| 901  | `InvalidNonce`   | The provided nonce is greater than the current expected nonce (future nonce). |
+| 902  | `StaleNonce`     | The provided nonce is less than the current expected nonce (replay attempt). |
 
-A new per-caller storage key ships with this change:
+Every accepted call emits `SetOperatorEvent { version, operator, active }`,
+where `version` is `EVENT_VERSION`. Rejected calls emit nothing and leave
+storage untouched.
 
-```rust
-DataKey::FeeWithdrawalBatchNonce(Address) // u64, next expected nonce (starts at 0)
-```
+The nonce validation uses the existing `DataKey::OperatorNonce(Address)` storage
+key and the existing `validate_and_increment_nonce` helper function, so no new
+storage layout changes are required. The nonce is validated before any state
+changes occur, ensuring that failed nonce validations do not modify operator
+status.
 
-The key defaults to `0` when absent, so **no data migration is required**: existing
-deployments simply start at nonce `0` after the upgrade and advance by one on each
-successful batch withdrawal. The legacy global `FeeWithdrawalNonce` used by
-single-token `withdraw_fees` is unchanged. See `get_fee_withdrawal_batch_nonce`
-for the next expected nonce and `VERSION_MIGRATION.md` for the full migration
-path.
+## Fee vault queries (`get_accrued_fees`)
 
+`get_accrued_fees` is a read-only view function that now emits an audit event
+for query tracking. It introduces no new error variants:
+
+Every query emits `FeeQueryEvent { version, token, amount }`, where `version` is
+`EVENT_VERSION`, `token` is the address queried, and `amount` is the ledger
+balance returned. This provides an audit trail for fee vault queries without
+modifying any storage.
+
+No storage layout change ships with this event: it reads only the existing
+`DataKey::FeeVault(token)` key and writes nothing, so no migration is required.
