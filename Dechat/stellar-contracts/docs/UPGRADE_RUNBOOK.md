@@ -77,6 +77,9 @@ git diff HEAD~1 HEAD -- src/
 Confirm that:
 - No storage key renames that would orphan existing data.
 - No removal of existing error codes relied upon by the frontend.
+- New `withdraw_fees` error variants are appended to `ERROR_CODES.md`.
+- New `withdraw_fees` events use the `EVENT_VERSION` topic prefix.
+- The per-caller nonce migration for `withdraw_fees` described in `NONCE_REPLAY_PROTECTION.md` is included.
 - The `new_version` constant in `lib.rs` is greater than the currently deployed version.
 
 ### 3. Run the Full Test Suite
@@ -179,6 +182,12 @@ soroban contract invoke \
 
 Expected: `UpgradeExecutedEvent` emitted; contract WASM replaced.
 
+### Step 4 — Run the Nonce Storage Migration
+
+If the upgraded WASM introduces per-caller nonce replay protection for `withdraw_fees`,
+run the migration entrypoint documented in `NONCE_REPLAY_PROTECTION.md` before resuming
+fee withdrawals.
+
 ---
 
 ## Post-Upgrade Verification
@@ -210,6 +219,9 @@ All read functions must return expected values without error.
 
 Query a sample of known pending withdrawal request IDs and confirm their state matches
 the pre-upgrade snapshot.
+
+If the upgrade added per-caller nonce storage, confirm the migration step in
+`NONCE_REPLAY_PROTECTION.md` completed and nonce reads return the expected values.
 
 ### 4. Unpause if Paused
 
@@ -318,6 +330,8 @@ If the new WASM is already live and must be reverted:
   reversed.  If the upgrade added new storage keys, they will remain after rollback
   but will be ignored by the old WASM.  If the upgrade *removed* keys that the old
   WASM reads, those reads will fall back to their default values.
+- Per-caller nonce keys created for `withdraw_fees` replay protection are not removed
+  by rollback; they are ignored by the old WASM and will be reused by a future upgrade.
 - **Coordinate with the indexer team** — events emitted by the bad WASM between
   `execute_upgrade` and the rollback may need to be annotated or excluded from
   downstream data pipelines.
@@ -343,5 +357,6 @@ In the event of a failed upgrade or unexpected contract behaviour, escalate in t
 ## Related Documentation
 
 - [`VERSION_MIGRATION.md`](./VERSION_MIGRATION.md) — upgrade mechanism deep-dive and event schema
+- [`NONCE_REPLAY_PROTECTION.md`](./NONCE_REPLAY_PROTECTION.md) — per-caller nonce schema and migration path
 - [`BATCH_OPERATIONS.md`](./BATCH_OPERATIONS.md) — batch admin operations reference
 - [`DEPLOYMENT.md`](../DEPLOYMENT.md) — initial Futurenet deployment guide
