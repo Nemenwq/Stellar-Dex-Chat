@@ -1,3 +1,23 @@
+//! Invariant tests for [`FiatBridge::pause`] / [`FiatBridge::unpause`].
+//!
+//! Pausing is an emergency circuit-breaker that blocks all state-changing
+//! entry points while leaving read-only view functions and existing on-chain
+//! state untouched. The invariants asserted here are:
+//!
+//! * a paused contract rejects `deposit`, `withdraw`, `request_withdrawal`,
+//!   and `execute_withdrawal` with `Error::ContractPaused`;
+//! * pausing/unpausing is idempotent — repeated calls are harmless;
+//! * pausing preserves all stored accounting (`balance`, `total_deposited`,
+//!   `total_withdrawn`) and never corrupts invariants;
+//! * only the admin can pause/unpause (authorisation gate);
+//! * a full pause → unpause → operate cycle leaves the contract functional
+//!   and maintains the core accounting invariants;
+//! * view functions (`get_total_deposited`, `get_total_withdrawn`) continue
+//!   to work while paused.
+//!
+//! See [`docs/INVARIANT_TESTING.md`](docs/INVARIANT_TESTING.md) for the
+//! invariant-testing strategy and contributor checklist.
+
 #![cfg(test)]
 
 use crate::{Error, FiatBridge, FiatBridgeClient};
