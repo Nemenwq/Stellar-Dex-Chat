@@ -4736,7 +4736,8 @@ fn test_cancel_upgrade_with_valid_nonce_succeeds() {
     let nonce = bridge.get_upgrade_cancellation_nonce(&admin);
     assert_eq!(nonce, 0);
 
-    bridge.cancel_upgrade(&nonce).unwrap();
+    let result = bridge.try_cancel_upgrade(&nonce);
+    assert_eq!(result, Ok(Ok(())));
     assert_eq!(bridge.get_upgrade_cancellation_nonce(&admin), 1);
 }
 
@@ -4751,7 +4752,8 @@ fn test_cancel_upgrade_with_stale_nonce_fails() {
     bridge.propose_upgrade(&proposed_wasm_hash);
 
     let nonce = bridge.get_upgrade_cancellation_nonce(&admin);
-    bridge.cancel_upgrade(&nonce).unwrap();
+    let result = bridge.try_cancel_upgrade(&nonce);
+    assert_eq!(result, Ok(Ok(())));
 
     // Try to reuse the same nonce
     let result = bridge.try_cancel_upgrade(&nonce);
@@ -4784,7 +4786,8 @@ fn test_cancel_upgrade_replay_attack_prevented() {
     bridge.propose_upgrade(&proposed_wasm_hash);
 
     let nonce = bridge.get_upgrade_cancellation_nonce(&admin);
-    bridge.cancel_upgrade(&nonce).unwrap();
+    let result = bridge.try_cancel_upgrade(&nonce);
+    assert_eq!(result, Ok(Ok(())));
 
     // Propose again
     bridge.propose_upgrade(&proposed_wasm_hash);
@@ -4795,7 +4798,8 @@ fn test_cancel_upgrade_replay_attack_prevented() {
 
     // Use correct nonce
     let new_nonce = bridge.get_upgrade_cancellation_nonce(&admin);
-    bridge.cancel_upgrade(&new_nonce).unwrap();
+    let result = bridge.try_cancel_upgrade(&new_nonce);
+    assert_eq!(result, Ok(Ok(())));
 }
 
 #[test]
@@ -4811,14 +4815,16 @@ fn test_cancel_upgrade_nonce_increments_monotonically() {
     bridge.propose_upgrade(&proposed_wasm_hash);
     let nonce = bridge.get_upgrade_cancellation_nonce(&admin);
     assert_eq!(nonce, 0);
-    bridge.cancel_upgrade(&nonce).unwrap();
+    let result = bridge.try_cancel_upgrade(&nonce);
+    assert_eq!(result, Ok(Ok(())));
     assert_eq!(bridge.get_upgrade_cancellation_nonce(&admin), 1);
 
     // Second cancellation
     bridge.propose_upgrade(&proposed_wasm_hash);
     let nonce = bridge.get_upgrade_cancellation_nonce(&admin);
     assert_eq!(nonce, 1);
-    bridge.cancel_upgrade(&nonce).unwrap();
+    let result = bridge.try_cancel_upgrade(&nonce);
+    assert_eq!(result, Ok(Ok(())));
     assert_eq!(bridge.get_upgrade_cancellation_nonce(&admin), 2);
 }
 

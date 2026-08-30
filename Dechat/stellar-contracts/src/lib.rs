@@ -320,6 +320,7 @@ pub struct WithdrawalExecutedEvent {
     pub request_id: u64,
     pub to: Address,
     pub amount: i128,
+    pub nonce: u64,
 }
 
 #[contractevent]
@@ -739,6 +740,7 @@ pub enum DataKey {
     EmergencyRecoveryCap,
     FeeWithdrawalNonce,
     UpgradeCancellationNonce(Address),
+    WithdrawalExecutionNonce(Address),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -1357,6 +1359,7 @@ impl FiatBridge {
         partial_amount: Option<i128>,
         expected_price: i128,
         max_slippage: u32,
+        nonce: u64,
     ) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         Self::require_not_paused(&env)?;
@@ -1365,6 +1368,26 @@ impl FiatBridge {
             .persistent()
             .get(&DataKey::WithdrawQueue(request_id))
             .ok_or(Error::RequestNotFound)?;
+
+        // Validate and increment nonce for replay protection
+        let current_nonce: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawalExecutionNonce(request.to.clone()))
+            .unwrap_or(0);
+
+        if nonce != current_nonce {
+            if nonce < current_nonce {
+                return Err(Error::StaleNonce);
+            } else {
+                return Err(Error::InvalidNonce);
+            }
+        }
+
+        // Increment nonce
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawalExecutionNonce(request.to.clone()), &(current_nonce + 1));
 
         if env.ledger().sequence() < request.unlock_ledger {
             return Err(Error::WithdrawalLocked);
@@ -1483,6 +1506,7 @@ impl FiatBridge {
             request_id,
             to: request.to.clone(),
             amount: execute_amount,
+            nonce: current_nonce + 1,
         }
         .publish(&env);
 
@@ -4945,6 +4969,14 @@ impl FiatBridge {
         env.storage()
             .instance()
             .get(&DataKey::UpgradeCancellationNonce(admin))
+            .unwrap_or(0)
+    }
+
+    /// Get the current withdrawal execution nonce for a user
+    pub fn get_withdrawal_execution_nonce(env: Env, user: Address) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::WithdrawalExecutionNonce(user))
             .unwrap_or(0)
     }
 }
