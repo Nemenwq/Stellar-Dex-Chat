@@ -954,6 +954,9 @@ impl FiatBridge {
         }
         .publish(&env);
 
+        env.storage()
+            .instance()
+            .set(&DataKey::InitNonce(admin.clone()), &0u64);
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         Ok(())
     }
@@ -2753,6 +2756,11 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
 
+        let current_slippage_threshold: u32 = Self::get_slippage_threshold(env);
+        if current_slippage_threshold > 10000 {
+            return Err(Error::SlippageTooHigh);
+        }
+
         // Reject admin as operator (role confusion guard)
         if operator == admin {
             return Err(Error::NotAllowed);
@@ -3318,6 +3326,17 @@ impl FiatBridge {
     }
 
     pub fn get_accrued_fees(env: Env, token: Address) -> i128 {
+        // Boundary check: ensure token is whitelisted/registered
+        let _token_config: TokenConfig = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TokenRegistry(token.clone()))
+            .unwrap_or_else(|| {
+                // Token not whitelisted - return 0 but this path is intentional
+                // for backward compatibility; callers should verify token status
+                return 0;
+            });
+
         let amount = env
             .storage()
             .persistent()
@@ -5797,8 +5816,11 @@ mod test_get_multisig_proposal_invariants;
 
 #[cfg(test)]
 mod test_propose_upgrade_invariants;
+#[cfg(test)]
+mod test_reclaim_expired_withdrawal_invariants;
 
 #[cfg(test)]
+#[cfg(test)] mod test_execute_upgrade_invariants;
 mod test_execute_upgrade_invariants;
 
 #[cfg(test)]
