@@ -83,3 +83,28 @@ lookups leave the same kind of trail.
 No storage layout change ships with this event: it reads only the existing
 `DataKey::Operator(address)` key and writes nothing, so no migration is
 required.
+
+## Upgrade cancellation (`cancel_upgrade`)
+
+`cancel_upgrade` now requires a nonce parameter for replay protection and emits
+a structured event. It reuses existing error codes:
+
+| Code | Name             | Raised when                                                                 |
+| ---- | ---------------- | --------------------------------------------------------------------------- |
+| 606  | `UpgradeProposalMissing` | No upgrade proposal exists to cancel.                                        |
+| 901  | `InvalidNonce`   | Provided nonce is too high (future nonce).                                   |
+| 902  | `StaleNonce`     | Provided nonce has already been used (replay attempt).                       |
+
+Every successful cancellation emits `UpgradeCancelledEvent { version, admin, wasm_hash, nonce }`,
+where `version` is `EVENT_VERSION`, `admin` is the address that authorized the cancellation,
+`wasm_hash` is the hash of the cancelled proposal, and `nonce` is the incremented nonce value.
+
+The function signature has changed from `cancel_upgrade(env: Env)` to
+`cancel_upgrade(env: Env, nonce: u64)`. Clients must now:
+
+1. Query the current nonce with `get_upgrade_cancellation_nonce(admin)`
+2. Pass the nonce when calling `cancel_upgrade`
+3. Handle `StaleNonce` and `InvalidNonce` errors appropriately
+
+Storage layout change: adds `DataKey::UpgradeCancellationNonce(Address)` for per-admin
+nonce tracking. No migration is required as the key is optional and defaults to 0.

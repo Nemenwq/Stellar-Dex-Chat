@@ -4698,17 +4698,128 @@ fn test_cancel_upgrade_removes_pending_proposal() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, _, _, _, _) = setup_bridge(&env, 500);
+    let (_, bridge, admin, _, _, _) = setup_bridge(&env, 500);
 
     let proposed_wasm_hash = BytesN::from_array(&env, &[9u8; 32]);
     bridge.propose_upgrade(&proposed_wasm_hash);
     assert!(bridge.get_upgrade_proposal().is_some());
 
-    bridge.cancel_upgrade();
+    let nonce = bridge.get_upgrade_cancellation_nonce(&admin);
+    bridge.cancel_upgrade(&nonce);
     assert!(bridge.get_upgrade_proposal().is_none());
 
     let result = bridge.try_execute_upgrade();
     assert_eq!(result, Err(Ok(Error::UpgradeProposalMissing)));
+}
+
+#[test]
+fn test_cancel_upgrade_nonce_starts_at_zero() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, _, _, _) = setup_bridge(&env, 500);
+
+    let nonce = bridge.get_upgrade_cancellation_nonce(&admin);
+    assert_eq!(nonce, 0);
+}
+
+#[test]
+fn test_cancel_upgrade_with_valid_nonce_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, _, _, _) = setup_bridge(&env, 500);
+
+    let proposed_wasm_hash = BytesN::from_array(&env, &[9u8; 32]);
+    bridge.propose_upgrade(&proposed_wasm_hash);
+
+    let nonce = bridge.get_upgrade_cancellation_nonce(&admin);
+    assert_eq!(nonce, 0);
+
+    bridge.cancel_upgrade(&nonce).unwrap();
+    assert_eq!(bridge.get_upgrade_cancellation_nonce(&admin), 1);
+}
+
+#[test]
+fn test_cancel_upgrade_with_stale_nonce_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, _, _, _) = setup_bridge(&env, 500);
+
+    let proposed_wasm_hash = BytesN::from_array(&env, &[9u8; 32]);
+    bridge.propose_upgrade(&proposed_wasm_hash);
+
+    let nonce = bridge.get_upgrade_cancellation_nonce(&admin);
+    bridge.cancel_upgrade(&nonce).unwrap();
+
+    // Try to reuse the same nonce
+    let result = bridge.try_cancel_upgrade(&nonce);
+    assert_eq!(result, Err(Ok(Error::StaleNonce)));
+}
+
+#[test]
+fn test_cancel_upgrade_with_future_nonce_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, _, _, _) = setup_bridge(&env, 500);
+
+    let proposed_wasm_hash = BytesN::from_array(&env, &[9u8; 32]);
+    bridge.propose_upgrade(&proposed_wasm_hash);
+
+    // Try to use a future nonce
+    let result = bridge.try_cancel_upgrade(&5);
+    assert_eq!(result, Err(Ok(Error::InvalidNonce)));
+}
+
+#[test]
+fn test_cancel_upgrade_replay_attack_prevented() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, _, _, _) = setup_bridge(&env, 500);
+
+    let proposed_wasm_hash = BytesN::from_array(&env, &[9u8; 32]);
+    bridge.propose_upgrade(&proposed_wasm_hash);
+
+    let nonce = bridge.get_upgrade_cancellation_nonce(&admin);
+    bridge.cancel_upgrade(&nonce).unwrap();
+
+    // Propose again
+    bridge.propose_upgrade(&proposed_wasm_hash);
+
+    // Try to replay with old nonce
+    let result = bridge.try_cancel_upgrade(&nonce);
+    assert_eq!(result, Err(Ok(Error::StaleNonce)));
+
+    // Use correct nonce
+    let new_nonce = bridge.get_upgrade_cancellation_nonce(&admin);
+    bridge.cancel_upgrade(&new_nonce).unwrap();
+}
+
+#[test]
+fn test_cancel_upgrade_nonce_increments_monotonically() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, bridge, admin, _, _, _) = setup_bridge(&env, 500);
+
+    let proposed_wasm_hash = BytesN::from_array(&env, &[9u8; 32]);
+
+    // First cancellation
+    bridge.propose_upgrade(&proposed_wasm_hash);
+    let nonce = bridge.get_upgrade_cancellation_nonce(&admin);
+    assert_eq!(nonce, 0);
+    bridge.cancel_upgrade(&nonce).unwrap();
+    assert_eq!(bridge.get_upgrade_cancellation_nonce(&admin), 1);
+
+    // Second cancellation
+    bridge.propose_upgrade(&proposed_wasm_hash);
+    let nonce = bridge.get_upgrade_cancellation_nonce(&admin);
+    assert_eq!(nonce, 1);
+    bridge.cancel_upgrade(&nonce).unwrap();
+    assert_eq!(bridge.get_upgrade_cancellation_nonce(&admin), 2);
 }
 
 #[test]

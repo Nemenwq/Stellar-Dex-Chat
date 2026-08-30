@@ -637,6 +637,15 @@ pub struct CircuitBreakerAutoResetEvent {
     pub reset_at: u32,
 }
 
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct UpgradeCancelledEvent {
+    pub version: u32,
+    pub admin: Address,
+    pub wasm_hash: BytesN<32>,
+    pub nonce: u64,
+}
+
 // ── Storage keys ──────────────────────────────────────────────────────────
 #[contracttype]
 pub enum DataKey {
@@ -729,6 +738,7 @@ pub enum DataKey {
     OperatorDailyLimit(Address),
     EmergencyRecoveryCap,
     FeeWithdrawalNonce,
+    UpgradeCancellationNonce(Address),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -4621,13 +4631,33 @@ impl FiatBridge {
     }
 
     #[allow(deprecated)]
-    pub fn cancel_upgrade(env: Env) -> Result<(), Error> {
+    pub fn cancel_upgrade(env: Env, nonce: u64) -> Result<(), Error> {
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+
+        // Validate and increment nonce for replay protection
+        let current_nonce: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::UpgradeCancellationNonce(admin.clone()))
+            .unwrap_or(0);
+
+        if nonce != current_nonce {
+            if nonce < current_nonce {
+                return Err(Error::StaleNonce);
+            } else {
+                return Err(Error::InvalidNonce);
+            }
+        }
+
+        // Increment nonce
+        env.storage()
+            .instance()
+            .set(&DataKey::UpgradeCancellationNonce(admin.clone()), &(current_nonce + 1));
 
         let proposal: UpgradeProposal = env
             .storage()
@@ -4636,8 +4666,13 @@ impl FiatBridge {
             .ok_or(Error::UpgradeProposalMissing)?;
 
         env.storage().instance().remove(&DataKey::UpgradeProposal);
-        env.events()
-            .publish((EVENT_VERSION, Symbol::new(&env, "upg_can")), proposal.wasm_hash);
+        UpgradeCancelledEvent {
+            version: EVENT_VERSION,
+            admin: admin.clone(),
+            wasm_hash: proposal.wasm_hash.clone(),
+            nonce: current_nonce + 1,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -4902,6 +4937,14 @@ impl FiatBridge {
         env.storage()
             .instance()
             .get(&DataKey::FeeWithdrawalNonce)
+            .unwrap_or(0)
+    }
+
+    /// Get the current upgrade cancellation nonce for an admin
+    pub fn get_upgrade_cancellation_nonce(env: Env, admin: Address) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::UpgradeCancellationNonce(admin))
             .unwrap_or(0)
     }
 }
