@@ -117,8 +117,8 @@ fn test_deposit_and_withdraw() {
 
     let req_id = bridge.request_withdrawal(&user, &100, &token_addr, &None, &0);
     let operator = Address::generate(&env);
-    bridge.execute_withdrawal(&req_id, &None, &0, &0);
-
+    let nonce = bridge.get_withdrawal_execution_nonce(&user);
+    bridge.execute_withdrawal(&req_id, &None, &0, &0, &nonce);
 
     assert_eq!(token.balance(&user), 900);
     assert_eq!(token.balance(&contract_id), 100);
