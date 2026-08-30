@@ -1899,6 +1899,10 @@ impl FiatBridge {
         token: Address,
         limit_per_day: i128,
     ) -> Result<(), Error> {
+        // ── Issue #1041: emit telemetry event
+        Self::emit_telemetry(&env, Symbol::new(&env, "set_daily_deposit_limit"));
+        
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
             .storage()
             .instance()
@@ -1910,6 +1914,10 @@ impl FiatBridge {
             .persistent()
             .get(&DataKey::TokenRegistry(token.clone()))
             .ok_or(Error::TokenNotWhitelisted)?;
+        // Bounds check: daily limit cannot exceed token's overall limit
+        if limit_per_day > config.limit {
+            return Err(Error::ExceedsLimit);
+        }
         config.daily_deposit_limit = limit_per_day;
         env.storage()
             .persistent()
@@ -3365,6 +3373,10 @@ impl FiatBridge {
 
     // ── Withdrawal Quota ──────────────────────────────────────────────────
     pub fn set_withdrawal_quota(env: Env, quota: i128) -> Result<(), Error> {
+        // ── Issue #1041: emit telemetry event
+        Self::emit_telemetry(&env, Symbol::new(&env, "set_withdrawal_quota"));
+        
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
             .storage()
             .instance()
