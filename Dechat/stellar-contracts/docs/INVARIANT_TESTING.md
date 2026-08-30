@@ -83,6 +83,7 @@ Invariant test modules live in `src/` alongside the contract code:
 | `test_request_withdrawal_invariants.rs` | withdrawal-queue entry accounting | module in `lib.rs` |
 | `test_get_next_priority_withdrawal_invariants.rs` | read-only risk-tier scheduler | module in `lib.rs` |
 | `test_set_operator_invariants.rs` | operator roster, cap and nonces | module in `lib.rs` |
+| `test_execute_upgrade_timelock_invariants.rs` | upgrade timelock boundary and inertness | module in `lib.rs` |
 
 ### Standalone vs. Module Registration
 
@@ -199,6 +200,29 @@ that window is invisible to the scheduler until the window widens.
 - admin-only authorisation; non-admin leaves stored proposal untouched,
 - re-proposing replaces the pending proposal wholesale,
 - accounting/config surface is never disturbed.
+
+### Upgrade Timelock Invariants (`test_execute_upgrade_timelock_invariants.rs`)
+
+`test_execute_upgrade_invariants.rs` covers `execute_upgrade`'s two rejection
+codes and the "no proposal, no state change" property. This suite takes the
+timelock itself as its subject — the guard `sequence < executable_after` that
+decides *when* a proposal becomes executable:
+
+- the lock still holds at `executable_after - 1` and releases at exactly
+  `executable_after`, for any configured delay,
+- a rejected execution is inert: the pending proposal keeps its hash and
+  deadline verbatim and the accounting surface is untouched, however many
+  times it is retried,
+- a cancelled proposal stays unexecutable even past its original deadline,
+- re-proposing re-arms the lock, so an elapsed deadline cannot be reused to
+  execute the replacement early.
+
+The success path is deliberately out of scope here: a real `execute_upgrade`
+calls `update_current_contract_wasm`, which the test host only accepts for an
+uploaded hash. The boundary tests therefore assert that the call is no longer
+refused *by the timelock*, rather than depending on the SDK's version-pinned
+doctest WASM fixture. `test::test_execute_upgrade_after_delay_succeeds` covers
+the full success path where that fixture is available.
 
 ---
 

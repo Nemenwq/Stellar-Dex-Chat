@@ -20,6 +20,8 @@
 //! See [`docs/INVARIANT_TESTING.md`](docs/INVARIANT_TESTING.md) for the
 //! invariant-testing strategy and contributor checklist.
 
+#![allow(clippy::explicit_counter_loop)]
+
 use crate::{BatchAdminOp, FiatBridge, FiatBridgeClient};
 use proptest::prelude::*;
 use soroban_sdk::{

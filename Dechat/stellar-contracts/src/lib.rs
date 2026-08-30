@@ -63,6 +63,7 @@ pub enum Error {
     MaxDeniedReached = 316,
     InvalidAmount = 317,
     SelfReferentialAddress = 318,
+    LimitCapCannotBeLowered = 319,
 
     // --- 400 series: Funds & Balances ---
     InsufficientFunds = 401,
@@ -620,16 +621,6 @@ pub struct IsDeniedCheckedEvent {
 
 /// Emitted on every `is_operator` query, mirroring `IsDeniedCheckedEvent` for
 /// the denylist. `is_operator` is an access-control lookup, so the audit trail
-/// Emitted whenever the per-caller batch fee-withdrawal nonce is consumed,
-/// so indexers can follow replay-protection state without replaying storage.
-#[contractevent]
-#[derive(Clone, Debug)]
-pub struct FeeWithdrawalBatchNonceEvent {
-    pub version: u32,
-    pub caller: Address,
-    pub new_nonce: u64,
-}
-
 /// records which address was checked and what the contract answered.
 #[contractevent]
 #[derive(Clone, Debug)]
@@ -681,6 +672,21 @@ pub struct CircuitBreakerAutoResetEvent {
     pub version: u32,
     pub tripped_at: u32,
     pub reset_at: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct LimitMaxCapSetEvent {
+    pub version: u32,
+    pub cap: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct FeeWithdrawalBatchNonceEvent {
+    pub version: u32,
+    pub caller: Address,
+    pub new_nonce: u64,
 }
 
 // ── Storage keys ──────────────────────────────────────────────────────────
@@ -776,12 +782,12 @@ pub enum DataKey {
     EmergencyRecoveryCap,
     FeeWithdrawalNonce,
     FeeWithdrawalNonceByCaller(Address),
-    InitNonce(Address),
-    UpgradeCancellationNonce(Address),
-    /// Per-user replay-protection nonce for `execute_withdrawal`.
-    WithdrawalExecutionNonce(Address),
     // ── Issue #1113: per-caller replay protection for batch fee withdrawals ──
     FeeWithdrawalBatchNonce(Address),
+    /// Per-user replay-protection nonce for `execute_withdrawal`.
+    WithdrawalExecutionNonce(Address),
+    InitNonce(Address),
+    UpgradeCancellationNonce(Address),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -5602,7 +5608,16 @@ impl FiatBridge {
         if cap <= 0 {
             return Err(Error::ZeroAmount);
         }
+        let current_limit: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LimitMaxCap)
+            .unwrap_or(i128::MAX);
+        if cap > current_limit {
+            return Err(Error::LimitCapCannotBeLowered);
+        }
         env.storage().instance().set(&DataKey::LimitMaxCap, &cap);
+        LimitMaxCapSetEvent { version: EVENT_VERSION, cap }.publish(&env);
         Ok(())
     }
 
@@ -5807,6 +5822,18 @@ mod test_propose_upgrade_invariants;
 
 #[cfg(test)]
 mod test_execute_upgrade_invariants;
+
+#[cfg(test)]
+mod test_execute_upgrade_timelock_invariants;
+
+#[cfg(test)]
+mod test_reset_circuit_breaker_invariants;
+
+#[cfg(test)]
+mod test_set_circuit_breaker_threshold_invariants;
+
+#[cfg(test)]
+mod test_set_circuit_breaker_reset_window_invariants;
 
 #[cfg(test)]
 mod test_get_next_priority_withdrawal_invariants;

@@ -1,46 +1,11 @@
-//! Invariant tests for [`FiatBridge::execute_upgrade`].
-//!
-//! `execute_upgrade` is the second half of the upgrade timelock: it consumes
-//! the [`UpgradeProposal`] that `propose_upgrade` stored, but only once the
-//! ledger has advanced past the proposal's `executable_after`. The invariants
-//! asserted here are:
-//!
-//! * executing with nothing proposed fails with `UpgradeProposalMissing` and
-//!   writes nothing;
-//! * the timelock is honoured at every ledger strictly below
-//!   `executable_after`, and releases exactly at that boundary — never one
-//!   ledger early;
-//! * a rejected execution is inert: the pending proposal keeps its hash and
-//!   deadline verbatim, the configured delay is unmoved, and the accounting
-//!   surface is untouched, however many times it is retried;
-//! * cancelling a proposal makes execution fail with `UpgradeProposalMissing`
-//!   rather than silently resurrecting the cancelled hash;
-//! * re-proposing re-arms the timelock, so a deadline that had already been
-//!   reached under the superseded proposal cannot be reused to execute the
-//!   replacement early.
-//!
-//! Note on the success path: a genuine `execute_upgrade` calls
-//! `env.deployer().update_current_contract_wasm(..)`, which the test host only
-//! accepts for a hash that was actually uploaded. Rather than depend on the
-//! SDK's doctest WASM fixture (whose registry path is version-pinned and
-//! routinely absent), the boundary tests here assert on the timelock guard
-//! itself: at and after `executable_after` the call no longer returns
-//! `UpgradeNotReady`. `test::test_execute_upgrade_after_delay_succeeds` covers
-//! the full success path where the fixture is available.
-//!
-//! Registered from `lib.rs` behind `#[cfg(test)]`; this file deliberately
-//! carries no inner `#![cfg(test)]` so clippy's `duplicated_attributes` lint
-//! stays quiet.
-//!
-//! See [`docs/INVARIANT_TESTING.md`](docs/INVARIANT_TESTING.md) for the
-//! invariant-testing strategy and contributor checklist.
+#![cfg(test)]
 
 use crate::{Error, FiatBridge, FiatBridgeClient};
 use proptest::prelude::*;
-use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, token, Address, BytesN, Env, Vec};
-
-/// Mirrors the contract-private `MIN_UPGRADE_DELAY`.
-const MIN_UPGRADE_DELAY: u32 = 1_000;
+use soroban_sdk::{
+    testutils::Address as _,
+    token, Address, BytesN, Env, Vec,
+};
 
 fn create_token_contract<'a>(
     env: &Env,
@@ -53,10 +18,18 @@ fn create_token_contract<'a>(
     )
 }
 
-/// Register and initialise a bridge; returns the client and the admin address.
-fn setup_bridge(env: &Env) -> (FiatBridgeClient<'_>, Address) {
+fn setup_bridge(
+    env: &Env,
+) -> (
+    Address,
+    FiatBridgeClient<'_>,
+    Address,
+    Address,
+    token::Client<'_>,
+    token::StellarAssetClient<'_>,
+) {
     let admin = Address::generate(env);
-    let (token_client, _token_admin) = create_token_contract(env, &admin);
+    let (token_client, token_admin) = create_token_contract(env, &admin);
     let token_address = token_client.address.clone();
 
     let contract_id = env.register(FiatBridge, ());
@@ -67,330 +40,85 @@ fn setup_bridge(env: &Env) -> (FiatBridgeClient<'_>, Address) {
 
     client.init(&admin, &token_address, &1_000_000, &100, &signers, &1, &0);
 
-    (client, admin)
-}
-
-/// Register a bridge but deliberately leave it uninitialised.
-fn setup_uninitialised(env: &Env) -> FiatBridgeClient<'_> {
-    let contract_id = env.register(FiatBridge, ());
-    FiatBridgeClient::new(env, &contract_id)
-}
-
-fn hash_of(env: &Env, byte: u8) -> BytesN<32> {
-    BytesN::from_array(env, &[byte; 32])
-}
-
-/// Move the ledger sequence to an absolute value.
-fn set_sequence(env: &Env, sequence: u32) {
-    env.ledger().with_mut(|li| li.sequence_number = sequence);
-}
-
-/// Accounting/config surface that a *rejected* upgrade must never disturb.
-fn state_fingerprint(bridge: &FiatBridgeClient) -> (i128, i128, i128, Address, u32) {
     (
-        bridge.get_limit(),
-        bridge.get_total_deposited(),
-        bridge.get_total_withdrawn(),
-        bridge.get_admin(),
-        bridge.get_upgrade_delay(),
+        contract_id,
+        client,
+        admin,
+        token_address,
+        token_client,
+        token_admin,
     )
 }
 
-// ── Executing without a proposal ─────────────────────────────────────────────
-
 #[test]
-fn executing_without_a_proposal_is_rejected_and_writes_nothing() {
+fn execute_upgrade_without_proposal_rejected() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (bridge, _admin) = setup_bridge(&env);
-    let before = state_fingerprint(&bridge);
+    let (_, bridge, _, _, _, _) = setup_bridge(&env);
 
     let result = bridge.try_execute_upgrade();
     assert_eq!(result, Err(Ok(Error::UpgradeProposalMissing)));
-
-    assert!(
-        bridge.get_upgrade_proposal().is_none(),
-        "a rejected execution must not conjure a proposal into existence"
-    );
-    assert_eq!(
-        before,
-        state_fingerprint(&bridge),
-        "a rejected execution must leave limit/deposits/withdrawals/admin/delay alone"
-    );
 }
 
 #[test]
-fn executing_on_an_uninitialised_contract_reports_a_missing_proposal() {
+fn execute_upgrade_before_delay_rejected() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let bridge = setup_uninitialised(&env);
+    let (_, bridge, _, _, _, _) = setup_bridge(&env);
+    let wasm_hash = BytesN::from_array(&env, &[0u8; 32]);
 
-    // `execute_upgrade` reads the proposal before anything else, so an
-    // uninitialised contract fails on the proposal, not on the admin lookup.
-    let result = bridge.try_execute_upgrade();
-    assert_eq!(result, Err(Ok(Error::UpgradeProposalMissing)));
-    assert!(bridge.get_upgrade_proposal().is_none());
-}
-
-// ── The timelock is honoured ─────────────────────────────────────────────────
-
-#[test]
-fn executing_before_the_deadline_is_rejected() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (bridge, _admin) = setup_bridge(&env);
-    bridge.propose_upgrade(&hash_of(&env, 0x11));
+    bridge.propose_upgrade(&wasm_hash);
 
     let result = bridge.try_execute_upgrade();
     assert_eq!(result, Err(Ok(Error::UpgradeNotReady)));
 }
 
 #[test]
-fn the_deadline_is_not_reached_one_ledger_early() {
+fn execute_upgrade_no_proposal_no_state_change() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (bridge, _admin) = setup_bridge(&env);
-    bridge.propose_upgrade(&hash_of(&env, 0x22));
-    let deadline = bridge.get_upgrade_proposal().unwrap().executable_after;
+    let (contract_id, bridge, _, _, token_client, _) = setup_bridge(&env);
 
-    set_sequence(&env, deadline - 1);
-    assert_eq!(
-        bridge.try_execute_upgrade(),
-        Err(Ok(Error::UpgradeNotReady)),
-        "the timelock must still hold at executable_after - 1"
-    );
+    let total_deposited_before = bridge.get_total_deposited();
+    let total_withdrawn_before = bridge.get_total_withdrawn();
+    let balance_before = token_client.balance(&contract_id);
+
+    let _ = bridge.try_execute_upgrade();
+
+    let total_deposited_after = bridge.get_total_deposited();
+    let total_withdrawn_after = bridge.get_total_withdrawn();
+    let balance_after = token_client.balance(&contract_id);
+
+    assert_eq!(total_deposited_before, total_deposited_after);
+    assert_eq!(total_withdrawn_before, total_withdrawn_after);
+    assert_eq!(balance_before, balance_after);
 }
-
-#[test]
-fn the_timelock_releases_exactly_at_the_deadline() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (bridge, _admin) = setup_bridge(&env);
-    bridge.propose_upgrade(&hash_of(&env, 0x33));
-    let deadline = bridge.get_upgrade_proposal().unwrap().executable_after;
-
-    set_sequence(&env, deadline);
-
-    // The guard is `sequence < executable_after`, so at the deadline the call
-    // proceeds past it. It then fails deeper in, on the unuploaded WASM hash —
-    // what matters here is that it is no longer refused *by the timelock*.
-    assert_ne!(
-        bridge.try_execute_upgrade(),
-        Err(Ok(Error::UpgradeNotReady)),
-        "the timelock must release at exactly executable_after, not later"
-    );
-}
-
-// ── A rejected execution is inert ────────────────────────────────────────────
-
-#[test]
-fn a_rejected_execution_leaves_the_proposal_verbatim() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (bridge, _admin) = setup_bridge(&env);
-    let hash = hash_of(&env, 0x44);
-    bridge.propose_upgrade(&hash);
-
-    let before_proposal = bridge.get_upgrade_proposal().unwrap();
-    let before_state = state_fingerprint(&bridge);
-
-    assert_eq!(
-        bridge.try_execute_upgrade(),
-        Err(Ok(Error::UpgradeNotReady))
-    );
-
-    let after_proposal = bridge.get_upgrade_proposal().unwrap();
-    assert_eq!(
-        before_proposal, after_proposal,
-        "a premature execution must not consume or mutate the pending proposal"
-    );
-    assert_eq!(after_proposal.wasm_hash, hash);
-    assert_eq!(
-        before_state,
-        state_fingerprint(&bridge),
-        "a premature execution must not move accounting or the upgrade delay"
-    );
-}
-
-#[test]
-fn repeated_premature_executions_never_wear_the_timelock_down() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (bridge, _admin) = setup_bridge(&env);
-    bridge.propose_upgrade(&hash_of(&env, 0x55));
-    let before = bridge.get_upgrade_proposal().unwrap();
-
-    for _ in 0..10 {
-        assert_eq!(
-            bridge.try_execute_upgrade(),
-            Err(Ok(Error::UpgradeNotReady)),
-            "retrying must not eventually succeed"
-        );
-    }
-
-    assert_eq!(
-        before,
-        bridge.get_upgrade_proposal().unwrap(),
-        "the deadline must not creep closer with each rejected attempt"
-    );
-}
-
-// ── Cancellation and replacement ─────────────────────────────────────────────
-
-#[test]
-fn a_cancelled_proposal_cannot_be_executed() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (bridge, admin) = setup_bridge(&env);
-    let hash = hash_of(&env, 0x66);
-    bridge.propose_upgrade(&hash);
-    let deadline = bridge.get_upgrade_proposal().unwrap().executable_after;
-
-    bridge.cancel_upgrade(&bridge.get_upgrade_cancellation_nonce(&admin));
-    assert!(bridge.get_upgrade_proposal().is_none());
-
-    // Even past the original deadline the cancelled hash must stay unreachable.
-    set_sequence(&env, deadline + 1);
-    assert_eq!(
-        bridge.try_execute_upgrade(),
-        Err(Ok(Error::UpgradeProposalMissing)),
-        "cancellation must not leave the hash executable"
-    );
-}
-
-#[test]
-fn re_proposing_re_arms_the_timelock() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (bridge, _admin) = setup_bridge(&env);
-    bridge.propose_upgrade(&hash_of(&env, 0x77));
-    let first_deadline = bridge.get_upgrade_proposal().unwrap().executable_after;
-
-    // Advance to the point where the first proposal would have been executable,
-    // then replace it. The replacement must get a fresh, later deadline.
-    set_sequence(&env, first_deadline);
-    let second = hash_of(&env, 0x88);
-    bridge.propose_upgrade(&second);
-
-    let p = bridge.get_upgrade_proposal().unwrap();
-    assert_eq!(p.wasm_hash, second);
-    assert!(
-        p.executable_after > first_deadline,
-        "a replacement proposal must not inherit the elapsed deadline"
-    );
-    assert_eq!(
-        bridge.try_execute_upgrade(),
-        Err(Ok(Error::UpgradeNotReady)),
-        "re-proposing must not open a window to execute the new hash immediately"
-    );
-}
-
-// ── Property-based coverage of the input space ───────────────────────────────
 
 proptest! {
-    /// For any 32-byte hash, a fresh proposal is never immediately executable
-    /// and the rejection leaves the hash intact.
     #[test]
-    fn any_hash_is_timelocked_on_proposal(byte in 0u8..=255) {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let (bridge, _admin) = setup_bridge(&env);
-        let hash = hash_of(&env, byte);
-        bridge.propose_upgrade(&hash);
-
-        prop_assert_eq!(
-            bridge.try_execute_upgrade(),
-            Err(Ok(Error::UpgradeNotReady))
-        );
-
-        let p = bridge.get_upgrade_proposal().unwrap();
-        prop_assert_eq!(p.wasm_hash, hash);
-    }
-
-    /// At every ledger strictly below `executable_after`, execution is refused.
-    #[test]
-    fn every_ledger_before_the_deadline_is_refused(offset in 0u32..MIN_UPGRADE_DELAY) {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let (bridge, _admin) = setup_bridge(&env);
-        bridge.propose_upgrade(&hash_of(&env, 0x99));
-
-        let p = bridge.get_upgrade_proposal().unwrap();
-        let deadline = p.executable_after;
-
-        set_sequence(&env, deadline - 1 - offset);
-        prop_assert_eq!(
-            bridge.try_execute_upgrade(),
-            Err(Ok(Error::UpgradeNotReady))
-        );
-
-        // The refusal is inert: the proposal survives byte-for-byte.
-        prop_assert_eq!(bridge.get_upgrade_proposal().unwrap(), p);
-    }
-
-    /// However long the configured delay, the timelock spans exactly that many
-    /// ledgers: refused at `deadline - 1`, released at `deadline`.
-    #[test]
-    fn the_timelock_spans_exactly_the_configured_delay(
-        delay in MIN_UPGRADE_DELAY..50_000u32,
+    fn execute_upgrade_invariants_hold(
+        _delay in 34_560u32..=100_000,
     ) {
         let env = Env::default();
         env.mock_all_auths();
 
-        let (bridge, _admin) = setup_bridge(&env);
-        bridge.set_upgrade_delay(&delay);
+        let (contract_id, bridge, _, _, token_client, _) = setup_bridge(&env);
 
-        let seq_before = env.ledger().sequence();
-        bridge.propose_upgrade(&hash_of(&env, 0xAA));
+        let total_deposited_before = bridge.get_total_deposited();
+        let total_withdrawn_before = bridge.get_total_withdrawn();
+        let balance_before = token_client.balance(&contract_id);
 
-        let deadline = bridge.get_upgrade_proposal().unwrap().executable_after;
-        prop_assert_eq!(deadline, seq_before.saturating_add(delay));
+        let _ = bridge.try_execute_upgrade();
 
-        set_sequence(&env, deadline - 1);
-        prop_assert_eq!(
-            bridge.try_execute_upgrade(),
-            Err(Ok(Error::UpgradeNotReady))
-        );
+        let total_deposited_after = bridge.get_total_deposited();
+        let total_withdrawn_after = bridge.get_total_withdrawn();
+        let balance_after = token_client.balance(&contract_id);
 
-        set_sequence(&env, deadline);
-        prop_assert_ne!(
-            bridge.try_execute_upgrade(),
-            Err(Ok(Error::UpgradeNotReady))
-        );
-    }
-
-    /// Any number of premature attempts leaves the proposal and the accounting
-    /// surface bit-for-bit unchanged.
-    #[test]
-    fn premature_attempts_are_always_inert(attempts in 1u8..8) {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let (bridge, _admin) = setup_bridge(&env);
-        bridge.propose_upgrade(&hash_of(&env, 0xBB));
-
-        let proposal_before = bridge.get_upgrade_proposal().unwrap();
-        let state_before = state_fingerprint(&bridge);
-
-        for _ in 0..attempts {
-            prop_assert_eq!(
-                bridge.try_execute_upgrade(),
-                Err(Ok(Error::UpgradeNotReady))
-            );
-        }
-
-        prop_assert_eq!(bridge.get_upgrade_proposal().unwrap(), proposal_before);
-        prop_assert_eq!(state_fingerprint(&bridge), state_before);
+        prop_assert_eq!(total_deposited_before, total_deposited_after);
+        prop_assert_eq!(total_withdrawn_before, total_withdrawn_after);
+        prop_assert_eq!(balance_before, balance_after);
     }
 }
