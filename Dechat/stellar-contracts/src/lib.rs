@@ -1767,6 +1767,12 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        
+        // Reject u32::MAX as it could cause overflow issues
+        if ledgers == u32::MAX {
+            return Err(Error::InvalidAmount);
+        }
+        
         env.storage()
             .instance()
             .set(&DataKey::CooldownLedgers, &ledgers);
@@ -1784,6 +1790,20 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        
+        // Reject u32::MAX as it could cause overflow issues
+        if ledgers == u32::MAX {
+            return Err(Error::InvalidAmount);
+        }
+        
+        // Reject negative and i128::MAX threshold values
+        if threshold < 0 {
+            return Err(Error::InvalidAmount);
+        }
+        if threshold == i128::MAX {
+            return Err(Error::InvalidAmount);
+        }
+        
         env.storage()
             .instance()
             .set(&DataKey::WithdrawCooldownLedgers, &ledgers);
@@ -1903,6 +1923,12 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        
+        // Reject u32::MAX as it could cause overflow issues
+        if ledgers == u32::MAX {
+            return Err(Error::InvalidAmount);
+        }
+        
         env.storage()
             .instance()
             .set(&DataKey::AntiSandwichDelay, &ledgers);
@@ -2005,6 +2031,15 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        
+        // Reject self-referential addresses
+        if oracle == admin {
+            return Err(Error::SelfReferentialAddress);
+        }
+        if oracle == env.current_contract_address() {
+            return Err(Error::SelfReferentialAddress);
+        }
+        
         env.storage().instance().set(&DataKey::Oracle, &oracle);
         Ok(())
     }
@@ -2939,6 +2974,46 @@ impl FiatBridge {
             .unwrap_or(0)
     }
     
+    /// Set the slippage threshold for batch operations.
+    ///
+    /// This function sets the maximum allowed slippage in basis points (BPS).
+    /// 1 BPS = 0.01%, so 10000 BPS = 100%.
+    ///
+    /// # Parameters
+    ///
+    /// - `threshold_bps` – the slippage threshold in basis points (0-10000)
+    ///
+    /// # Errors
+    ///
+    /// - `Error::NotInitialized` – if the contract has not been initialized
+    /// - `Error::Unauthorized` – if the caller is not the admin
+    /// - `Error::SlippageTooHigh` – if the threshold exceeds 10000 BPS (100%)
+    /// - `Error::InvalidAmount` – if the threshold is u32::MAX
+    pub fn set_slippage_threshold(env: Env, threshold_bps: u32) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        
+        // Reject u32::MAX as it could cause overflow issues
+        if threshold_bps == u32::MAX {
+            return Err(Error::InvalidAmount);
+        }
+        
+        // Validate slippage threshold is reasonable (0-10000 bps = 0-100%)
+        if threshold_bps > 10000 {
+            return Err(Error::SlippageTooHigh);
+        }
+        
+        env.storage()
+            .instance()
+            .set(&DataKey::SlippageThreshold, &threshold_bps);
+        SlippageThresholdSetEvent { version: EVENT_VERSION, threshold_bps }.publish(&env);
+        Ok(())
+    }
+    
     // ── Issue #1044: fee recipient management ───────────────────────────
     pub fn set_fee_recipient(env: Env, recipient: Address) -> Result<(), Error> {
         // ── Issue #1041: emit telemetry event
@@ -3708,6 +3783,42 @@ impl FiatBridge {
             .instance()
             .get(&DataKey::EscrowMigrationCursor)
             .unwrap_or(0)
+    }
+
+    /// Set the migration cursor to a specific value.
+    ///
+    /// This function allows manual control over the migration cursor position.
+    /// It is primarily intended for recovery scenarios where the cursor needs
+    /// to be adjusted due to migration issues.
+    ///
+    /// # Parameters
+    ///
+    /// - `cursor` – the new cursor value to set
+    ///
+    /// # Errors
+    ///
+    /// - `Error::NotInitialized` – if the contract has not been initialized
+    /// - `Error::Unauthorized` – if the caller is not the admin
+    /// - `Error::InvalidAmount` – if the cursor is zero, negative, or i128::MAX
+    pub fn set_migration_cursor(env: Env, cursor: i128) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        
+        if cursor <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        if cursor == i128::MAX {
+            return Err(Error::InvalidAmount);
+        }
+        
+        env.storage()
+            .instance()
+            .set(&DataKey::EscrowMigrationCursor, &(cursor as u64));
+        Ok(())
     }
 
     // ── Batched Admin Operations ──────────────────────────────────────────
