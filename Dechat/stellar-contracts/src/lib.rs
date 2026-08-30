@@ -5833,3 +5833,6 @@ mod test_set_operator_invariants;
 mod test_request_withdrawal_invariants;
 mod test_execute_withdrawal_invariants;
 
+#[cfg(test)]
+mod test_is_denied_invariants;
+
