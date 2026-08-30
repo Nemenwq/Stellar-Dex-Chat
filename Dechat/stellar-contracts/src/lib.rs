@@ -605,6 +605,15 @@ pub struct IsOperatorCheckedEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
+pub struct UpgradeCancelledEvent {
+    pub version: u32,
+    pub admin: Address,
+    pub wasm_hash: BytesN<32>,
+    pub nonce: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
 pub struct EmergencyRecoverySetEvent {
     pub version: u32,
     pub recovery: Address,
@@ -740,7 +749,6 @@ pub enum DataKey {
     EmergencyRecoveryCap,
     FeeWithdrawalNonce,
     UpgradeCancellationNonce(Address),
-    WithdrawalExecutionNonce(Address),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -4969,14 +4977,6 @@ impl FiatBridge {
         env.storage()
             .instance()
             .get(&DataKey::UpgradeCancellationNonce(admin))
-            .unwrap_or(0)
-    }
-
-    /// Get the current withdrawal execution nonce for a user
-    pub fn get_withdrawal_execution_nonce(env: Env, user: Address) -> u64 {
-        env.storage()
-            .instance()
-            .get(&DataKey::WithdrawalExecutionNonce(user))
             .unwrap_or(0)
     }
 }
