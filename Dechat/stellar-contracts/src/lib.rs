@@ -3302,6 +3302,10 @@ impl FiatBridge {
 
     // ── Withdrawal Quota ──────────────────────────────────────────────────
     pub fn set_withdrawal_quota(env: Env, quota: i128) -> Result<(), Error> {
+        // ── Issue #1041: emit telemetry event
+        Self::emit_telemetry(&env, Symbol::new(&env, "set_withdrawal_quota"));
+        
+        env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         let admin: Address = env
             .storage()
             .instance()
