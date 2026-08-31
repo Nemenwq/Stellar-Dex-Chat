@@ -379,6 +379,14 @@ pub struct SetMinDepositEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
+pub struct SetLimitEvent {
+    pub version: u32,
+    pub token: Address,
+    pub limit: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
 pub struct SlippageEvent {
     pub version: u32,
     pub slippage_bps: u32,
@@ -787,6 +795,8 @@ pub enum DataKey {
     WithdrawalExecutionNonce(Address),
     InitNonce(Address),
     UpgradeCancellationNonce(Address),
+    /// Per-admin replay-protection nonce for `set_limit`.
+    SetLimitNonce(Address),
 }
 
 const ORACLE_PRICE_DECIMALS: i128 = 10_000_000;
@@ -975,6 +985,13 @@ impl FiatBridge {
         env.storage()
             .instance()
             .get(&DataKey::InitNonce(admin))
+            .unwrap_or(0)
+    }
+
+    pub fn get_set_limit_nonce(env: Env, admin: Address) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::SetLimitNonce(admin))
             .unwrap_or(0)
     }
 
@@ -1989,13 +2006,17 @@ impl FiatBridge {
             .set(&DataKey::WithdrawQueueHead, &Option::<u64>::None);
     }
 
-    pub fn set_limit(env: Env, token: Address, limit: i128) -> Result<(), Error> {
+    pub fn set_limit(env: Env, token: Address, limit: i128, nonce: u64) -> Result<(), Error> {
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        
+        // Validate and increment nonce for replay protection
+        Self::validate_and_increment_set_limit_nonce(&env, &admin, nonce)?;
+        
         // Check against configured max cap
         let max_cap: i128 = env
             .storage()
@@ -2015,7 +2036,15 @@ impl FiatBridge {
         config.limit = limit;
         env.storage()
             .persistent()
-            .set(&DataKey::TokenRegistry(token), &config);
+            .set(&DataKey::TokenRegistry(token.clone()), &config);
+        
+        SetLimitEvent {
+            version: EVENT_VERSION,
+            token: token.clone(),
+            limit,
+        }
+        .publish(&env);
+        
         Ok(())
     }
 
@@ -2767,7 +2796,7 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
 
-        let current_slippage_threshold: u32 = Self::get_slippage_threshold(env);
+        let current_slippage_threshold: u32 = Self::get_slippage_threshold(env.clone());
         if current_slippage_threshold > 10000 {
             return Err(Error::SlippageTooHigh);
         }
@@ -3018,6 +3047,33 @@ impl FiatBridge {
             new_nonce: current_nonce + 1,
         }
         .publish(env);
+
+        Ok(())
+    }
+
+    fn validate_and_increment_set_limit_nonce(
+        env: &Env,
+        admin: &Address,
+        provided_nonce: u64,
+    ) -> Result<(), Error> {
+        let current_nonce: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::SetLimitNonce(admin.clone()))
+            .unwrap_or(0);
+
+        if provided_nonce != current_nonce {
+            if provided_nonce < current_nonce {
+                return Err(Error::StaleNonce);
+            } else {
+                return Err(Error::InvalidNonce);
+            }
+        }
+
+        let next_nonce = current_nonce.checked_add(1).ok_or(Error::Overflow)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::SetLimitNonce(admin.clone()), &next_nonce);
 
         Ok(())
     }
